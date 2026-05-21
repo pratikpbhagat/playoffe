@@ -1,0 +1,50 @@
+import type { DrawFormat } from './tournament';
+
+export interface DrawConfig {
+  format: DrawFormat;
+  entries: DrawEntry[];
+  category_id: string;
+  group_size?: number;
+  groups_per_page?: number;
+  top_per_group_advance?: number;
+  min_rest_minutes?: number;
+}
+
+export interface DrawEntry {
+  entry_id: string;
+  player_ids: string[];
+  display_name: string;
+  seed: number | null;
+  rating: number;
+}
+
+export interface GeneratedDraw {
+  format: DrawFormat;
+  category_id: string;
+  rounds: DrawRound[];
+  groups?: DrawGroup[];
+  generated_at: string;
+}
+
+export interface DrawRound {
+  round: number;
+  round_name: string;
+  matches: DrawMatch[];
+}
+
+export interface DrawMatch {
+  id: string;
+  round: number;
+  round_name: string;
+  group_name: string | null;
+  entry_a: DrawEntry | null;
+  entry_b: DrawEntry | null;
+  winner_advances_to: string | null;
+  loser_advances_to: string | null;
+}
+
+export interface DrawGroup {
+  name: string;
+  entries: DrawEntry[];
+  matches: DrawMatch[];
+}
