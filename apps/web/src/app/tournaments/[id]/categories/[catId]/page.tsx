@@ -7,6 +7,7 @@ import { EntryList } from '@/components/tournaments/EntryList';
 import { AddPlayerByEmail } from '@/components/tournaments/AddPlayerByEmail';
 import { ImportPlayersPanel } from '@/components/tournaments/ImportPlayersPanel';
 import { DrawSection } from '@/components/tournaments/DrawSection';
+import { CategoryEditInline } from '@/components/tournaments/CategoryEditInline';
 import { getCategoryWithEntries } from '@/lib/actions/categories';
 import { getMatchesForCategory } from '@/lib/actions/draws';
 
@@ -114,7 +115,7 @@ export default async function CategoryPage({ params }: Props) {
 
         {/* Header */}
         <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
+          <div className="flex-1">
             {/* Club colour dot */}
             <div className="mb-2 flex items-center gap-2">
               <span
@@ -132,12 +133,22 @@ export default async function CategoryPage({ params }: Props) {
             </p>
           </div>
 
-          {/* Entry count pill */}
-          <div className="rounded-xl bg-surface-card px-5 py-3 ring-1 ring-surface-border text-center">
-            <p className="text-2xl font-bold text-white">{entryCount}</p>
-            <p className="text-xs text-slate-500">
-              {maxEntries ? `/ ${maxEntries} entries` : 'entries'}
-            </p>
+          {/* Right: entry count + edit */}
+          <div className="flex items-start gap-3 shrink-0">
+            <div className="rounded-xl bg-surface-card px-5 py-3 ring-1 ring-surface-border text-center">
+              <p className="text-2xl font-bold text-white">{entryCount}</p>
+              <p className="text-xs text-slate-500">
+                {maxEntries ? `/ ${maxEntries} entries` : 'entries'}
+              </p>
+            </div>
+            <CategoryEditInline
+              categoryId={categoryId}
+              currentName={category.name}
+              currentMaxEntries={maxEntries}
+              currentPlayFormat={(category as { play_format: string }).play_format}
+              currentDrawFormat={(category as { draw_format: string }).draw_format}
+              canEditFormats={categoryStatus === 'pending' || categoryStatus === 'registration'}
+            />
           </div>
         </div>
 

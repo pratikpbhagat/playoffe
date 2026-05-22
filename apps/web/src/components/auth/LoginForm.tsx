@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { loginAction } from '@/lib/actions/auth';
 
-export function LoginForm() {
+export function LoginForm({ returnUrl }: { returnUrl?: string }) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -12,7 +12,7 @@ export function LoginForm() {
     setError(null);
     setLoading(true);
     const fd = new FormData(e.currentTarget);
-    const result = await loginAction(fd.get('email') as string, fd.get('password') as string);
+    const result = await loginAction(fd.get('email') as string, fd.get('password') as string, returnUrl);
     if (result?.error) {
       setError(result.error);
       setLoading(false);

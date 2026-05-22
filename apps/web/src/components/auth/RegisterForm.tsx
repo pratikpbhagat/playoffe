@@ -7,7 +7,7 @@ import { registerAction, checkUsernameAction } from '@/lib/actions/auth';
 import { useState, useEffect } from 'react';
 import { useDebounce } from '@/hooks/useDebounce';
 
-export function RegisterForm() {
+export function RegisterForm({ returnUrl }: { returnUrl?: string }) {
   const [serverError, setServerError] = useState<string | null>(null);
   const [usernameStatus, setUsernameStatus] = useState<'idle' | 'checking' | 'available' | 'taken'>('idle');
 
@@ -37,7 +37,7 @@ export function RegisterForm() {
   async function onSubmit(data: RegisterPlayerInput) {
     setServerError(null);
     if (usernameStatus === 'taken') return;
-    const result = await registerAction(data);
+    const result = await registerAction(data, returnUrl);
     if (result?.error) setServerError(result.error);
   }
 

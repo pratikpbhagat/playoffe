@@ -53,6 +53,63 @@ export async function createCategoryAction(
   return { success: true };
 }
 
+// ── Update a category's details ───────────────────────────────────────────────
+export async function updateCategoryAction(
+  categoryId: string,
+  input: {
+    name?: string;
+    max_entries?: number | null;
+    min_age?: number | null;
+    max_age?: number | null;
+    play_format?: string;
+    draw_format?: string;
+  },
+) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: 'Not authenticated' };
+
+  const admin = createAdminClient();
+
+  const { data: cat } = await admin
+    .from('tournament_categories')
+    .select('tournament_id, status')
+    .eq('id', categoryId)
+    .single();
+
+  if (!cat) return { error: 'Category not found' };
+
+  const t = await assertTournamentManager(cat.tournament_id, user.id);
+  if (!t) return { error: 'Permission denied' };
+
+  const update: Record<string, unknown> = {};
+  if (input.name !== undefined) update.name = input.name;
+  if (input.max_entries !== undefined) update.max_entries = input.max_entries ?? null;
+  if (input.min_age !== undefined) update.min_age = input.min_age ?? null;
+  if (input.max_age !== undefined) update.max_age = input.max_age ?? null;
+
+  // Only allow format changes before draw is generated
+  if (cat.status === 'pending' || cat.status === 'registration') {
+    if (input.play_format !== undefined) update.play_format = input.play_format;
+    if (input.draw_format !== undefined) update.draw_format = input.draw_format;
+  }
+
+  if (Object.keys(update).length === 0) return { error: 'No changes provided' };
+
+  const { error } = await admin
+    .from('tournament_categories')
+    .update(update)
+    .eq('id', categoryId);
+
+  if (error) return { error: 'Failed to update category. Please try again.' };
+
+  revalidatePath(`/tournaments/${cat.tournament_id}/categories/${categoryId}`);
+  revalidatePath(`/tournaments/${cat.tournament_id}`);
+  return { success: true };
+}
+
 // ── Fetch a category + its active entries (for the entry management page) ──
 export async function getCategoryWithEntries(categoryId: string) {
   const admin = createAdminClient();

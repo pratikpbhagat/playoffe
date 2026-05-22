@@ -1,6 +1,7 @@
 'use server';
 
 import { redirect } from 'next/navigation';
+import { revalidatePath } from 'next/cache';
 import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { createTournamentSchema, type CreateTournamentInput } from '@pickleball/shared';
 
@@ -48,6 +49,58 @@ export async function createTournamentAction(
   }
 
   redirect(`/tournaments/${tournament.id}`);
+}
+
+export async function updateTournamentAction(
+  tournamentId: string,
+  input: Partial<CreateTournamentInput> & { auto_approve_entries?: boolean },
+) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: 'Not authenticated' };
+
+  const admin = createAdminClient();
+
+  const { data: tournament } = await admin
+    .from('tournaments')
+    .select('club_id')
+    .eq('id', tournamentId)
+    .single();
+
+  if (!tournament) return { error: 'Tournament not found' };
+
+  const { data: mgr } = await admin
+    .from('club_managers')
+    .select('role')
+    .eq('club_id', tournament.club_id)
+    .eq('player_id', user.id)
+    .maybeSingle();
+
+  if (!mgr) return { error: 'Permission denied' };
+
+  // Validate dates if both are present
+  if (input.start_date && input.end_date && input.end_date < input.start_date) {
+    return { error: 'End date must be on or after start date' };
+  }
+
+  const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (input.name !== undefined) update.name = input.name;
+  if (input.description !== undefined) update.description = input.description ?? null;
+  if (input.venue !== undefined) update.venue = input.venue ?? null;
+  if (input.start_date !== undefined) update.start_date = input.start_date;
+  if (input.end_date !== undefined) update.end_date = input.end_date;
+  if (input.court_count !== undefined) update.court_count = input.court_count;
+  if (input.registration_deadline !== undefined) update.registration_deadline = input.registration_deadline ?? null;
+  if (input.max_participants !== undefined) update.max_participants = input.max_participants ?? null;
+  if (input.auto_approve_entries !== undefined) update.auto_approve_entries = input.auto_approve_entries;
+
+  const { error } = await admin.from('tournaments').update(update).eq('id', tournamentId);
+  if (error) return { error: 'Failed to update tournament. Please try again.' };
+
+  revalidatePath(`/tournaments/${tournamentId}`);
+  redirect(`/tournaments/${tournamentId}`);
 }
 
 export async function getMyTournaments() {

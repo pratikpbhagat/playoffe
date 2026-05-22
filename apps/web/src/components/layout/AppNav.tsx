@@ -19,13 +19,16 @@ export async function AppNav() {
           PLAY<span className="text-brand-500">OFFE</span>
         </Link>
 
-        {/* Center nav (authenticated only) */}
-        {player && (
-          <div className="hidden items-center gap-5 sm:flex">
-            <NavLink href="/dashboard">Dashboard</NavLink>
-            <NavLink href="/tournaments/new">New tournament</NavLink>
-          </div>
-        )}
+        {/* Center nav */}
+        <div className="hidden items-center gap-5 sm:flex">
+          <NavLink href="/events">Events</NavLink>
+          {player && (
+            <>
+              <NavLink href="/dashboard">Dashboard</NavLink>
+              <NavLink href="/tournaments/new">New tournament</NavLink>
+            </>
+          )}
+        </div>
 
         {/* Right side */}
         <div className="flex items-center gap-4">

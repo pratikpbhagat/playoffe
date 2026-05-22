@@ -162,7 +162,7 @@ export function PublicCategoryCard({
           {/* Log in prompt */}
           {!isLoggedIn && (registrationOpen && categoryAcceptsEntries) && (
             <Link
-              href="/login"
+              href={`/login?return=${encodeURIComponent(`/events/${tournamentId}`)}`}
               className="rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-300 hover:bg-surface-card hover:text-white transition-colors"
             >
               Log in to register

@@ -72,12 +72,19 @@ export default async function TournamentPage({ params }: Props) {
 
   if (!mgr) notFound(); // not their tournament
 
-  // Entry count per category
+  // Entry count per category (active only)
   const { data: entryCounts } = await admin
     .from('tournament_entries')
     .select('category_id')
     .eq('tournament_id', id)
     .eq('status', 'active');
+
+  // Pending entry count (for approval badge)
+  const { count: pendingCount } = await admin
+    .from('tournament_entries')
+    .select('id', { count: 'exact', head: true })
+    .eq('tournament_id', id)
+    .eq('status', 'pending');
 
   const countByCategory: Record<string, number> = {};
   for (const e of entryCounts ?? []) {
@@ -136,11 +143,19 @@ export default async function TournamentPage({ params }: Props) {
             </p>
           </div>
 
-          {/* Status transition control */}
-          <TournamentStatusControl
-            tournamentId={id}
-            currentStatus={t.status as TournamentStatus}
-          />
+          {/* Actions */}
+          <div className="flex items-center gap-3 shrink-0">
+            <Link
+              href={`/tournaments/${id}/edit`}
+              className="flex items-center gap-1.5 rounded-lg border border-slate-600 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-surface-card hover:border-slate-500 transition-colors"
+            >
+              <span>✏️</span> Edit
+            </Link>
+            <TournamentStatusControl
+              tournamentId={id}
+              currentStatus={t.status as TournamentStatus}
+            />
+          </div>
         </div>
 
         {/* Stat cards */}
@@ -167,11 +182,29 @@ export default async function TournamentPage({ params }: Props) {
             <span>🎾</span> Scoring
           </Link>
           <Link
+            href={`/tournaments/${id}/registrations`}
+            className="relative flex items-center gap-2 rounded-lg border border-surface-border px-4 py-2 text-sm text-slate-300 hover:bg-surface-card transition-colors"
+          >
+            <span>📋</span> Registrations
+            {(pendingCount ?? 0) > 0 && (
+              <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold text-white">
+                {pendingCount}
+              </span>
+            )}
+          </Link>
+          <Link
             href={`/display/${t.display_code}`}
             target="_blank"
             className="flex items-center gap-2 rounded-lg border border-surface-border px-4 py-2 text-sm text-slate-300 hover:bg-surface-card transition-colors"
           >
             <span>📺</span> Display screen
+          </Link>
+          <Link
+            href={`/events/${id}`}
+            target="_blank"
+            className="flex items-center gap-2 rounded-lg border border-surface-border px-4 py-2 text-sm text-slate-300 hover:bg-surface-card transition-colors"
+          >
+            <span>🌐</span> Public page
           </Link>
         </div>
 

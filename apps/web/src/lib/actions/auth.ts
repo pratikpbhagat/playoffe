@@ -5,7 +5,7 @@ import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { registerPlayerSchema, type RegisterPlayerInput } from '@pickleball/shared';
 import { INITIAL_RATING } from '@pickleball/rating';
 
-export async function registerAction(input: RegisterPlayerInput) {
+export async function registerAction(input: RegisterPlayerInput, returnUrl?: string) {
   const parsed = registerPlayerSchema.safeParse(input);
   if (!parsed.success) {
     return { error: parsed.error.issues[0].message };
@@ -85,14 +85,16 @@ export async function registerAction(input: RegisterPlayerInput) {
   const supabase = await createClient();
   await supabase.auth.signInWithPassword({ email, password });
 
-  redirect('/dashboard');
+  const destination = returnUrl && returnUrl.startsWith('/') ? returnUrl : '/dashboard';
+  redirect(destination);
 }
 
-export async function loginAction(email: string, password: string) {
+export async function loginAction(email: string, password: string, returnUrl?: string) {
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) return { error: error.message };
-  redirect('/dashboard');
+  const destination = returnUrl && returnUrl.startsWith('/') ? returnUrl : '/dashboard';
+  redirect(destination);
 }
 
 export async function logoutAction() {

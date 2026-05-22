@@ -1,16 +1,32 @@
 'use client';
 
 import { useState } from 'react';
-import { createTournamentAction } from '@/lib/actions/tournaments';
+import { createTournamentAction, updateTournamentAction } from '@/lib/actions/tournaments';
 
 interface Club {
   id: string;
   name: string;
 }
 
+interface DefaultValues {
+  club_id: string;
+  name: string;
+  description?: string | null;
+  venue?: string | null;
+  start_date: string;
+  end_date: string;
+  court_count: number;
+  registration_deadline?: string | null;
+  max_participants?: number | null;
+  auto_approve_entries: boolean;
+}
+
 interface Props {
   clubs: Club[];
   defaultClubId?: string;
+  mode?: 'create' | 'edit';
+  tournamentId?: string;
+  defaultValues?: DefaultValues;
 }
 
 const inputClass =
@@ -18,10 +34,21 @@ const inputClass =
 
 const labelClass = 'mb-1.5 block text-sm font-medium text-slate-300';
 
-export function TournamentForm({ clubs, defaultClubId }: Props) {
+export function TournamentForm({
+  clubs,
+  defaultClubId,
+  mode = 'create',
+  tournamentId,
+  defaultValues,
+}: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [clubId, setClubId] = useState(defaultClubId ?? clubs[0]?.id ?? '');
+  const [clubId, setClubId] = useState(
+    defaultValues?.club_id ?? defaultClubId ?? clubs[0]?.id ?? '',
+  );
+  const [autoApprove, setAutoApprove] = useState(
+    defaultValues?.auto_approve_entries ?? true,
+  );
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -30,7 +57,7 @@ export function TournamentForm({ clubs, defaultClubId }: Props) {
 
     const fd = new FormData(e.currentTarget);
 
-    const result = await createTournamentAction({
+    const input = {
       club_id: clubId,
       name: fd.get('name') as string,
       description: (fd.get('description') as string) || undefined,
@@ -42,7 +69,16 @@ export function TournamentForm({ clubs, defaultClubId }: Props) {
       max_participants: fd.get('max_participants')
         ? parseInt(fd.get('max_participants') as string, 10)
         : undefined,
-    });
+      auto_approve_entries: autoApprove,
+    };
+
+    let result: { error?: string } | undefined;
+
+    if (mode === 'edit' && tournamentId) {
+      result = await updateTournamentAction(tournamentId, input) ?? undefined;
+    } else {
+      result = await createTournamentAction(input) ?? undefined;
+    }
 
     if (result?.error) {
       setError(result.error);
@@ -51,7 +87,7 @@ export function TournamentForm({ clubs, defaultClubId }: Props) {
     // On success the action redirects
   }
 
-  if (clubs.length === 0) {
+  if (clubs.length === 0 && mode === 'create') {
     return (
       <div className="rounded-lg border border-amber-800 bg-amber-950/50 px-4 py-3 text-sm text-amber-300">
         You need to{' '}
@@ -71,23 +107,29 @@ export function TournamentForm({ clubs, defaultClubId }: Props) {
         </div>
       )}
 
-      {/* Club selector */}
+      {/* Club selector — disabled in edit mode */}
       <div>
         <label className={labelClass}>
           Club <span className="text-red-400">*</span>
         </label>
-        <select
-          value={clubId}
-          onChange={(e) => setClubId(e.target.value)}
-          required
-          className={`${inputClass} cursor-pointer`}
-        >
-          {clubs.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
+        {mode === 'edit' ? (
+          <div className={`${inputClass} cursor-not-allowed opacity-60`}>
+            {clubs.find((c) => c.id === clubId)?.name ?? clubId}
+          </div>
+        ) : (
+          <select
+            value={clubId}
+            onChange={(e) => setClubId(e.target.value)}
+            required
+            className={`${inputClass} cursor-pointer`}
+          >
+            {clubs.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
 
       {/* Tournament name */}
@@ -101,6 +143,7 @@ export function TournamentForm({ clubs, defaultClubId }: Props) {
           required
           minLength={3}
           maxLength={120}
+          defaultValue={defaultValues?.name}
           placeholder="e.g. Summer Open 2026"
           className={inputClass}
         />
@@ -112,13 +155,25 @@ export function TournamentForm({ clubs, defaultClubId }: Props) {
           <label className={labelClass}>
             Start date <span className="text-red-400">*</span>
           </label>
-          <input name="start_date" type="date" required className={inputClass} />
+          <input
+            name="start_date"
+            type="date"
+            required
+            defaultValue={defaultValues?.start_date}
+            className={inputClass}
+          />
         </div>
         <div>
           <label className={labelClass}>
             End date <span className="text-red-400">*</span>
           </label>
-          <input name="end_date" type="date" required className={inputClass} />
+          <input
+            name="end_date"
+            type="date"
+            required
+            defaultValue={defaultValues?.end_date}
+            className={inputClass}
+          />
         </div>
       </div>
 
@@ -130,6 +185,7 @@ export function TournamentForm({ clubs, defaultClubId }: Props) {
             name="venue"
             type="text"
             maxLength={200}
+            defaultValue={defaultValues?.venue ?? ''}
             placeholder="e.g. Westside Sports Centre"
             className={inputClass}
           />
@@ -144,7 +200,7 @@ export function TournamentForm({ clubs, defaultClubId }: Props) {
             required
             min={1}
             max={50}
-            defaultValue={2}
+            defaultValue={defaultValues?.court_count ?? 2}
             className={inputClass}
           />
         </div>
@@ -154,7 +210,12 @@ export function TournamentForm({ clubs, defaultClubId }: Props) {
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
           <label className={labelClass}>Registration deadline</label>
-          <input name="registration_deadline" type="date" className={inputClass} />
+          <input
+            name="registration_deadline"
+            type="date"
+            defaultValue={defaultValues?.registration_deadline ?? ''}
+            className={inputClass}
+          />
         </div>
         <div>
           <label className={labelClass}>Max participants</label>
@@ -163,6 +224,7 @@ export function TournamentForm({ clubs, defaultClubId }: Props) {
             type="number"
             min={4}
             max={512}
+            defaultValue={defaultValues?.max_participants ?? ''}
             placeholder="Unlimited"
             className={inputClass}
           />
@@ -176,9 +238,38 @@ export function TournamentForm({ clubs, defaultClubId }: Props) {
           name="description"
           rows={3}
           maxLength={1000}
+          defaultValue={defaultValues?.description ?? ''}
           placeholder="Optional notes about this tournament"
           className={`${inputClass} resize-none`}
         />
+      </div>
+
+      {/* Auto-approve toggle */}
+      <div className="rounded-xl border border-surface-border bg-surface p-4">
+        <label className="flex cursor-pointer items-start gap-4">
+          <div className="mt-0.5 flex-1">
+            <p className="text-sm font-medium text-slate-300">Auto-approve registrations</p>
+            <p className="mt-0.5 text-xs text-slate-500">
+              When enabled, players who register are immediately added to the draw.
+              Disable to manually review and approve each registration.
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={autoApprove}
+            onClick={() => setAutoApprove(!autoApprove)}
+            className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 focus:ring-offset-surface ${
+              autoApprove ? 'bg-brand-600' : 'bg-slate-700'
+            }`}
+          >
+            <span
+              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                autoApprove ? 'translate-x-5' : 'translate-x-0'
+              }`}
+            />
+          </button>
+        </label>
       </div>
 
       <button
@@ -186,7 +277,13 @@ export function TournamentForm({ clubs, defaultClubId }: Props) {
         disabled={loading}
         className="w-full rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {loading ? 'Creating tournament…' : 'Create tournament'}
+        {loading
+          ? mode === 'edit'
+            ? 'Saving changes…'
+            : 'Creating tournament…'
+          : mode === 'edit'
+            ? 'Save changes'
+            : 'Create tournament'}
       </button>
     </form>
   );

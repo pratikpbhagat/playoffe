@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server';
 import { AppNav } from '@/components/layout/AppNav';
 import { getMyTournaments } from '@/lib/actions/tournaments';
 import { getMyClubs } from '@/lib/actions/clubs';
+import { getMyEntries } from '@/lib/actions/registration';
 
 const STATUS_BADGE: Record<string, { label: string; className: string }> = {
   draft: { label: 'Draft', className: 'bg-slate-700 text-slate-300' },
@@ -26,7 +27,11 @@ export default async function DashboardPage() {
     .eq('id', user.id)
     .single();
 
-  const [tournaments, clubs] = await Promise.all([getMyTournaments(), getMyClubs()]);
+  const [tournaments, clubs, myEntries] = await Promise.all([
+    getMyTournaments(),
+    getMyClubs(),
+    getMyEntries(),
+  ]);
 
   return (
     <div className="min-h-screen bg-surface">
@@ -62,6 +67,48 @@ export default async function DashboardPage() {
         </div>
 
         <div className="mt-10 grid gap-6 lg:grid-cols-3">
+          {/* My registrations */}
+          {myEntries.length > 0 && (() => {
+            const ENTRY_STATUS_BADGE: Record<string, { label: string; className: string }> = {
+              active:     { label: 'Registered',       className: 'bg-accent-500/20 text-accent-400' },
+              pending:    { label: 'Pending approval',  className: 'bg-amber-900/40 text-amber-300' },
+              waitlisted: { label: 'Waitlisted',        className: 'bg-slate-700/50 text-slate-300' },
+              provisional:{ label: 'Invited',           className: 'bg-brand-900/40 text-brand-300' },
+            };
+            return (
+              <div className="lg:col-span-3 rounded-xl bg-surface-card p-6 ring-1 ring-surface-border">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-base font-semibold text-white">My registrations</h2>
+                  <Link href="/events" className="text-xs text-brand-400 hover:text-brand-300 transition-colors">
+                    Browse events →
+                  </Link>
+                </div>
+                <div className="space-y-2">
+                  {myEntries.slice(0, 5).map((entry) => {
+                    const cat = entry.tournament_categories as { id: string; name: string; play_format: string } | null;
+                    const t = entry.tournaments as { id: string; name: string; start_date: string; status: string } | null;
+                    const badge = ENTRY_STATUS_BADGE[entry.status as string] ?? { label: entry.status, className: 'text-slate-500' };
+                    return (
+                      <Link
+                        key={entry.id}
+                        href={`/events/${t?.id}`}
+                        className="flex items-center justify-between rounded-lg p-3 hover:bg-surface transition-colors"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-slate-200 truncate">{t?.name}</p>
+                          <p className="text-xs text-slate-500 mt-0.5">{cat?.name}</p>
+                        </div>
+                        <span className={`ml-3 shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${badge.className}`}>
+                          {badge.label}
+                        </span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Quick actions */}
           <div className="rounded-xl bg-surface-card p-6 ring-1 ring-surface-border">
             <h2 className="text-base font-semibold text-white">Quick actions</h2>
