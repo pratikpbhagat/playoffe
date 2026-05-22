@@ -107,3 +107,73 @@ export async function checkUsernameAction(username: string): Promise<{ available
   if (error) return { available: false };
   return { available: data };
 }
+
+export async function claimAccountAction({
+  token,
+  password,
+  username,
+}: {
+  token: string;
+  password: string;
+  username: string;
+}) {
+  if (password.length < 8) return { error: 'Password must be at least 8 characters' };
+  if (!/^[a-z0-9-]{3,}$/.test(username)) return { error: 'Invalid username format' };
+
+  const admin = createAdminClient();
+
+  // Re-fetch player by token (authoritative check)
+  const { data: player, error: fetchErr } = await admin
+    .from('players')
+    .select('id, email, username, is_provisional, provisional_expires_at')
+    .eq('provisional_claim_token', token)
+    .single();
+
+  if (fetchErr || !player) return { error: 'Invalid or expired claim link' };
+  if (!player.is_provisional) return { error: 'This account has already been claimed' };
+  if (
+    player.provisional_expires_at &&
+    new Date(player.provisional_expires_at) < new Date()
+  ) {
+    return { error: 'This invite link has expired. Please contact your organiser.' };
+  }
+
+  // If username changed, check availability
+  if (username !== player.username) {
+    const { data: available } = await admin.rpc('check_username_available', {
+      p_username: username,
+    });
+    if (!available) return { error: 'Username is already taken' };
+  }
+
+  // Set password + confirm email on the auth user
+  const { error: updateAuthErr } = await admin.auth.admin.updateUserById(player.id, {
+    password,
+    email_confirm: true,
+  });
+  if (updateAuthErr) return { error: 'Failed to set password. Please try again.' };
+
+  // Mark player as claimed
+  const { error: updatePlayerErr } = await admin
+    .from('players')
+    .update({
+      is_provisional: false,
+      provisional_claim_token: null,
+      provisional_expires_at: null,
+      username,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', player.id);
+
+  if (updatePlayerErr) return { error: 'Failed to activate account. Please try again.' };
+
+  // Sign in the newly activated player
+  const supabase = await createClient();
+  const { error: signInErr } = await supabase.auth.signInWithPassword({
+    email: player.email,
+    password,
+  });
+  if (signInErr) return { error: 'Account activated! Please log in.' };
+
+  redirect('/dashboard');
+}
