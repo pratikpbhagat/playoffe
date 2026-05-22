@@ -10,9 +10,9 @@ interface Props {
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const { id } = await params;
+  const { id: slug } = await params;
   const admin = createAdminClient();
-  const { data: t } = await admin.from('tournaments').select('name, clubs(name)').eq('id', id).single();
+  const { data: t } = await admin.from('tournaments').select('name, clubs(name)').eq('slug', slug).single();
   if (!t) return { title: 'Tournament not found' };
   const club = t.clubs as { name: string } | null;
   return { title: `${t.name} · ${club?.name ?? 'PLAYOFFE'}` };
@@ -41,10 +41,11 @@ const DRAW_FORMAT_LABEL: Record<string, string> = {
 };
 
 export default async function PublicTournamentPage({ params }: Props) {
-  const { id } = await params;
+  const { id: slug } = await params;
 
   const admin = createAdminClient();
 
+  // Look up tournament by slug
   const { data: t } = await admin
     .from('tournaments')
     .select(`
@@ -52,36 +53,38 @@ export default async function PublicTournamentPage({ params }: Props) {
       registration_deadline, court_count, display_code, auto_approve_entries,
       clubs!inner(id, name, brand_primary_color)
     `)
-    .eq('id', id)
+    .eq('slug', slug)
     .neq('status', 'cancelled')
     .single();
 
   if (!t) notFound();
 
+  const tournamentId = t.id;
   const club = t.clubs as { id: string; name: string; brand_primary_color: string };
   const banner = STATUS_BANNER[t.status] ?? STATUS_BANNER.draft;
 
-  // Fetch categories with entry counts
+  // Fetch categories with their slugs
   const { data: categories } = await admin
     .from('tournament_categories')
-    .select('id, name, play_format, draw_format, status, max_entries')
-    .eq('tournament_id', id)
+    .select('id, name, slug, play_format, draw_format, status, max_entries')
+    .eq('tournament_id', tournamentId)
     .order('created_at');
 
   const cats = (categories ?? []) as Array<{
     id: string;
     name: string;
+    slug: string;
     play_format: string;
     draw_format: string;
     status: string;
     max_entries: number | null;
   }>;
 
-  // Entry counts per category (active only — the public-facing confirmed count)
+  // Entry counts per category (active only)
   const { data: entryCounts } = await admin
     .from('tournament_entries')
     .select('category_id')
-    .eq('tournament_id', id)
+    .eq('tournament_id', tournamentId)
     .eq('status', 'active');
 
   const countByCategory: Record<string, number> = {};
@@ -89,17 +92,16 @@ export default async function PublicTournamentPage({ params }: Props) {
     countByCategory[e.category_id] = (countByCategory[e.category_id] ?? 0) + 1;
   }
 
-  // Who is the current viewer? (optional — for showing own entry status)
+  // Who is the current viewer?
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  // Fetch the viewer's own entries for this tournament (if logged in)
   let myEntries: Record<string, string> = {}; // categoryId → status
   if (user) {
     const { data: myRows } = await admin
       .from('tournament_entries')
       .select('category_id, status')
-      .eq('tournament_id', id)
+      .eq('tournament_id', tournamentId)
       .eq('player_id', user.id)
       .not('status', 'eq', 'withdrawn');
     for (const r of myRows ?? []) {
@@ -107,7 +109,6 @@ export default async function PublicTournamentPage({ params }: Props) {
     }
   }
 
-  // Date formatting
   const fmt = (d: string) =>
     new Date(d).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' });
   const dateStr = t.start_date === t.end_date
@@ -199,7 +200,7 @@ export default async function PublicTournamentPage({ params }: Props) {
               {cats.map((cat) => (
                 <PublicCategoryCard
                   key={cat.id}
-                  tournamentId={id}
+                  tournamentSlug={slug}
                   category={cat}
                   entryCount={countByCategory[cat.id] ?? 0}
                   myStatus={myEntries[cat.id] ?? null}
@@ -220,13 +221,13 @@ export default async function PublicTournamentPage({ params }: Props) {
             <p className="mt-1 text-xs text-slate-400">Create a free account to register for any category.</p>
             <div className="mt-4 flex justify-center gap-3">
               <Link
-                href={`/register?return=/events/${id}`}
+                href={`/register?return=/events/${slug}`}
                 className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 transition-colors"
               >
                 Create account
               </Link>
               <Link
-                href={`/login?return=/events/${id}`}
+                href={`/login?return=/events/${slug}`}
                 className="rounded-lg border border-surface-border px-4 py-2 text-sm text-slate-300 hover:bg-surface-card transition-colors"
               >
                 Log in

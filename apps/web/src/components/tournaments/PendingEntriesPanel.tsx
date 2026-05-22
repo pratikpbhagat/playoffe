@@ -26,12 +26,13 @@ interface EntryRow {
 interface Category {
   id: string;
   name: string;
+  slug: string;
   play_format: string;
   max_entries: number | null;
 }
 
 interface Props {
-  tournamentId: string;
+  tournamentSlug: string;
   category: Category;
   entries: EntryRow[];
 }
@@ -49,7 +50,7 @@ const PLAY_FORMAT: Record<string, string> = {
   mixed_doubles: 'Mixed doubles',
 };
 
-export function PendingEntriesPanel({ tournamentId, category, entries }: Props) {
+export function PendingEntriesPanel({ tournamentSlug, category, entries }: Props) {
   const router = useRouter();
   const [acting, setActing] = useState<string | null>(null); // entryId being actioned
   const [bulkLoading, setBulkLoading] = useState(false);
@@ -216,7 +217,7 @@ export function PendingEntriesPanel({ tournamentId, category, entries }: Props) 
       {/* Link back to category */}
       <div className="border-t border-surface-border px-5 py-3 text-right">
         <Link
-          href={`/tournaments/${tournamentId}/categories/${category.id}`}
+          href={`/tournaments/${tournamentSlug}/categories/${category.slug}`}
           className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
         >
           Manage entries →

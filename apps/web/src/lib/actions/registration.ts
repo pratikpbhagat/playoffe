@@ -50,7 +50,7 @@ export async function registerForCategoryAction(categoryId: string) {
   // Load category + tournament in one query
   const { data: cat } = await admin
     .from('tournament_categories')
-    .select('id, tournament_id, status, max_entries, name, tournaments(id, status, registration_deadline, auto_approve_entries, name)')
+    .select('id, tournament_id, status, max_entries, name, tournaments(id, slug, status, registration_deadline, auto_approve_entries, name)')
     .eq('id', categoryId)
     .single();
 
@@ -58,6 +58,7 @@ export async function registerForCategoryAction(categoryId: string) {
 
   const tournament = cat.tournaments as {
     id: string;
+    slug: string;
     status: string;
     registration_deadline: string | null;
     auto_approve_entries: boolean;
@@ -122,8 +123,8 @@ export async function registerForCategoryAction(categoryId: string) {
 
   if (error) return { error: 'Failed to register. Please try again.' };
 
-  revalidatePath(`/events/${tournament.id}`);
-  revalidatePath(`/tournaments/${tournament.id}`);
+  revalidatePath(`/events/${tournament.slug}`);
+  revalidatePath(`/tournaments/${tournament.slug}`);
   revalidatePath('/dashboard');
   return { success: true, status: entryStatus };
 }
@@ -142,7 +143,7 @@ export async function withdrawEntryAction(entryId: string) {
   // Fetch entry — must belong to this user
   const { data: entry } = await admin
     .from('tournament_entries')
-    .select('id, player_id, category_id, status, tournament_id')
+    .select('id, player_id, category_id, status, tournament_id, tournaments!tournament_id(slug)')
     .eq('id', entryId)
     .single();
 
@@ -150,6 +151,7 @@ export async function withdrawEntryAction(entryId: string) {
   if (entry.status === 'withdrawn') return { error: 'Already withdrawn.' };
 
   const wasActive = entry.status === 'active';
+  const tSlug = (entry.tournaments as { slug: string } | null)?.slug ?? entry.tournament_id;
 
   await admin
     .from('tournament_entries')
@@ -161,8 +163,8 @@ export async function withdrawEntryAction(entryId: string) {
     await promoteWaitlisted(entry.category_id);
   }
 
-  revalidatePath(`/events/${entry.tournament_id}`);
-  revalidatePath(`/tournaments/${entry.tournament_id}`);
+  revalidatePath(`/events/${tSlug}`);
+  revalidatePath(`/tournaments/${tSlug}`);
   revalidatePath('/dashboard');
   return { success: true };
 }
@@ -173,23 +175,23 @@ async function assertManagerForEntry(entryId: string, userId: string) {
   const admin = createAdminClient();
   const { data: entry } = await admin
     .from('tournament_entries')
-    .select('id, category_id, tournament_id, status, tournaments(club_id)')
+    .select('id, category_id, tournament_id, status, tournaments(club_id, slug)')
     .eq('id', entryId)
     .single();
 
   if (!entry) return null;
 
-  const clubId = (entry.tournaments as { club_id: string } | null)?.club_id;
-  if (!clubId) return null;
+  const t = entry.tournaments as { club_id: string; slug: string } | null;
+  if (!t?.club_id) return null;
 
   const { data: mgr } = await admin
     .from('club_managers')
     .select('role')
-    .eq('club_id', clubId)
+    .eq('club_id', t.club_id)
     .eq('player_id', userId)
     .maybeSingle();
 
-  return mgr ? entry : null;
+  return mgr ? { ...entry, tournamentSlug: t.slug } : null;
 }
 
 export async function approveEntryAction(entryId: string) {
@@ -221,8 +223,8 @@ export async function approveEntryAction(entryId: string) {
     .update({ status: newStatus })
     .eq('id', entryId);
 
-  revalidatePath(`/tournaments/${entry.tournament_id}/registrations`);
-  revalidatePath(`/tournaments/${entry.tournament_id}`);
+  revalidatePath(`/tournaments/${entry.tournamentSlug}/registrations`);
+  revalidatePath(`/tournaments/${entry.tournamentSlug}`);
   return { success: true, status: newStatus };
 }
 
@@ -243,8 +245,8 @@ export async function rejectEntryAction(entryId: string) {
     .update({ status: 'withdrawn' })
     .eq('id', entryId);
 
-  revalidatePath(`/tournaments/${entry.tournament_id}/registrations`);
-  revalidatePath(`/tournaments/${entry.tournament_id}`);
+  revalidatePath(`/tournaments/${entry.tournamentSlug}/registrations`);
+  revalidatePath(`/tournaments/${entry.tournamentSlug}`);
   return { success: true };
 }
 
@@ -260,13 +262,14 @@ export async function bulkApproveEntriesAction(categoryId: string) {
   // Verify manager access via the category's tournament
   const { data: cat } = await admin
     .from('tournament_categories')
-    .select('tournament_id, max_entries, tournaments(club_id)')
+    .select('tournament_id, max_entries, tournaments(club_id, slug)')
     .eq('id', categoryId)
     .single();
 
   if (!cat) return { error: 'Category not found.' };
-  const clubId = (cat.tournaments as { club_id: string } | null)?.club_id;
-  if (!clubId) return { error: 'Permission denied.' };
+  const tData = cat.tournaments as { club_id: string; slug: string } | null;
+  if (!tData?.club_id) return { error: 'Permission denied.' };
+  const clubId = tData.club_id;
 
   const { data: mgr } = await admin
     .from('club_managers')
@@ -306,8 +309,9 @@ export async function bulkApproveEntriesAction(categoryId: string) {
       .in('id', toWaitlist);
   }
 
-  revalidatePath(`/tournaments/${cat.tournament_id}/registrations`);
-  revalidatePath(`/tournaments/${cat.tournament_id}`);
+  const tSlug = tData.slug ?? cat.tournament_id;
+  revalidatePath(`/tournaments/${tSlug}/registrations`);
+  revalidatePath(`/tournaments/${tSlug}`);
   return { success: true, approved: toApprove.length, waitlisted: toWaitlist.length };
 }
 

@@ -12,12 +12,10 @@ interface Props {
 }
 
 export default async function EditTournamentPage({ params }: Props) {
-  const { id } = await params;
+  const { id: slug } = await params;
 
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
   const admin = createAdminClient();
@@ -25,12 +23,11 @@ export default async function EditTournamentPage({ params }: Props) {
   const { data: t } = await admin
     .from('tournaments')
     .select('*, clubs!inner(id, name, brand_primary_color)')
-    .eq('id', id)
+    .eq('slug', slug)
     .single();
 
   if (!t) notFound();
 
-  // Verify manager access
   const club = t.clubs as { id: string; name: string; brand_primary_color: string };
 
   const { data: mgr } = await admin
@@ -42,7 +39,6 @@ export default async function EditTournamentPage({ params }: Props) {
 
   if (!mgr) notFound();
 
-  // Fetch all clubs this user manages (for the form's club dropdown, shown but disabled)
   const { data: managedClubs } = await admin
     .from('club_managers')
     .select('clubs(id, name)')
@@ -72,7 +68,7 @@ export default async function EditTournamentPage({ params }: Props) {
       <main className="mx-auto max-w-2xl px-6 py-10">
         {/* Breadcrumb */}
         <nav className="mb-6 flex items-center gap-2 text-sm text-slate-500">
-          <Link href={`/tournaments/${id}`} className="hover:text-slate-300 transition-colors">
+          <Link href={`/tournaments/${slug}`} className="hover:text-slate-300 transition-colors">
             {t.name}
           </Link>
           <span>/</span>
@@ -85,7 +81,7 @@ export default async function EditTournamentPage({ params }: Props) {
           <TournamentForm
             clubs={clubs}
             mode="edit"
-            tournamentId={id}
+            tournamentId={t.id}
             defaultValues={defaultValues}
           />
         </div>

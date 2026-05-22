@@ -12,7 +12,7 @@ interface Props {
 }
 
 export default async function MatchScoringPage({ params }: Props) {
-  const { id: tournamentId, matchId } = await params;
+  const { id: slug, matchId } = await params;
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -20,11 +20,10 @@ export default async function MatchScoringPage({ params }: Props) {
 
   const admin = createAdminClient();
 
-  // Verify manager access
   const { data: t } = await admin
     .from('tournaments')
     .select('id, name, club_id, court_count')
-    .eq('id', tournamentId)
+    .eq('slug', slug)
     .single();
   if (!t) notFound();
 
@@ -36,7 +35,6 @@ export default async function MatchScoringPage({ params }: Props) {
     .maybeSingle();
   if (!mgr) notFound();
 
-  // Fetch match with full player details
   const { data: match } = await admin
     .from('matches')
     .select(`
@@ -77,13 +75,12 @@ export default async function MatchScoringPage({ params }: Props) {
       <AppNav />
 
       <main className="mx-auto max-w-2xl px-6 py-10">
-        {/* Breadcrumb */}
         <nav className="mb-6 flex items-center gap-2 text-sm text-slate-500 flex-wrap">
-          <Link href={`/tournaments/${tournamentId}`} className="hover:text-slate-300 transition-colors">
+          <Link href={`/tournaments/${slug}`} className="hover:text-slate-300 transition-colors">
             {t.name}
           </Link>
           <span>/</span>
-          <Link href={`/tournaments/${tournamentId}/scoring`} className="hover:text-slate-300 transition-colors">
+          <Link href={`/tournaments/${slug}/scoring`} className="hover:text-slate-300 transition-colors">
             Scoring
           </Link>
           <span>/</span>
@@ -92,7 +89,6 @@ export default async function MatchScoringPage({ params }: Props) {
           </span>
         </nav>
 
-        {/* Match header */}
         <div className="mb-6">
           <p className="text-xs text-slate-500 mb-1">
             {tc?.name ?? ''}
@@ -106,10 +102,9 @@ export default async function MatchScoringPage({ params }: Props) {
           </h1>
         </div>
 
-        {/* Score card (client component) */}
         <MatchScoreCard
           matchId={matchId}
-          tournamentId={tournamentId}
+          tournamentSlug={slug}
           categoryId={tc?.id ?? ''}
           status={match.status}
           court={match.court}

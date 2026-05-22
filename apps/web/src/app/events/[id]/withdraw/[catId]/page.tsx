@@ -9,19 +9,38 @@ interface Props {
 }
 
 export default async function WithdrawPage({ params }: Props) {
-  const { id: tournamentId, catId } = await params;
+  const { id: tournamentSlug, catId: catSlug } = await params;
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect(`/login?return=/events/${tournamentId}`);
+  if (!user) redirect(`/login?return=/events/${tournamentSlug}`);
 
   const admin = createAdminClient();
+
+  // Look up tournament by slug
+  const { data: tournament } = await admin
+    .from('tournaments')
+    .select('id')
+    .eq('slug', tournamentSlug)
+    .single();
+
+  if (!tournament) notFound();
+
+  // Look up category by slug + tournament_id
+  const { data: category } = await admin
+    .from('tournament_categories')
+    .select('id')
+    .eq('slug', catSlug)
+    .eq('tournament_id', tournament.id)
+    .single();
+
+  if (!category) notFound();
 
   // Find the player's entry for this category
   const { data: entry } = await admin
     .from('tournament_entries')
     .select('id, status, tournament_categories!category_id(name), tournaments!tournament_id(name)')
-    .eq('category_id', catId)
+    .eq('category_id', category.id)
     .eq('player_id', user.id)
     .not('status', 'eq', 'withdrawn')
     .maybeSingle();
@@ -41,7 +60,7 @@ export default async function WithdrawPage({ params }: Props) {
     'use server';
     const result = await withdrawEntryAction(entry!.id);
     if (!result.error) {
-      redirect(`/events/${tournamentId}`);
+      redirect(`/events/${tournamentSlug}`);
     }
   }
 
@@ -70,7 +89,7 @@ export default async function WithdrawPage({ params }: Props) {
             </button>
           </form>
           <Link
-            href={`/events/${tournamentId}`}
+            href={`/events/${tournamentSlug}`}
             className="rounded-lg border border-slate-600 px-5 py-2.5 text-sm text-slate-300 hover:bg-surface-card transition-colors"
           >
             Cancel

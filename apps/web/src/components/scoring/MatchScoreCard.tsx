@@ -20,7 +20,7 @@ interface EntryInfo {
 
 interface Props {
   matchId: string;
-  tournamentId: string;
+  tournamentSlug: string;
   categoryId: string;
   status: string;
   court: number | null;
@@ -43,7 +43,7 @@ function determineSetsWinner(sets: SetScore[]): { aWins: number; bWins: number }
 
 export function MatchScoreCard({
   matchId,
-  tournamentId,
+  tournamentSlug,
   status: initialStatus,
   court: initialCourt,
   maxCourts,
@@ -371,7 +371,7 @@ export function MatchScoreCard({
       {/* Back link */}
       <div className="pt-2">
         <a
-          href={`/tournaments/${tournamentId}/scoring`}
+          href={`/tournaments/${tournamentSlug}/scoring`}
           className="text-xs text-slate-400 hover:text-white transition-colors"
         >
           ← Back to scoring hub

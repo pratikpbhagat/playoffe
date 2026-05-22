@@ -9,7 +9,7 @@ async function assertTournamentManager(tournamentId: string, userId: string) {
   const admin = createAdminClient();
   const { data: t } = await admin
     .from('tournaments')
-    .select('club_id')
+    .select('club_id, slug')
     .eq('id', tournamentId)
     .single();
   if (!t) return null;
@@ -44,12 +44,13 @@ export async function createCategoryAction(
   const admin = createAdminClient();
   const { error } = await admin.from('tournament_categories').insert({
     tournament_id: tournamentId,
+    slug: '', // set by BEFORE INSERT trigger
     ...parsed.data,
   });
 
   if (error) return { error: 'Failed to create category. Please try again.' };
 
-  revalidatePath(`/tournaments/${tournamentId}`);
+  revalidatePath(`/tournaments/${t.slug}`);
   return { success: true };
 }
 
@@ -75,7 +76,7 @@ export async function updateCategoryAction(
 
   const { data: cat } = await admin
     .from('tournament_categories')
-    .select('tournament_id, status')
+    .select('tournament_id, status, slug, tournaments(slug)')
     .eq('id', categoryId)
     .single();
 
@@ -105,8 +106,9 @@ export async function updateCategoryAction(
 
   if (error) return { error: 'Failed to update category. Please try again.' };
 
-  revalidatePath(`/tournaments/${cat.tournament_id}/categories/${categoryId}`);
-  revalidatePath(`/tournaments/${cat.tournament_id}`);
+  const tSlug = (cat.tournaments as { slug: string } | null)?.slug ?? t.slug;
+  revalidatePath(`/tournaments/${tSlug}/categories/${cat.slug}`);
+  revalidatePath(`/tournaments/${tSlug}`);
   return { success: true };
 }
 
@@ -152,7 +154,7 @@ export async function removeEntryAction(entryId: string, tournamentId: string) {
   const { error } = await admin.from('tournament_entries').delete().eq('id', entryId);
   if (error) return { error: 'Failed to remove entry' };
 
-  revalidatePath(`/tournaments/${tournamentId}`);
+  revalidatePath(`/tournaments/${t.slug}`);
   return { success: true };
 }
 
@@ -224,6 +226,6 @@ export async function addPlayerByEmailAction(
 
   if (error) return { error: 'Failed to add player' };
 
-  revalidatePath(`/tournaments/${tournamentId}`);
+  revalidatePath(`/tournaments/${t.slug}`);
   return { success: true };
 }

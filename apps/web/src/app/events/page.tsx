@@ -25,7 +25,7 @@ export default async function EventsPage() {
   const { data: tournaments } = await admin
     .from('tournaments')
     .select(`
-      id, name, start_date, end_date, venue, status, registration_deadline,
+      id, name, slug, start_date, end_date, venue, status, registration_deadline,
       clubs!inner(id, name, brand_primary_color),
       tournament_categories(id, play_format, status, max_entries)
     `)
@@ -35,6 +35,7 @@ export default async function EventsPage() {
   const rows = (tournaments ?? []) as Array<{
     id: string;
     name: string;
+    slug: string;
     start_date: string;
     end_date: string;
     venue: string | null;
@@ -67,7 +68,7 @@ export default async function EventsPage() {
 
     return (
       <Link
-        href={`/events/${t.id}`}
+        href={`/events/${t.slug}`}
         className="group flex flex-col rounded-2xl bg-surface-card ring-1 ring-surface-border hover:ring-brand-500/40 transition-all overflow-hidden"
       >
         {/* Colour bar */}

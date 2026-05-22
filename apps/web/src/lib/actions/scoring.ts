@@ -22,7 +22,7 @@ async function assertMatchManager(matchId: string, userId: string) {
 
   const { data: t } = await admin
     .from('tournaments')
-    .select('club_id')
+    .select('club_id, slug')
     .eq('id', match.tournament_id)
     .single();
   if (!t) return null;
@@ -34,7 +34,7 @@ async function assertMatchManager(matchId: string, userId: string) {
     .eq('player_id', userId)
     .maybeSingle();
 
-  return mgr ? { match, clubId: t.club_id } : null;
+  return mgr ? { match, clubId: t.club_id, tournamentSlug: t.slug } : null;
 }
 
 // ── Start a match ─────────────────────────────────────────────────────────────
@@ -58,7 +58,7 @@ export async function startMatchAction(matchId: string, court: number) {
 
   if (error) return { error: 'Failed to start match' };
 
-  revalidatePath(`/tournaments/${ctx.match.tournament_id}/scoring/${matchId}`);
+  revalidatePath(`/tournaments/${ctx.tournamentSlug}/scoring/${matchId}`);
   return { success: true };
 }
 
@@ -201,8 +201,13 @@ export async function submitResultAction(
     }
   }
 
-  revalidatePath(`/tournaments/${match.tournament_id}/scoring/${matchId}`);
-  revalidatePath(`/tournaments/${match.tournament_id}/categories/${match.category_id}`);
+  const { data: catSlugRow } = await admin
+    .from('tournament_categories')
+    .select('slug')
+    .eq('id', match.category_id)
+    .maybeSingle();
+  revalidatePath(`/tournaments/${ctx.tournamentSlug}/scoring/${matchId}`);
+  revalidatePath(`/tournaments/${ctx.tournamentSlug}/categories/${catSlugRow?.slug ?? match.category_id}`);
   return { success: true, ratingChangeA: resultA.change, ratingChangeB: resultB.change };
 }
 
@@ -246,7 +251,12 @@ export async function walkoverAction(matchId: string, winnerEntryId: string) {
     }
   }
 
-  revalidatePath(`/tournaments/${match.tournament_id}/scoring/${matchId}`);
-  revalidatePath(`/tournaments/${match.tournament_id}/categories/${match.category_id}`);
+  const { data: catSlugRow2 } = await admin
+    .from('tournament_categories')
+    .select('slug')
+    .eq('id', match.category_id)
+    .maybeSingle();
+  revalidatePath(`/tournaments/${ctx.tournamentSlug}/scoring/${matchId}`);
+  revalidatePath(`/tournaments/${ctx.tournamentSlug}/categories/${catSlugRow2?.slug ?? match.category_id}`);
   return { success: true };
 }

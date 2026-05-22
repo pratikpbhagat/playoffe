@@ -8,6 +8,7 @@ import { registerForCategoryAction, withdrawEntryAction } from '@/lib/actions/re
 interface Category {
   id: string;
   name: string;
+  slug: string;
   play_format: string;
   draw_format: string;
   status: string;
@@ -15,10 +16,10 @@ interface Category {
 }
 
 interface Props {
-  tournamentId: string;
+  tournamentSlug: string;
   category: Category;
   entryCount: number;
-  myStatus: string | null;    // player's own entry status, or null
+  myStatus: string | null;
   registrationOpen: boolean;
   isLoggedIn: boolean;
   playFormatLabel: string;
@@ -40,7 +41,7 @@ const CAT_STATUS: Record<string, string> = {
 };
 
 export function PublicCategoryCard({
-  tournamentId,
+  tournamentSlug,
   category,
   entryCount,
   myStatus,
@@ -75,14 +76,7 @@ export function PublicCategoryCard({
 
   async function handleWithdraw() {
     if (!confirm('Withdraw from this category? You can re-register if spots are still available.')) return;
-    setLoading(true);
-    setError(null);
-
-    // We need the entry ID — can't get it from props, so we rely on server redirect
-    // Simpler: use the registration action which knows the user's entry
-    // For now, reload to let the server page handle it with the entryId
-    // Actually we'll redirect to the withdraw page
-    router.push(`/events/${tournamentId}/withdraw/${category.id}`);
+    router.push(`/events/${tournamentSlug}/withdraw/${category.slug}`);
   }
 
   const myBadge = localStatus ? MY_STATUS_BADGE[localStatus] : null;
@@ -162,7 +156,7 @@ export function PublicCategoryCard({
           {/* Log in prompt */}
           {!isLoggedIn && (registrationOpen && categoryAcceptsEntries) && (
             <Link
-              href={`/login?return=${encodeURIComponent(`/events/${tournamentId}`)}`}
+              href={`/login?return=${encodeURIComponent(`/events/${tournamentSlug}`)}`}
               className="rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-300 hover:bg-surface-card hover:text-white transition-colors"
             >
               Log in to register
@@ -183,7 +177,7 @@ export function PublicCategoryCard({
           {/* View draw */}
           {(category.status === 'draw_generated' || category.status === 'in_progress' || category.status === 'completed') && (
             <Link
-              href={`/events/${tournamentId}/draw/${category.id}`}
+              href={`/events/${tournamentSlug}/draw/${category.slug}`}
               className="text-xs text-brand-400 hover:text-brand-300 transition-colors"
             >
               View draw →

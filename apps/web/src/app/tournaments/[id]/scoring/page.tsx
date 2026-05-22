@@ -25,7 +25,7 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 export default async function ScoringHubPage({ params }: Props) {
-  const { id: tournamentId } = await params;
+  const { id: slug } = await params;
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -33,11 +33,10 @@ export default async function ScoringHubPage({ params }: Props) {
 
   const admin = createAdminClient();
 
-  // Verify manager access
   const { data: t } = await admin
     .from('tournaments')
     .select('id, name, club_id')
-    .eq('id', tournamentId)
+    .eq('slug', slug)
     .single();
   if (!t) notFound();
 
@@ -49,7 +48,6 @@ export default async function ScoringHubPage({ params }: Props) {
     .maybeSingle();
   if (!mgr) notFound();
 
-  // Fetch all non-bye matches with player names
   const { data: matches } = await admin
     .from('matches')
     .select(`
@@ -58,7 +56,7 @@ export default async function ScoringHubPage({ params }: Props) {
       eb:tournament_entries!entry_b_id(id, seed, players!player_id(full_name)),
       tc:tournament_categories!category_id(name)
     `)
-    .eq('tournament_id', tournamentId)
+    .eq('tournament_id', t.id)
     .not('entry_a_id', 'is', null)
     .not('entry_b_id', 'is', null)
     .order('status')
@@ -95,10 +93,9 @@ export default async function ScoringHubPage({ params }: Props) {
 
     return (
       <Link
-        href={`/tournaments/${tournamentId}/scoring/${match.id}`}
+        href={`/tournaments/${slug}/scoring/${match.id}`}
         className="flex items-center gap-4 rounded-xl bg-surface-card px-5 py-3.5 ring-1 ring-surface-border hover:ring-brand-500/40 transition-all"
       >
-        {/* Court */}
         <div className="w-14 shrink-0 text-center">
           {match.court ? (
             <span className="rounded bg-surface px-2 py-0.5 text-xs font-mono text-slate-400">
@@ -109,7 +106,6 @@ export default async function ScoringHubPage({ params }: Props) {
           )}
         </div>
 
-        {/* Match info */}
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-white truncate">
             {aName}
@@ -122,12 +118,10 @@ export default async function ScoringHubPage({ params }: Props) {
           </p>
         </div>
 
-        {/* Score */}
         {scoreStr && (
           <span className="text-xs font-mono text-slate-400 shrink-0">{scoreStr}</span>
         )}
 
-        {/* Status */}
         <span className={`shrink-0 text-xs ${STATUS_STYLE[match.status] ?? 'text-slate-500'}`}>
           {STATUS_LABEL[match.status] ?? match.status}
         </span>
@@ -142,9 +136,8 @@ export default async function ScoringHubPage({ params }: Props) {
       <AppNav />
 
       <main className="mx-auto max-w-3xl px-6 py-10">
-        {/* Breadcrumb */}
         <nav className="mb-6 flex items-center gap-2 text-sm text-slate-500">
-          <Link href={`/tournaments/${tournamentId}`} className="hover:text-slate-300 transition-colors">
+          <Link href={`/tournaments/${slug}`} className="hover:text-slate-300 transition-colors">
             {t.name}
           </Link>
           <span>/</span>
@@ -153,7 +146,6 @@ export default async function ScoringHubPage({ params }: Props) {
 
         <h1 className="mb-8 text-2xl font-bold text-white">Match scoring</h1>
 
-        {/* Live */}
         {live.length > 0 && (
           <section className="mb-8">
             <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-accent-400">
@@ -165,7 +157,6 @@ export default async function ScoringHubPage({ params }: Props) {
           </section>
         )}
 
-        {/* Scheduled */}
         {scheduled.length > 0 && (
           <section className="mb-8">
             <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-slate-500">
@@ -177,7 +168,6 @@ export default async function ScoringHubPage({ params }: Props) {
           </section>
         )}
 
-        {/* Done */}
         {done.length > 0 && (
           <section>
             <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-slate-600">

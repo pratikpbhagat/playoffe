@@ -202,7 +202,7 @@ export default async function DashboardPage() {
                   return (
                     <li key={t.id}>
                       <Link
-                        href={`/tournaments/${t.id}`}
+                        href={`/tournaments/${(t as unknown as { slug: string }).slug}`}
                         className="flex items-center justify-between rounded-lg p-2 hover:bg-surface transition-colors"
                       >
                         <div className="min-w-0">

@@ -40,15 +40,15 @@ export async function createTournamentAction(
   const { data: tournament, error } = await admin
     .from('tournaments')
     // display_code is set by a BEFORE INSERT trigger; pass empty string as placeholder
-    .insert({ ...parsed.data, club_id, created_by: user.id, display_code: '' })
-    .select('id')
+    .insert({ ...parsed.data, club_id, created_by: user.id, display_code: '', slug: '' })
+    .select('id, slug')
     .single();
 
   if (error || !tournament) {
     return { error: 'Failed to create tournament. Please try again.' };
   }
 
-  redirect(`/tournaments/${tournament.id}`);
+  redirect(`/tournaments/${tournament.slug}`);
 }
 
 export async function updateTournamentAction(
@@ -65,7 +65,7 @@ export async function updateTournamentAction(
 
   const { data: tournament } = await admin
     .from('tournaments')
-    .select('club_id')
+    .select('club_id, slug')
     .eq('id', tournamentId)
     .single();
 
@@ -99,8 +99,8 @@ export async function updateTournamentAction(
   const { error } = await admin.from('tournaments').update(update).eq('id', tournamentId);
   if (error) return { error: 'Failed to update tournament. Please try again.' };
 
-  revalidatePath(`/tournaments/${tournamentId}`);
-  redirect(`/tournaments/${tournamentId}`);
+  revalidatePath(`/tournaments/${tournament.slug}`);
+  redirect(`/tournaments/${tournament.slug}`);
 }
 
 export async function getMyTournaments() {
@@ -122,7 +122,7 @@ export async function getMyTournaments() {
 
   const { data } = await admin
     .from('tournaments')
-    .select('id, name, status, start_date, end_date, display_code, clubs(name)')
+    .select('id, name, slug, status, start_date, end_date, display_code, clubs(name)')
     .in('club_id', clubIds)
     .order('start_date', { ascending: false })
     .limit(20);

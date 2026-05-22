@@ -32,30 +32,43 @@ const FORMAT_LABEL: Record<string, string> = {
 };
 
 export default async function CategoryPage({ params }: Props) {
-  const { id: tournamentId, catId: categoryId } = await params;
+  const { id: tournamentSlug, catId: catSlug } = await params;
 
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
-  // Verify this user manages the tournament's club
   const admin = createAdminClient();
-  const { data: t } = await admin
-    .from('tournaments')
-    .select('club_id')
-    .eq('id', tournamentId)
-    .single();
-  if (!t) notFound();
 
+  // Look up tournament by slug
+  const { data: tournament } = await admin
+    .from('tournaments')
+    .select('id, name, club_id')
+    .eq('slug', tournamentSlug)
+    .single();
+
+  if (!tournament) notFound();
+
+  // Verify manager access
   const { data: mgr } = await admin
     .from('club_managers')
     .select('role')
-    .eq('club_id', t.club_id)
+    .eq('club_id', tournament.club_id)
     .eq('player_id', user.id)
     .maybeSingle();
   if (!mgr) notFound();
+
+  // Look up category by slug + tournament_id
+  const { data: categoryRow } = await admin
+    .from('tournament_categories')
+    .select('id')
+    .eq('slug', catSlug)
+    .eq('tournament_id', tournament.id)
+    .single();
+
+  if (!categoryRow) notFound();
+
+  const categoryId = categoryRow.id;
 
   // Fetch category + entries + matches in parallel
   const [data, matches] = await Promise.all([
@@ -66,17 +79,15 @@ export default async function CategoryPage({ params }: Props) {
 
   const { category, entries } = data;
 
-  // Type the nested joins
-  const tournament = category.tournaments as {
+  const tournamentInfo = category.tournaments as {
     id: string;
     name: string;
     clubs: { name: string; brand_primary_color: string };
   };
 
-  const clubName = (tournament.clubs as { name: string })?.name ?? 'Club';
-  const clubColor = (tournament.clubs as { brand_primary_color: string })?.brand_primary_color ?? '#7c3aed';
+  const clubName = (tournamentInfo.clubs as { name: string })?.name ?? 'Club';
+  const clubColor = (tournamentInfo.clubs as { brand_primary_color: string })?.brand_primary_color ?? '#7c3aed';
 
-  // Safe-cast entries to match EntryList's interface
   type EntryRow = {
     id: string;
     seed: number | null;
@@ -104,10 +115,10 @@ export default async function CategoryPage({ params }: Props) {
         {/* Breadcrumb */}
         <nav className="mb-6 flex items-center gap-2 text-sm text-slate-500 flex-wrap">
           <Link
-            href={`/tournaments/${tournamentId}`}
+            href={`/tournaments/${tournamentSlug}`}
             className="hover:text-slate-300 transition-colors"
           >
-            {tournament.name}
+            {tournamentInfo.name}
           </Link>
           <span>/</span>
           <span className="text-slate-400">{category.name}</span>
@@ -116,7 +127,6 @@ export default async function CategoryPage({ params }: Props) {
         {/* Header */}
         <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex-1">
-            {/* Club colour dot */}
             <div className="mb-2 flex items-center gap-2">
               <span
                 className="inline-block h-2.5 w-2.5 rounded-full"
@@ -133,7 +143,6 @@ export default async function CategoryPage({ params }: Props) {
             </p>
           </div>
 
-          {/* Right: entry count + edit */}
           <div className="flex items-start gap-3 shrink-0">
             <div className="rounded-xl bg-surface-card px-5 py-3 ring-1 ring-surface-border text-center">
               <p className="text-2xl font-bold text-white">{entryCount}</p>
@@ -157,20 +166,17 @@ export default async function CategoryPage({ params }: Props) {
           <h2 className="mb-3 text-sm font-semibold text-slate-400 uppercase tracking-wide">
             Entries
           </h2>
-          <EntryList entries={typedEntries} tournamentId={tournamentId} />
+          <EntryList entries={typedEntries} tournamentId={tournament.id} />
         </section>
 
-        {/* Add / import players — only show if draw not yet generated */}
+        {/* Add / import players */}
         {categoryStatus === 'pending' || categoryStatus === 'registration' ? (
           <>
-            {/* Add single player */}
             <section className="mb-6">
-              <AddPlayerByEmail tournamentId={tournamentId} categoryId={categoryId} />
+              <AddPlayerByEmail tournamentId={tournament.id} categoryId={categoryId} />
             </section>
-
-            {/* CSV import */}
             <section className="mb-10">
-              <ImportPlayersPanel tournamentId={tournamentId} categoryId={categoryId} />
+              <ImportPlayersPanel tournamentId={tournament.id} categoryId={categoryId} />
             </section>
           </>
         ) : (
@@ -179,13 +185,11 @@ export default async function CategoryPage({ params }: Props) {
           </div>
         )}
 
-        {/* Divider */}
         <div className="mb-8 border-t border-surface-border" />
 
-        {/* Draw section */}
         <DrawSection
           categoryId={categoryId}
-          tournamentId={tournamentId}
+          tournamentSlug={tournamentSlug}
           drawFormat={drawFormat}
           categoryStatus={categoryStatus}
           entryCount={entryCount}

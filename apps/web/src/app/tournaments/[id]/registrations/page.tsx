@@ -12,7 +12,7 @@ interface Props {
 }
 
 export default async function RegistrationsPage({ params }: Props) {
-  const { id: tournamentId } = await params;
+  const { id: slug } = await params;
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -23,7 +23,7 @@ export default async function RegistrationsPage({ params }: Props) {
   const { data: t } = await admin
     .from('tournaments')
     .select('id, name, club_id, auto_approve_entries')
-    .eq('id', tournamentId)
+    .eq('slug', slug)
     .single();
   if (!t) notFound();
 
@@ -35,11 +35,11 @@ export default async function RegistrationsPage({ params }: Props) {
     .maybeSingle();
   if (!mgr) notFound();
 
-  // Fetch all categories for this tournament
+  // Fetch all categories with their slugs
   const { data: categories } = await admin
     .from('tournament_categories')
-    .select('id, name, play_format, max_entries')
-    .eq('tournament_id', tournamentId)
+    .select('id, name, slug, play_format, max_entries')
+    .eq('tournament_id', t.id)
     .order('created_at');
 
   // Fetch all non-withdrawn entries with player details
@@ -49,7 +49,7 @@ export default async function RegistrationsPage({ params }: Props) {
       id, status, registered_at, category_id, seed,
       players!player_id(id, full_name, username, global_stats(current_rating))
     `)
-    .eq('tournament_id', tournamentId)
+    .eq('tournament_id', t.id)
     .not('status', 'eq', 'withdrawn')
     .order('registered_at', { ascending: true });
 
@@ -69,15 +69,13 @@ export default async function RegistrationsPage({ params }: Props) {
 
   const allEntries = (entries ?? []) as unknown as EntryRow[];
 
-  // Group entries by category
   const entriesByCategory: Record<string, EntryRow[]> = {};
   for (const e of allEntries) {
     if (!entriesByCategory[e.category_id]) entriesByCategory[e.category_id] = [];
     entriesByCategory[e.category_id].push(e);
   }
 
-  const cats = (categories ?? []) as Array<{ id: string; name: string; play_format: string; max_entries: number | null }>;
-
+  const cats = (categories ?? []) as Array<{ id: string; name: string; slug: string; play_format: string; max_entries: number | null }>;
   const pendingTotal = allEntries.filter((e) => e.status === 'pending').length;
 
   return (
@@ -87,7 +85,7 @@ export default async function RegistrationsPage({ params }: Props) {
       <main className="mx-auto max-w-4xl px-6 py-10">
         {/* Breadcrumb */}
         <nav className="mb-6 flex items-center gap-2 text-sm text-slate-500">
-          <Link href={`/tournaments/${tournamentId}`} className="hover:text-slate-300 transition-colors">
+          <Link href={`/tournaments/${slug}`} className="hover:text-slate-300 transition-colors">
             {t.name}
           </Link>
           <span>/</span>
@@ -121,7 +119,7 @@ export default async function RegistrationsPage({ params }: Props) {
               return (
                 <PendingEntriesPanel
                   key={cat.id}
-                  tournamentId={tournamentId}
+                  tournamentSlug={slug}
                   category={cat}
                   entries={catEntries}
                 />

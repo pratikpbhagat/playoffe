@@ -8,7 +8,7 @@ import { BracketView } from './BracketView';
 
 interface Props {
   categoryId: string;
-  tournamentId: string;
+  tournamentSlug: string;
   drawFormat: string;
   categoryStatus: string;
   entryCount: number;
@@ -25,7 +25,7 @@ const FORMAT_LABEL: Record<string, string> = {
 
 export function DrawSection({
   categoryId,
-  tournamentId,
+  tournamentSlug,
   drawFormat,
   categoryStatus,
   entryCount,
@@ -141,7 +141,7 @@ export function DrawSection({
 
       {/* Bracket / schedule */}
       {isDrawn && matches.length > 0 && (
-        <BracketView matches={matches} format={drawFormat} tournamentId={tournamentId} />
+        <BracketView matches={matches} format={drawFormat} tournamentSlug={tournamentSlug} />
       )}
     </section>
   );

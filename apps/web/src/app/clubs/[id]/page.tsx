@@ -34,7 +34,7 @@ export default async function ClubPage({ params }: Props) {
   // Fetch this club's tournaments
   const { data: tournaments } = await admin
     .from('tournaments')
-    .select('id, name, status, start_date, end_date, display_code')
+    .select('id, name, slug, status, start_date, end_date, display_code')
     .eq('club_id', id)
     .order('start_date', { ascending: false });
 
@@ -100,7 +100,7 @@ export default async function ClubPage({ params }: Props) {
               {tournaments.map((t) => (
                 <Link
                   key={t.id}
-                  href={`/tournaments/${t.id}`}
+                  href={`/tournaments/${(t as unknown as { slug: string }).slug}`}
                   className="flex items-center justify-between rounded-xl bg-surface-card px-5 py-4 ring-1 ring-surface-border hover:ring-brand-500/40 transition-all"
                 >
                   <div>

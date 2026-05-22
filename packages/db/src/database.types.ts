@@ -1,4 +1,3 @@
-﻿
 export type Json =
   | string
   | number
@@ -716,6 +715,7 @@ export type Database = {
           play_format: Database["public"]["Enums"]["play_format_enum"]
           runner_up_entry_id: string | null
           skill_levels: Json
+          slug: string
           status: Database["public"]["Enums"]["category_status_enum"]
           third_place_entry_id: string | null
           tournament_id: string
@@ -733,6 +733,7 @@ export type Database = {
           play_format: Database["public"]["Enums"]["play_format_enum"]
           runner_up_entry_id?: string | null
           skill_levels?: Json
+          slug: string
           status?: Database["public"]["Enums"]["category_status_enum"]
           third_place_entry_id?: string | null
           tournament_id: string
@@ -750,6 +751,7 @@ export type Database = {
           play_format?: Database["public"]["Enums"]["play_format_enum"]
           runner_up_entry_id?: string | null
           skill_levels?: Json
+          slug?: string
           status?: Database["public"]["Enums"]["category_status_enum"]
           third_place_entry_id?: string | null
           tournament_id?: string
@@ -890,6 +892,7 @@ export type Database = {
           max_participants: number | null
           name: string
           registration_deadline: string | null
+          slug: string
           social_post_triggers: Json
           start_date: string
           status: Database["public"]["Enums"]["tournament_status_enum"]
@@ -909,6 +912,7 @@ export type Database = {
           max_participants?: number | null
           name: string
           registration_deadline?: string | null
+          slug: string
           social_post_triggers?: Json
           start_date: string
           status?: Database["public"]["Enums"]["tournament_status_enum"]
@@ -928,6 +932,7 @@ export type Database = {
           max_participants?: number | null
           name?: string
           registration_deadline?: string | null
+          slug?: string
           social_post_triggers?: Json
           start_date?: string
           status?: Database["public"]["Enums"]["tournament_status_enum"]
@@ -960,8 +965,14 @@ export type Database = {
         Args: { p_username: string }
         Returns: boolean
       }
+      generate_category_slug: {
+        Args: { base_name: string; tid: string }
+        Returns: string
+      }
       generate_display_code: { Args: never; Returns: string }
+      generate_tournament_slug: { Args: { base_name: string }; Returns: string }
       is_club_manager: { Args: { p_club_id: string }; Returns: boolean }
+      slugify: { Args: { val: string }; Returns: string }
       verify_referee_pin: {
         Args: { p_pin: string; p_tournament_id: string }
         Returns: boolean
@@ -1237,6 +1248,4 @@ export const Constants = {
     },
   },
 } as const
-
-
 

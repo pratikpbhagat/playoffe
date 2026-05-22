@@ -44,46 +44,47 @@ const PLAY_FORMAT_LABEL: Record<string, string> = {
 };
 
 export default async function TournamentPage({ params }: Props) {
-  const { id } = await params;
+  const { id: slug } = await params;
 
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
   const admin = createAdminClient();
 
+  // Look up by slug
   const { data: t } = await admin
     .from('tournaments')
-    .select('*, clubs!inner(id, name, brand_primary_color), tournament_categories(*)')
-    .eq('id', id)
+    .select('*, clubs!inner(id, name, brand_primary_color), tournament_categories(*, slug)')
+    .eq('slug', slug)
     .single();
 
   if (!t) notFound();
+
+  const club = t.clubs as { id: string; name: string; brand_primary_color: string };
 
   // Verify user manages this club
   const { data: mgr } = await admin
     .from('club_managers')
     .select('role')
-    .eq('club_id', (t.clubs as { id: string }).id)
+    .eq('club_id', club.id)
     .eq('player_id', user.id)
     .maybeSingle();
 
-  if (!mgr) notFound(); // not their tournament
+  if (!mgr) notFound();
 
   // Entry count per category (active only)
   const { data: entryCounts } = await admin
     .from('tournament_entries')
     .select('category_id')
-    .eq('tournament_id', id)
+    .eq('tournament_id', t.id)
     .eq('status', 'active');
 
   // Pending entry count (for approval badge)
   const { count: pendingCount } = await admin
     .from('tournament_entries')
     .select('id', { count: 'exact', head: true })
-    .eq('tournament_id', id)
+    .eq('tournament_id', t.id)
     .eq('status', 'pending');
 
   const countByCategory: Record<string, number> = {};
@@ -94,13 +95,13 @@ export default async function TournamentPage({ params }: Props) {
   type Category = {
     id: string;
     name: string;
+    slug: string;
     play_format: string;
     draw_format: string;
     status: string;
     max_entries: number | null;
   };
   const categories = (t.tournament_categories as unknown as Category[]) ?? [];
-  const club = t.clubs as { id: string; name: string; brand_primary_color: string };
   const badge = STATUS_BADGE[t.status] ?? STATUS_BADGE.draft;
 
   const dateRange = (() => {
@@ -130,9 +131,7 @@ export default async function TournamentPage({ params }: Props) {
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-bold text-white">{t.name}</h1>
-              <span
-                className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${badge.className}`}
-              >
+              <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${badge.className}`}>
                 {badge.label}
               </span>
             </div>
@@ -146,13 +145,13 @@ export default async function TournamentPage({ params }: Props) {
           {/* Actions */}
           <div className="flex items-center gap-3 shrink-0">
             <Link
-              href={`/tournaments/${id}/edit`}
+              href={`/tournaments/${slug}/edit`}
               className="flex items-center gap-1.5 rounded-lg border border-slate-600 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-surface-card hover:border-slate-500 transition-colors"
             >
               <span>✏️</span> Edit
             </Link>
             <TournamentStatusControl
-              tournamentId={id}
+              tournamentId={t.id}
               currentStatus={t.status as TournamentStatus}
             />
           </div>
@@ -176,13 +175,13 @@ export default async function TournamentPage({ params }: Props) {
         {/* Quick links */}
         <div className="mb-10 flex flex-wrap gap-3">
           <Link
-            href={`/tournaments/${id}/scoring`}
+            href={`/tournaments/${slug}/scoring`}
             className="flex items-center gap-2 rounded-lg border border-surface-border px-4 py-2 text-sm text-slate-300 hover:bg-surface-card transition-colors"
           >
             <span>🎾</span> Scoring
           </Link>
           <Link
-            href={`/tournaments/${id}/registrations`}
+            href={`/tournaments/${slug}/registrations`}
             className="relative flex items-center gap-2 rounded-lg border border-surface-border px-4 py-2 text-sm text-slate-300 hover:bg-surface-card transition-colors"
           >
             <span>📋</span> Registrations
@@ -200,7 +199,7 @@ export default async function TournamentPage({ params }: Props) {
             <span>📺</span> Display screen
           </Link>
           <Link
-            href={`/events/${id}`}
+            href={`/events/${slug}`}
             target="_blank"
             className="flex items-center gap-2 rounded-lg border border-surface-border px-4 py-2 text-sm text-slate-300 hover:bg-surface-card transition-colors"
           >
@@ -212,7 +211,7 @@ export default async function TournamentPage({ params }: Props) {
         <div>
           <div className="flex items-center justify-between">
             <h2 className="text-base font-semibold text-white">Categories</h2>
-            <AddCategoryInline tournamentId={id} />
+            <AddCategoryInline tournamentId={t.id} />
           </div>
 
           {categories.length === 0 ? (
@@ -229,7 +228,7 @@ export default async function TournamentPage({ params }: Props) {
                 return (
                   <Link
                     key={cat.id}
-                    href={`/tournaments/${id}/categories/${cat.id}`}
+                    href={`/tournaments/${slug}/categories/${cat.slug}`}
                     className="flex items-center justify-between rounded-xl bg-surface-card px-5 py-4 ring-1 ring-surface-border hover:ring-brand-500/40 transition-all"
                   >
                     <div className="min-w-0 flex-1">

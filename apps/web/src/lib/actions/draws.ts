@@ -11,12 +11,13 @@ async function assertCategoryManager(categoryId: string, userId: string) {
 
   const { data: cat } = await admin
     .from('tournament_categories')
-    .select('id, tournament_id, draw_format, tournaments!inner(club_id)')
+    .select('id, tournament_id, draw_format, slug, tournaments!inner(club_id, slug)')
     .eq('id', categoryId)
     .single();
   if (!cat) return null;
 
-  const clubId = (cat.tournaments as { club_id: string }).club_id;
+  const tData = cat.tournaments as { club_id: string; slug: string };
+  const clubId = tData.club_id;
 
   const { data: mgr } = await admin
     .from('club_managers')
@@ -143,7 +144,8 @@ export async function generateDrawAction(categoryId: string) {
     .update({ status: 'draw_generated' })
     .eq('id', categoryId);
 
-  revalidatePath(`/tournaments/${cat.tournament_id}/categories/${categoryId}`);
+  const tSlug = (cat.tournaments as { club_id: string; slug: string }).slug;
+  revalidatePath(`/tournaments/${tSlug}/categories/${cat.slug}`);
   return { success: true, matchCount: matchInserts.length };
 }
 
@@ -165,7 +167,8 @@ export async function clearDrawAction(categoryId: string) {
     .update({ status: 'registration' })
     .eq('id', categoryId);
 
-  revalidatePath(`/tournaments/${cat.tournament_id}/categories/${categoryId}`);
+  const tSlugClear = (cat.tournaments as { club_id: string; slug: string }).slug;
+  revalidatePath(`/tournaments/${tSlugClear}/categories/${cat.slug}`);
   return { success: true };
 }
 

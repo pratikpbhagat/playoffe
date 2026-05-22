@@ -6,11 +6,11 @@ import type { MatchWithPlayers } from '@/lib/actions/draws';
 interface Props {
   matches: MatchWithPlayers[];
   format: string;
-  tournamentId: string;
+  tournamentSlug: string;
 }
 
 // ── Single match card ─────────────────────────────────────────────────────────
-function MatchCard({ match, tournamentId }: { match: MatchWithPlayers; tournamentId: string }) {
+function MatchCard({ match, tournamentSlug }: { match: MatchWithPlayers; tournamentSlug: string }) {
   const isCompleted = match.status === 'completed' || match.status === 'walkover';
 
   function PlayerRow({
@@ -83,7 +83,7 @@ function MatchCard({ match, tournamentId }: { match: MatchWithPlayers; tournamen
     return <div className={cardClass}>{inner}</div>;
   }
   return (
-    <Link href={`/tournaments/${tournamentId}/scoring/${match.id}`} className={cardClass}>
+    <Link href={`/tournaments/${tournamentSlug}/scoring/${match.id}`} className={cardClass}>
       {inner}
     </Link>
   );
@@ -94,12 +94,12 @@ function RoundColumn({
   round_name,
   matches,
   matchSlots,
-  tournamentId,
+  tournamentSlug,
 }: {
   round_name: string;
   matches: MatchWithPlayers[];
   matchSlots: number;
-  tournamentId: string;
+  tournamentSlug: string;
 }) {
   const slotsPerMatch = matchSlots / matches.length;
 
@@ -115,7 +115,7 @@ function RoundColumn({
             className="flex items-center justify-center"
             style={{ flex: slotsPerMatch }}
           >
-            <MatchCard match={m} tournamentId={tournamentId} />
+            <MatchCard match={m} tournamentSlug={tournamentSlug} />
           </div>
         ))}
       </div>
@@ -124,7 +124,7 @@ function RoundColumn({
 }
 
 // ── Bracket (elimination) ─────────────────────────────────────────────────────
-function EliminationBracket({ matches, tournamentId }: { matches: MatchWithPlayers[]; tournamentId: string }) {
+function EliminationBracket({ matches, tournamentSlug }: { matches: MatchWithPlayers[]; tournamentSlug: string }) {
   // Group by round
   const roundMap = new Map<number, MatchWithPlayers[]>();
   for (const m of matches) {
@@ -151,7 +151,7 @@ function EliminationBracket({ matches, tournamentId }: { matches: MatchWithPlaye
               round_name={name}
               matches={roundMatches}
               matchSlots={maxSlots}
-              tournamentId={tournamentId}
+              tournamentSlug={tournamentSlug}
             />
           );
         })}
@@ -161,7 +161,7 @@ function EliminationBracket({ matches, tournamentId }: { matches: MatchWithPlaye
 }
 
 // ── Round-robin schedule ──────────────────────────────────────────────────────
-function RoundRobinBracket({ matches, tournamentId }: { matches: MatchWithPlayers[]; tournamentId: string }) {
+function RoundRobinBracket({ matches, tournamentSlug }: { matches: MatchWithPlayers[]; tournamentSlug: string }) {
   const roundMap = new Map<number, MatchWithPlayers[]>();
   for (const m of matches) {
     const list = roundMap.get(m.round) ?? [];
@@ -183,7 +183,7 @@ function RoundRobinBracket({ matches, tournamentId }: { matches: MatchWithPlayer
             {roundMatches.map((m) => (
               <Link
                 key={m.id}
-                href={`/tournaments/${tournamentId}/scoring/${m.id}`}
+                href={`/tournaments/${tournamentSlug}/scoring/${m.id}`}
                 className="flex items-center gap-3 rounded-lg bg-surface-card px-4 py-2.5 ring-1 ring-surface-border hover:ring-brand-500/40 transition-all"
               >
                 <PlayerChip entry={m.entry_a} winnerId={m.winner_entry_id} />
@@ -237,7 +237,7 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 // ── Main export ───────────────────────────────────────────────────────────────
-export function BracketView({ matches, format, tournamentId }: Props) {
+export function BracketView({ matches, format, tournamentSlug }: Props) {
   if (matches.length === 0) {
     return (
       <p className="text-sm italic text-slate-600">No matches found.</p>
@@ -249,8 +249,8 @@ export function BracketView({ matches, format, tournamentId }: Props) {
     format === 'double_elimination';
 
   return isElimination ? (
-    <EliminationBracket matches={matches} tournamentId={tournamentId} />
+    <EliminationBracket matches={matches} tournamentSlug={tournamentSlug} />
   ) : (
-    <RoundRobinBracket matches={matches} tournamentId={tournamentId} />
+    <RoundRobinBracket matches={matches} tournamentSlug={tournamentSlug} />
   );
 }
