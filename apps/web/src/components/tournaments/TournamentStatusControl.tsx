@@ -91,7 +91,7 @@ export function TournamentStatusControl({ tournamentId, currentStatus }: Props) 
       <button
         onClick={handleCancel}
         disabled={loading}
-        className="rounded-lg border border-red-800 px-4 py-2 text-sm font-semibold text-red-400 hover:bg-red-950 transition-colors disabled:opacity-50"
+        className="rounded-lg border border-red-700 px-4 py-2 text-sm font-semibold text-red-400 hover:bg-red-950 hover:border-red-600 transition-colors disabled:opacity-50"
       >
         Cancel tournament
       </button>

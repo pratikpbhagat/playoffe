@@ -38,7 +38,8 @@ export async function createTournamentAction(
 
   const { data: tournament, error } = await admin
     .from('tournaments')
-    .insert({ ...parsed.data, club_id, created_by: user.id })
+    // display_code is set by a BEFORE INSERT trigger; pass empty string as placeholder
+    .insert({ ...parsed.data, club_id, created_by: user.id, display_code: '' })
     .select('id')
     .single();
 

@@ -14,7 +14,7 @@ interface Props {
 }
 
 const inputClass =
-  'block w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30';
+  'block w-full rounded-lg border border-slate-600 bg-surface px-3 py-2 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30';
 
 const labelClass = 'mb-1.5 block text-sm font-medium text-slate-300';
 

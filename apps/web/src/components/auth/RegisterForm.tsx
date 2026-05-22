@@ -101,7 +101,7 @@ export function RegisterForm() {
 
       <div className="grid grid-cols-2 gap-4">
         <Field label="Gender" error={errors.gender?.message}>
-          <select {...register('gender')} className={inputClass(!!errors.gender)}>
+          <select {...register('gender')} className={`${inputClass(!!errors.gender)} cursor-pointer`}>
             <option value="">Select</option>
             <option value="male">Male</option>
             <option value="female">Female</option>
@@ -163,9 +163,9 @@ function Field({
 }
 
 function inputClass(hasError: boolean) {
-  return `block w-full rounded-lg border px-3 py-2 text-sm text-white bg-surface shadow-sm outline-none transition placeholder:text-slate-600 focus:ring-2 focus:ring-brand-500/30 ${
+  return `block w-full rounded-lg border px-3 py-2 text-sm text-white bg-surface shadow-sm outline-none transition placeholder:text-slate-500 focus:ring-2 focus:ring-brand-500/30 ${
     hasError
       ? 'border-red-500 focus:border-red-500 focus:ring-red-500/20'
-      : 'border-surface-border focus:border-brand-500'
+      : 'border-slate-600 focus:border-brand-500'
   }`;
 }

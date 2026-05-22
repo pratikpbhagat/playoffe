@@ -13,6 +13,7 @@
     "@aws-sdk/client-ses": "^3.1052.0",
     "@hookform/resolvers": "^3.9.1",
     "@pickleball/db": "workspace:*",
+    "@pickleball/draw-engine": "workspace:*",
     "@pickleball/rating": "workspace:*",
     "@pickleball/shared": "workspace:*",
     "@pickleball/ui": "workspace:*",

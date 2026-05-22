@@ -17,3 +17,51 @@
     color: #ffffff;
   }
 }
+
+/*
+ * Form element overrides — placed outside @layer so they win over Tailwind
+ * utility classes (CSS Cascade: unlayered rules beat @layer rules).
+ *
+ * Goals:
+ *  1. Inputs/selects/textareas get a visibly lighter border at rest (#475569)
+ *     so they're distinguishable from the dark surface background.
+ *  2. Selects get a custom SVG chevron + appearance:none so the dropdown
+ *     affordance is always visible (not just on hover).
+ *  3. Date / number / time inputs opt-in to dark color-scheme so the browser's
+ *     native calendar icon, spinner arrows and date placeholder use dark-mode
+ *     styling instead of the system light default.
+ */
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+select,
+textarea {
+  border-color: #475569; /* slate-600 — clearly visible on dark surfaces */
+}
+
+/* Inputs get dark color-scheme so browser UI (calendar, spinners) matches */
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"],
+input[type="month"],
+input[type="week"],
+input[type="number"] {
+  color-scheme: dark;
+}
+
+/*
+ * Select — remove native browser arrow and replace with a crisp SVG chevron.
+ * The padding-right gives the text room to breathe away from the arrow.
+ * cursor:pointer makes the interactive affordance explicit.
+ */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  cursor: pointer;
+  color-scheme: dark;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%2394a3b8' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E");
+  background-position: right 0.6rem center;
+  background-size: 1.125rem 1.125rem;
+  background-repeat: no-repeat;
+  padding-right: 2.25rem;
+}

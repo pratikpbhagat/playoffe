@@ -160,7 +160,7 @@ export default async function DashboardPage() {
                       >
                         <div className="min-w-0">
                           <p className="truncate text-sm text-slate-300">{t.name}</p>
-                          <p className="text-xs text-slate-600">
+                          <p className="text-xs text-slate-500">
                             {new Date(t.start_date).toLocaleDateString('en-AU', {
                               day: 'numeric',
                               month: 'short',

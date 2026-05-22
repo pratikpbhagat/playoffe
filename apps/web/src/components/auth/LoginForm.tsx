@@ -31,7 +31,7 @@ export function LoginForm() {
           type="email"
           required
           placeholder="alex@example.com"
-          className="block w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm text-white placeholder:text-slate-600 shadow-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
+          className="block w-full rounded-lg border border-slate-600 bg-surface px-3 py-2 text-sm text-white placeholder:text-slate-500 shadow-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
         />
       </div>
       <div>
@@ -41,7 +41,7 @@ export function LoginForm() {
           type="password"
           required
           placeholder="••••••••"
-          className="block w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm text-white placeholder:text-slate-600 shadow-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
+          className="block w-full rounded-lg border border-slate-600 bg-surface px-3 py-2 text-sm text-white placeholder:text-slate-500 shadow-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
         />
       </div>
       <button

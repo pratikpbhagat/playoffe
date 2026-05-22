@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { AppNav } from '@/components/layout/AppNav';
 import { TournamentStatusControl } from '@/components/tournaments/TournamentStatusControl';
+import { AddCategoryInline } from '@/components/tournaments/AddCategoryInline';
 import type { TournamentStatus } from '@/lib/actions/tournaments';
 
 export const metadata: Metadata = { title: 'Tournament' };
@@ -26,6 +27,14 @@ const FORMAT_LABEL: Record<string, string> = {
   double_elimination: 'Double elimination',
   group_stage_knockout: 'Group stage + knockout',
   swiss: 'Swiss',
+};
+
+const CATEGORY_STATUS: Record<string, { label: string; className: string }> = {
+  pending:        { label: 'Setup',         className: 'bg-slate-700/50 text-slate-400' },
+  registration:   { label: 'Registration',  className: 'bg-blue-900/40 text-blue-400' },
+  draw_generated: { label: 'Draw ready',    className: 'bg-brand-900/40 text-brand-300' },
+  in_progress:    { label: 'In progress',   className: 'bg-accent-500/20 text-accent-400' },
+  completed:      { label: 'Completed',     className: 'bg-slate-700/40 text-slate-400' },
 };
 
 const PLAY_FORMAT_LABEL: Record<string, string> = {
@@ -152,6 +161,12 @@ export default async function TournamentPage({ params }: Props) {
         {/* Quick links */}
         <div className="mb-10 flex flex-wrap gap-3">
           <Link
+            href={`/tournaments/${id}/scoring`}
+            className="flex items-center gap-2 rounded-lg border border-surface-border px-4 py-2 text-sm text-slate-300 hover:bg-surface-card transition-colors"
+          >
+            <span>🎾</span> Scoring
+          </Link>
+          <Link
             href={`/display/${t.display_code}`}
             target="_blank"
             className="flex items-center gap-2 rounded-lg border border-surface-border px-4 py-2 text-sm text-slate-300 hover:bg-surface-card transition-colors"
@@ -162,49 +177,50 @@ export default async function TournamentPage({ params }: Props) {
 
         {/* Categories */}
         <div>
-          <div className="mb-4 flex items-center justify-between">
+          <div className="flex items-center justify-between">
             <h2 className="text-base font-semibold text-white">Categories</h2>
-            {/* Add category button — built in M2 */}
-            <button
-              disabled
-              title="Coming in next milestone"
-              className="rounded-lg bg-brand-600/30 px-3 py-1.5 text-xs font-medium text-brand-300 cursor-not-allowed"
-            >
-              + Add category
-            </button>
+            <AddCategoryInline tournamentId={id} />
           </div>
 
           {categories.length === 0 ? (
-            <div className="rounded-xl bg-surface-card p-8 text-center ring-1 ring-surface-border">
+            <div className="mt-4 rounded-xl bg-surface-card p-8 text-center ring-1 ring-surface-border">
               <p className="text-sm text-slate-500">
                 No categories yet. Add a category to define how players will compete.
               </p>
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className="mt-4 space-y-2">
               {categories.map((cat) => {
                 const entryCount = countByCategory[cat.id] ?? 0;
+                const catStatus = CATEGORY_STATUS[cat.status] ?? CATEGORY_STATUS.pending;
                 return (
-                  <div
+                  <Link
                     key={cat.id}
-                    className="flex items-center justify-between rounded-xl bg-surface-card px-5 py-4 ring-1 ring-surface-border"
+                    href={`/tournaments/${id}/categories/${cat.id}`}
+                    className="flex items-center justify-between rounded-xl bg-surface-card px-5 py-4 ring-1 ring-surface-border hover:ring-brand-500/40 transition-all"
                   >
-                    <div>
-                      <p className="text-sm font-semibold text-white">{cat.name}</p>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2.5">
+                        <p className="text-sm font-semibold text-white truncate">{cat.name}</p>
+                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${catStatus.className}`}>
+                          {catStatus.label}
+                        </span>
+                      </div>
                       <p className="mt-0.5 text-xs text-slate-500">
                         {PLAY_FORMAT_LABEL[cat.play_format] ?? cat.play_format} ·{' '}
                         {FORMAT_LABEL[cat.draw_format] ?? cat.draw_format}
                       </p>
                     </div>
-                    <div className="flex items-center gap-3 text-right">
-                      <div>
-                        <p className="text-sm font-semibold text-white">{entryCount}</p>
+                    <div className="flex items-center gap-4 shrink-0 ml-4">
+                      <div className="text-right">
+                        <p className="text-sm font-bold text-white">{entryCount}</p>
                         <p className="text-xs text-slate-500">
                           {cat.max_entries ? `/ ${cat.max_entries}` : 'entries'}
                         </p>
                       </div>
+                      <span className="text-slate-500">›</span>
                     </div>
-                  </div>
+                  </Link>
                 );
               })}
             </div>
