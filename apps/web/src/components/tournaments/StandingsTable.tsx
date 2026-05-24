@@ -31,9 +31,12 @@ function buildStandings(matches: MatchWithPlayers[]): Map<string, Standing> {
 
   function getOrCreate(entry: NonNullable<MatchWithPlayers['entry_a']>): Standing {
     if (!map.has(entry.id)) {
+      const displayName = entry.partner_name
+        ? `${entry.player_name} / ${entry.partner_name}`
+        : entry.player_name;
       map.set(entry.id, {
         entryId: entry.id,
-        playerName: entry.player_name,
+        playerName: displayName,
         played: 0,
         wins: 0,
         losses: 0,

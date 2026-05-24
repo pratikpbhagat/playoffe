@@ -48,7 +48,7 @@ function MatchCard({ match, tournamentSlug }: { match: MatchWithPlayers; tournam
                   : 'text-slate-300'
           }`}
         >
-          {isBye ? 'BYE' : entry.player_name}
+          {isBye ? 'BYE' : entry.partner_name ? `${entry.player_name} / ${entry.partner_name}` : entry.player_name}
         </span>
 
         {/* Winner tick */}

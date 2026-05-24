@@ -471,12 +471,14 @@ export type MatchWithPlayers = {
     id: string;
     seed: number | null;
     player_name: string;
+    partner_name: string | null;
     player_username: string;
   } | null;
   entry_b: {
     id: string;
     seed: number | null;
     player_name: string;
+    partner_name: string | null;
     player_username: string;
   } | null;
 };
@@ -488,8 +490,8 @@ export async function getMatchesForCategory(categoryId: string): Promise<MatchWi
     .from('matches')
     .select(
       `id, round, round_name, group_name, bracket_type, status, winner_entry_id, sets, court,
-       ea:tournament_entries!entry_a_id(id, seed, players!player_id(full_name, username)),
-       eb:tournament_entries!entry_b_id(id, seed, players!player_id(full_name, username))`,
+       ea:tournament_entries!entry_a_id(id, seed, players!player_id(full_name, username), partner:players!partner_id(full_name)),
+       eb:tournament_entries!entry_b_id(id, seed, players!player_id(full_name, username), partner:players!partner_id(full_name))`,
     )
     .eq('category_id', categoryId)
     .order('round', { ascending: true })
@@ -497,9 +499,16 @@ export async function getMatchesForCategory(categoryId: string): Promise<MatchWi
 
   if (!data) return [];
 
+  type EntryRaw = {
+    id: string;
+    seed: number | null;
+    players: { full_name: string; username: string } | null;
+    partner: { full_name: string } | null;
+  } | null;
+
   return data.map((m) => {
-    const ea = m.ea as { id: string; seed: number | null; players: { full_name: string; username: string } | null } | null;
-    const eb = m.eb as { id: string; seed: number | null; players: { full_name: string; username: string } | null } | null;
+    const ea = m.ea as EntryRaw;
+    const eb = m.eb as EntryRaw;
 
     return {
       id: m.id,
@@ -516,6 +525,7 @@ export async function getMatchesForCategory(categoryId: string): Promise<MatchWi
             id: ea.id,
             seed: ea.seed,
             player_name: ea.players?.full_name ?? 'Unknown',
+            partner_name: ea.partner?.full_name ?? null,
             player_username: ea.players?.username ?? '',
           }
         : null,
@@ -524,6 +534,7 @@ export async function getMatchesForCategory(categoryId: string): Promise<MatchWi
             id: eb.id,
             seed: eb.seed,
             player_name: eb.players?.full_name ?? 'Unknown',
+            partner_name: eb.partner?.full_name ?? null,
             player_username: eb.players?.username ?? '',
           }
         : null,
