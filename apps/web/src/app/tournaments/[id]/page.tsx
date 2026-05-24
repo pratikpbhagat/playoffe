@@ -5,6 +5,7 @@ import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { AppNav } from '@/components/layout/AppNav';
 import { TournamentStatusControl } from '@/components/tournaments/TournamentStatusControl';
 import { AddCategoryInline } from '@/components/tournaments/AddCategoryInline';
+import { RegistrationQR } from '@/components/ui/RegistrationQR';
 import type { TournamentStatus } from '@/lib/actions/tournaments';
 
 export const metadata: Metadata = { title: 'Tournament' };
@@ -86,6 +87,15 @@ export default async function TournamentPage({ params }: Props) {
     .select('id', { count: 'exact', head: true })
     .eq('tournament_id', t.id)
     .eq('status', 'pending');
+
+  // Pending score approvals (player self-reports awaiting organiser review)
+  const { count: pendingScoreCount } = await admin
+    .from('matches')
+    .select('id', { count: 'exact', head: true })
+    .eq('tournament_id', t.id)
+    .not('player_reported_winner_id', 'is', null)
+    .neq('status', 'completed')
+    .neq('status', 'walkover');
 
   const countByCategory: Record<string, number> = {};
   for (const e of entryCounts ?? []) {
@@ -172,13 +182,28 @@ export default async function TournamentPage({ params }: Props) {
           ))}
         </div>
 
+        {/* Registration QR */}
+        {t.status === 'registration_open' && (
+          <div className="mb-8">
+            <RegistrationQR
+              url={`${process.env.NEXT_PUBLIC_BASE_URL ?? 'http://localhost:3000'}/events/${slug}`}
+              label={`Register for ${t.name}`}
+            />
+          </div>
+        )}
+
         {/* Quick links */}
         <div className="mb-10 flex flex-wrap gap-3">
           <Link
             href={`/tournaments/${slug}/scoring`}
-            className="flex items-center gap-2 rounded-lg border border-surface-border px-4 py-2 text-sm text-slate-300 hover:bg-surface-card transition-colors"
+            className="relative flex items-center gap-2 rounded-lg border border-surface-border px-4 py-2 text-sm text-slate-300 hover:bg-surface-card transition-colors"
           >
             <span>🎾</span> Scoring
+            {(pendingScoreCount ?? 0) > 0 && (
+              <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold text-white">
+                {pendingScoreCount}
+              </span>
+            )}
           </Link>
           <Link
             href={`/tournaments/${slug}/schedule`}
