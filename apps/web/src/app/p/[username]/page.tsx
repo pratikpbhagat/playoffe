@@ -56,13 +56,13 @@ export default async function PlayerProfilePage({ params }: Props) {
 
   const isOwnProfile = user?.id === player.id;
 
-  // Fetch match history (admin bypasses RLS so public profiles show history)
+  // Fetch recent match history (admin bypasses RLS so public profiles show history)
   const { data: rawHistory } = await admin
     .from('match_history')
     .select('id, result, sets, rating_before, rating_after, rating_change, played_at, tournament_id, opponent_entry_id')
     .eq('player_id', player.id)
     .order('played_at', { ascending: false })
-    .limit(15);
+    .limit(5);
 
   let matchHistory: MatchHistoryRow[] = [];
 

@@ -138,9 +138,17 @@ export function PlayerProfileView({ player, matchHistory, isOwnProfile }: Props)
         {/* Match history */}
         {matchHistory.length > 0 && (
           <section className="mt-8">
-            <h2 className="mb-4 text-sm font-semibold uppercase tracking-widest text-slate-500">
-              Recent matches
-            </h2>
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500">
+                Recent matches
+              </h2>
+              <Link
+                href={`/p/${player.username}/matches`}
+                className="text-xs text-brand-400 hover:text-brand-300 transition-colors"
+              >
+                View all →
+              </Link>
+            </div>
             <div className="space-y-2">
               {matchHistory.map((h) => {
                 const resultStyle = RESULT_STYLE[h.result] ?? { label: h.result, color: 'text-slate-500 bg-slate-700/30' };
