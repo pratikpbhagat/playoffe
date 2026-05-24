@@ -56,6 +56,42 @@ export async function updateProfileAction(values: ProfileFormValues) {
   return { success: true, username: player?.username };
 }
 
+export async function uploadAvatarAction(formData: FormData) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: 'Not authenticated' };
+
+  const file = formData.get('file') as File | null;
+  if (!file || file.size === 0) return { error: 'No file provided' };
+  if (file.size > 5 * 1024 * 1024) return { error: 'File must be under 5 MB' };
+  if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.type)) {
+    return { error: 'Only JPEG, PNG, WebP or GIF files are accepted' };
+  }
+
+  const ext = file.type === 'image/jpeg' ? 'jpg' : file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'gif';
+  const path = `${user.id}/avatar.${ext}`;
+
+  const { error: uploadErr } = await supabase.storage.from('avatars').upload(path, file, {
+    upsert: true,
+    contentType: file.type,
+  });
+  if (uploadErr) return { error: 'Upload failed: ' + uploadErr.message };
+
+  const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path);
+  const publicUrl = urlData.publicUrl + `?t=${Date.now()}`;
+
+  // Save URL to players table
+  const { error: updateErr } = await supabase.from('players').update({ photo_url: publicUrl }).eq('id', user.id);
+  if (updateErr) return { error: 'Failed to save photo URL' };
+
+  // Revalidate
+  const { data: player } = await supabase.from('players').select('username').eq('id', user.id).single();
+  if (player?.username) revalidatePath(`/p/${player.username}`);
+  revalidatePath('/settings/profile');
+
+  return { success: true, url: publicUrl };
+}
+
 export async function getOwnProfileAction() {
   const supabase = await createClient();
   const {

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { AppNav } from '@/components/layout/AppNav';
 import { EditProfileForm } from '@/components/player/EditProfileForm';
+import { PhotoUpload } from '@/components/player/PhotoUpload';
 
 export const metadata: Metadata = { title: 'Edit profile' };
 
@@ -45,6 +46,10 @@ export default async function EditProfilePage() {
         <h1 className="mb-8 text-2xl font-bold text-white">Edit profile</h1>
 
         <div className="rounded-xl bg-surface-card p-6 ring-1 ring-surface-border">
+          <PhotoUpload
+            currentUrl={player.photo_url ?? null}
+            username={player.username}
+          />
           <EditProfileForm
             username={player.username}
             initial={{
