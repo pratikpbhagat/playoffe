@@ -6,6 +6,7 @@ import Link from 'next/link';
 import {
   approveEntryAction,
   rejectEntryAction,
+  promoteWaitlistedEntryAction,
   bulkApproveEntriesAction,
   removeEntryAction,
   updateEntrySeedAction,
@@ -91,6 +92,15 @@ export function PendingEntriesPanel({ tournamentSlug, category, entries }: Props
     if (!confirm(`Remove ${playerName} from this category? This will promote the next waitlisted player.`)) return;
     setActing(entryId);
     const result = await removeEntryAction(entryId);
+    if (result.error) setMsg(`Error: ${result.error}`);
+    else router.refresh();
+    setActing(null);
+  }
+
+  async function handlePromote(entryId: string, playerName: string) {
+    if (!confirm(`Promote ${playerName} from waitlist to active?`)) return;
+    setActing(entryId);
+    const result = await promoteWaitlistedEntryAction(entryId);
     if (result.error) setMsg(`Error: ${result.error}`);
     else router.refresh();
     setActing(null);
@@ -312,6 +322,15 @@ export function PendingEntriesPanel({ tournamentSlug, category, entries }: Props
                             Reject
                           </button>
                         </>
+                      )}
+                      {isWaitlisted && (
+                        <button
+                          onClick={() => handlePromote(entry.id, player?.full_name ?? 'player')}
+                          disabled={acting === entry.id}
+                          className="rounded-lg bg-brand-600 px-3 py-1 text-xs font-semibold text-white hover:bg-brand-700 transition-colors disabled:opacity-50"
+                        >
+                          {acting === entry.id ? '…' : 'Promote'}
+                        </button>
                       )}
                       {(isActive || isWaitlisted) && (
                         <button

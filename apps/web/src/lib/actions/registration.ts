@@ -318,6 +318,53 @@ export async function rejectEntryAction(entryId: string) {
   return { success: true };
 }
 
+// ── Manually promote a specific waitlisted entry ──────────────────────────────
+export async function promoteWaitlistedEntryAction(entryId: string) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: 'Not authenticated.' };
+
+  const entry = await assertManagerForEntry(entryId, user.id);
+  if (!entry) return { error: 'Permission denied.' };
+  if (entry.status !== 'waitlisted') return { error: 'Entry is not waitlisted.' };
+
+  const admin = createAdminClient();
+
+  await admin
+    .from('tournament_entries')
+    .update({ status: 'active' })
+    .eq('id', entryId);
+
+  // Fetch player + category/tournament for email
+  const { data: details } = await admin
+    .from('tournament_entries')
+    .select('players!player_id(email, full_name), tournament_categories!category_id(name, tournaments!tournament_id(name, slug))')
+    .eq('id', entryId)
+    .single();
+
+  if (details) {
+    type PlayerRow = { email: string; full_name: string } | null;
+    type CatRow = { name: string; tournaments: { name: string; slug: string } | null } | null;
+    const player = details.players as unknown as PlayerRow;
+    const cat = details.tournament_categories as unknown as CatRow;
+    if (player && cat?.tournaments) {
+      void sendWaitlistPromotedNotification({
+        playerEmail: player.email,
+        playerName: player.full_name,
+        tournamentName: cat.tournaments.name,
+        tournamentSlug: cat.tournaments.slug,
+        categoryName: cat.name,
+      });
+    }
+  }
+
+  revalidatePath(`/tournaments/${entry.tournamentSlug}/registrations`);
+  revalidatePath(`/tournaments/${entry.tournamentSlug}`);
+  return { success: true };
+}
+
 export async function bulkApproveEntriesAction(categoryId: string) {
   const supabase = await createClient();
   const {
