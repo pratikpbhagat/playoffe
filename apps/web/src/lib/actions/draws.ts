@@ -306,6 +306,156 @@ export async function scheduleMatchesAction(
   return { success: true, scheduled: updates.length };
 }
 
+// ── Generate next Swiss round ─────────────────────────────────────────────────
+// Reads actual match results from the DB, computes standings, pairs players by
+// Swiss rules (closest score, no repeat opponents if possible), and inserts the
+// new round's matches.
+export async function generateNextSwissRoundAction(categoryId: string) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: 'Not authenticated' };
+
+  const cat = await assertCategoryManager(categoryId, user.id);
+  if (!cat) return { error: 'Permission denied' };
+
+  const admin = createAdminClient();
+
+  // Fetch all matches for this category
+  const { data: allMatches } = await admin
+    .from('matches')
+    .select('id, round, status, entry_a_id, entry_b_id, winner_entry_id')
+    .eq('category_id', categoryId)
+    .order('round', { ascending: true });
+
+  if (!allMatches || allMatches.length === 0) return { error: 'No matches found — generate the draw first' };
+
+  const maxRound = Math.max(...allMatches.map((m) => m.round));
+  const currentRoundMatches = allMatches.filter((m) => m.round === maxRound);
+  const allComplete = currentRoundMatches.every(
+    (m) => m.status === 'completed' || m.status === 'walkover',
+  );
+  if (!allComplete) return { error: 'Not all matches in the current round are complete' };
+
+  // Fetch active entries
+  const { data: entries } = await admin
+    .from('tournament_entries')
+    .select('id, seed, players!player_id(global_stats(current_rating))')
+    .eq('category_id', categoryId)
+    .eq('status', 'active');
+
+  if (!entries || entries.length < 2) return { error: 'Not enough active entries' };
+
+  // Build standings & opponents-faced maps
+  type Standing = { entryId: string; wins: number; losses: number; seed: number | null; rating: number };
+  const standingsMap = new Map<string, Standing>();
+  const opponentsFaced = new Map<string, Set<string>>();
+
+  for (const e of entries) {
+    const player = e.players as { global_stats: { current_rating: number } | null } | null;
+    standingsMap.set(e.id, {
+      entryId: e.id,
+      wins: 0,
+      losses: 0,
+      seed: e.seed ?? null,
+      rating: player?.global_stats?.current_rating ?? 3.5,
+    });
+    opponentsFaced.set(e.id, new Set());
+  }
+
+  // Process all historical matches
+  for (const m of allMatches) {
+    if (m.status !== 'completed' && m.status !== 'walkover') continue;
+
+    if (m.entry_a_id && m.entry_b_id) {
+      // Real match — track opponents and update win/loss
+      opponentsFaced.get(m.entry_a_id)?.add(m.entry_b_id);
+      opponentsFaced.get(m.entry_b_id)?.add(m.entry_a_id);
+      if (m.winner_entry_id) {
+        const winner = standingsMap.get(m.winner_entry_id);
+        if (winner) winner.wins++;
+        const loserId = m.winner_entry_id === m.entry_a_id ? m.entry_b_id : m.entry_a_id;
+        const loser = standingsMap.get(loserId);
+        if (loser) loser.losses++;
+      }
+    } else {
+      // Bye — winner gets a win, no opponent tracked
+      if (m.winner_entry_id) {
+        const standing = standingsMap.get(m.winner_entry_id);
+        if (standing) standing.wins++;
+      }
+    }
+  }
+
+  // Sort by wins desc → rating desc (tiebreak)
+  const sorted = [...standingsMap.values()].sort((a, b) => {
+    if (b.wins !== a.wins) return b.wins - a.wins;
+    return b.rating - a.rating;
+  });
+
+  // Greedy Swiss pairing
+  const paired = new Set<string>();
+  const newMatchPairs: { entryA: string; entryB: string | null }[] = [];
+
+  for (const player of sorted) {
+    if (paired.has(player.entryId)) continue;
+
+    let opponent: Standing | null = null;
+
+    // First pass: prefer unpaired opponent not previously faced
+    for (const candidate of sorted) {
+      if (candidate.entryId === player.entryId) continue;
+      if (paired.has(candidate.entryId)) continue;
+      if (opponentsFaced.get(player.entryId)?.has(candidate.entryId)) continue;
+      opponent = candidate;
+      break;
+    }
+
+    // Second pass: allow rematch if no fresh opponent is available
+    if (!opponent) {
+      for (const candidate of sorted) {
+        if (candidate.entryId === player.entryId) continue;
+        if (paired.has(candidate.entryId)) continue;
+        opponent = candidate;
+        break;
+      }
+    }
+
+    paired.add(player.entryId);
+    if (opponent) {
+      paired.add(opponent.entryId);
+      newMatchPairs.push({ entryA: player.entryId, entryB: opponent.entryId });
+    } else {
+      newMatchPairs.push({ entryA: player.entryId, entryB: null }); // bye
+    }
+  }
+
+  const nextRound = maxRound + 1;
+  const roundName = `Round ${nextRound}`;
+
+  const matchInserts = newMatchPairs.map((pair, i) => ({
+    id: crypto.randomUUID(),
+    tournament_id: cat.tournament_id,
+    category_id: categoryId,
+    round: nextRound,
+    round_name: roundName,
+    group_name: null,
+    entry_a_id: pair.entryA,
+    entry_b_id: pair.entryB,
+    status: 'scheduled' as const,
+    sets: [] as never[],
+    bracket_position: i,
+  }));
+
+  const { error: insertErr } = await admin.from('matches').insert(matchInserts);
+  if (insertErr) return { error: `Failed to insert matches: ${insertErr.message}` };
+
+  const tSlug = cat.tournamentData.slug;
+  revalidatePath(`/tournaments/${tSlug}/categories/${cat.slug}`);
+  return { success: true, round: nextRound, matchCount: matchInserts.length };
+}
+
 // ── Fetch matches with player details ─────────────────────────────────────────
 export type MatchWithPlayers = {
   id: string;

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { generateDrawAction, clearDrawAction, scheduleMatchesAction } from '@/lib/actions/draws';
+import { generateDrawAction, clearDrawAction, scheduleMatchesAction, generateNextSwissRoundAction } from '@/lib/actions/draws';
 import type { MatchWithPlayers } from '@/lib/actions/draws';
 import { BracketView } from './BracketView';
 
@@ -34,9 +34,12 @@ export function DrawSection({
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [scheduling, setScheduling] = useState(false);
+  const [generatingSwissRound, setGeneratingSwissRound] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showRegenConfirm, setShowRegenConfirm] = useState(false);
   const [matches, setMatches] = useState(initialMatches);
+  const [startTime, setStartTime] = useState('');
+  const [matchDuration, setMatchDuration] = useState(30);
 
   // Sync matches when server re-renders after router.refresh() passes new initialMatches
   useEffect(() => {
@@ -49,6 +52,18 @@ export function DrawSection({
   const unscheduledCount = matches.filter(
     (m) => !m.court && m.entry_a !== null && m.entry_b !== null && (m.status === 'scheduled' || m.status === 'in_progress'),
   ).length;
+
+  // Swiss next-round logic
+  const isSwiss = drawFormat === 'swiss';
+  const maxRound = matches.length > 0 ? Math.max(...matches.map((m) => m.round)) : 0;
+  const currentRoundComplete =
+    maxRound > 0 &&
+    matches
+      .filter((m) => m.round === maxRound)
+      .every((m) => m.status === 'completed' || m.status === 'walkover');
+  const totalSwissRounds = Math.ceil(Math.log2(Math.max(entryCount, 2)));
+  const canGenerateNextSwissRound =
+    isSwiss && isDrawn && currentRoundComplete && maxRound < totalSwissRounds;
 
   async function handleGenerate() {
     setLoading(true);
@@ -75,13 +90,28 @@ export function DrawSection({
   async function handleSchedule() {
     setScheduling(true);
     setError(null);
-    const result = await scheduleMatchesAction(categoryId);
+    const result = await scheduleMatchesAction(categoryId, {
+      startTime: startTime || undefined,
+      matchDurationMins: matchDuration,
+    });
     if ('error' in result && result.error) {
       setError(result.error);
     } else {
       router.refresh();
     }
     setScheduling(false);
+  }
+
+  async function handleGenerateNextSwissRound() {
+    setGeneratingSwissRound(true);
+    setError(null);
+    const result = await generateNextSwissRoundAction(categoryId);
+    if ('error' in result && result.error) {
+      setError(result.error);
+    } else {
+      router.refresh();
+    }
+    setGeneratingSwissRound(false);
   }
 
   return (
@@ -101,14 +131,46 @@ export function DrawSection({
                 {matches.length} match{matches.length !== 1 ? 'es' : ''}
               </span>
 
-              {/* Auto-schedule courts button */}
+              {/* Auto-schedule courts + optional time inputs */}
               {categoryStatus === 'draw_generated' && unscheduledCount > 0 && !showRegenConfirm && (
+                <>
+                  <input
+                    type="datetime-local"
+                    value={startTime}
+                    onChange={(e) => setStartTime(e.target.value)}
+                    title="Optional start time for first match"
+                    className="rounded-lg border border-slate-700 bg-surface-card px-2 py-1.5 text-xs text-slate-300 focus:border-brand-500 focus:outline-none"
+                  />
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      min={5}
+                      max={180}
+                      value={matchDuration}
+                      onChange={(e) => setMatchDuration(Number(e.target.value))}
+                      title="Match duration in minutes"
+                      className="w-14 rounded-lg border border-slate-700 bg-surface-card px-2 py-1.5 text-center text-xs text-slate-300 focus:border-brand-500 focus:outline-none"
+                    />
+                    <span className="text-xs text-slate-500">min</span>
+                  </div>
+                  <button
+                    onClick={handleSchedule}
+                    disabled={scheduling}
+                    className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs text-slate-300 hover:border-brand-500 hover:text-brand-400 transition-colors disabled:opacity-50"
+                  >
+                    {scheduling ? 'Scheduling…' : `Assign courts (${unscheduledCount})`}
+                  </button>
+                </>
+              )}
+
+              {/* Swiss: generate next round */}
+              {canGenerateNextSwissRound && !showRegenConfirm && (
                 <button
-                  onClick={handleSchedule}
-                  disabled={scheduling}
-                  className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs text-slate-300 hover:border-brand-500 hover:text-brand-400 transition-colors disabled:opacity-50"
+                  onClick={handleGenerateNextSwissRound}
+                  disabled={generatingSwissRound}
+                  className="rounded-lg border border-brand-600 px-3 py-1.5 text-xs text-brand-400 hover:bg-brand-600/10 transition-colors disabled:opacity-50"
                 >
-                  {scheduling ? 'Scheduling…' : `Assign courts (${unscheduledCount})`}
+                  {generatingSwissRound ? 'Generating…' : `Generate Round ${maxRound + 1}`}
                 </button>
               )}
 
