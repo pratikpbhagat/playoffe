@@ -5,6 +5,7 @@ import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { AppNav } from '@/components/layout/AppNav';
 import { PublicCategoryCard } from '@/components/events/PublicCategoryCard';
 import { DeadlineCountdown } from '@/components/events/DeadlineCountdown';
+import { RegistrationQR } from '@/components/ui/RegistrationQR';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -13,10 +14,31 @@ interface Props {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id: slug } = await params;
   const admin = createAdminClient();
-  const { data: t } = await admin.from('tournaments').select('name, clubs(name)').eq('slug', slug).single();
+  const { data: t } = await admin
+    .from('tournaments')
+    .select('name, description, start_date, venue, clubs(name)')
+    .eq('slug', slug)
+    .single();
   if (!t) return { title: 'Tournament not found' };
   const club = t.clubs as { name: string } | null;
-  return { title: `${t.name} · ${club?.name ?? 'PLAYOFFE'}` };
+  const title = `${t.name} · ${club?.name ?? 'PLAYOFFE'}`;
+  const description = t.description
+    ?? `${t.name} — pickleball tournament${t.venue ? ` at ${t.venue}` : ''}. Register and compete on PLAYOFFE.`;
+  return {
+    title,
+    description,
+    openGraph: {
+      title,
+      description,
+      type: 'website',
+      siteName: 'PLAYOFFE',
+    },
+    twitter: {
+      card: 'summary',
+      title,
+      description,
+    },
+  };
 }
 
 const STATUS_BANNER: Record<string, { label: string; className: string }> = {
@@ -259,6 +281,16 @@ export default async function PublicTournamentPage({ params }: Props) {
                 Log in
               </Link>
             </div>
+          </div>
+        )}
+
+        {/* QR code for sharing */}
+        {registrationOpen && (
+          <div className="mt-8">
+            <RegistrationQR
+              url={`${process.env.NEXT_PUBLIC_BASE_URL ?? 'http://localhost:3000'}/events/${slug}`}
+              label={`Register for ${t.name}`}
+            />
           </div>
         )}
       </main>

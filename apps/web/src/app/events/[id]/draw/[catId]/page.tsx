@@ -54,6 +54,16 @@ export default async function PublicDrawPage({ params }: Props) {
 
   const matches = await getMatchesForCategory(cat.id);
 
+  // Find the winner: the last match with a winner (final/grand final)
+  const completedMatches = matches.filter((m) => m.status === 'completed' || m.status === 'walkover');
+  const finalMatch = completedMatches.length > 0
+    ? completedMatches.reduce((a, b) => (b.round > a.round ? b : a), completedMatches[0])
+    : null;
+  const winnerEntry = finalMatch?.winner_entry_id
+    ? (finalMatch.winner_entry_id === finalMatch.entry_a?.id ? finalMatch.entry_a : finalMatch.entry_b)
+    : null;
+  const isCompleted = cat.status === 'completed';
+
   return (
     <div className="min-h-screen bg-surface">
       <AppNav />
@@ -72,6 +82,20 @@ export default async function PublicDrawPage({ params }: Props) {
 
         <h1 className="mb-2 text-xl font-bold text-white">{cat.name}</h1>
         <p className="mb-8 text-sm text-slate-500">{tournament.name}</p>
+
+        {/* Winner banner — shown when category is completed */}
+        {isCompleted && winnerEntry && (
+          <div className="mb-8 overflow-hidden rounded-2xl bg-gradient-to-r from-brand-900/60 to-brand-800/30 ring-1 ring-brand-700/50 px-8 py-7 text-center">
+            <p className="text-4xl mb-3">🏆</p>
+            <p className="text-xs font-semibold uppercase tracking-widest text-brand-400 mb-1">Champion</p>
+            <p className="text-2xl font-bold text-white">
+              {winnerEntry.partner_name
+                ? `${winnerEntry.player_name} / ${winnerEntry.partner_name}`
+                : winnerEntry.player_name}
+            </p>
+            <p className="mt-1 text-sm text-slate-400">{cat.name} · {tournament.name}</p>
+          </div>
+        )}
 
         {matches.length === 0 ? (
           <div className="rounded-xl bg-surface-card p-10 text-center ring-1 ring-surface-border">
