@@ -3,6 +3,7 @@ import { notFound, redirect } from 'next/navigation';
 import Link from 'next/link';
 import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { AppNav } from '@/components/layout/AppNav';
+import { RefereePinsPanel } from '@/components/tournaments/RefereePinsPanel';
 
 export const metadata: Metadata = { title: 'Scoring' };
 
@@ -49,6 +50,13 @@ export default async function ScoringHubPage({ params, searchParams }: Props) {
     .eq('player_id', user.id)
     .maybeSingle();
   if (!mgr) notFound();
+
+  // Referee PINs for this tournament
+  const { data: refPins } = await admin
+    .from('tournament_referee_pins')
+    .select('id, label, expires_at, is_revoked')
+    .eq('tournament_id', t.id)
+    .order('created_at', { ascending: false });
 
   const { data: matches } = await admin
     .from('matches')
@@ -295,6 +303,17 @@ export default async function ScoringHubPage({ params, searchParams }: Props) {
             </p>
           </div>
         )}
+
+        {/* Referee PIN management */}
+        <RefereePinsPanel
+          tournamentId={t.id}
+          pins={(refPins ?? []).map((p) => ({
+            id: p.id,
+            label: p.label as string | null,
+            expires_at: p.expires_at as string,
+            is_revoked: p.is_revoked as boolean,
+          }))}
+        />
       </main>
     </div>
   );
