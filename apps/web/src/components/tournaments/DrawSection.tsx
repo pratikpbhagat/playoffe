@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { generateDrawAction, clearDrawAction, scheduleMatchesAction } from '@/lib/actions/draws';
 import type { MatchWithPlayers } from '@/lib/actions/draws';
@@ -37,6 +37,11 @@ export function DrawSection({
   const [error, setError] = useState<string | null>(null);
   const [showRegenConfirm, setShowRegenConfirm] = useState(false);
   const [matches, setMatches] = useState(initialMatches);
+
+  // Sync matches when server re-renders after router.refresh() passes new initialMatches
+  useEffect(() => {
+    setMatches(initialMatches);
+  }, [initialMatches]);
 
   const isDrawn = categoryStatus === 'draw_generated' || categoryStatus === 'in_progress' || categoryStatus === 'completed';
 
