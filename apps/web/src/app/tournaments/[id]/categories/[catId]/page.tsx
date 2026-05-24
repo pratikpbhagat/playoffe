@@ -8,6 +8,7 @@ import { AddPlayerByEmail } from '@/components/tournaments/AddPlayerByEmail';
 import { ImportPlayersPanel } from '@/components/tournaments/ImportPlayersPanel';
 import { DrawSection } from '@/components/tournaments/DrawSection';
 import { CategoryEditInline } from '@/components/tournaments/CategoryEditInline';
+import { SeedingPanel } from '@/components/tournaments/SeedingPanel';
 import { getCategoryWithEntries } from '@/lib/actions/categories';
 import { getMatchesForCategory } from '@/lib/actions/draws';
 
@@ -183,6 +184,17 @@ export default async function CategoryPage({ params }: Props) {
           <div className="mb-10 rounded-lg border border-slate-800 bg-surface-card px-4 py-3 text-xs text-slate-500">
             Entry list is locked — draw has been generated. Regenerate the draw to make changes.
           </div>
+        )}
+
+        <div className="mb-8 border-t border-surface-border" />
+
+        {/* Seeding — only shown before draw is generated */}
+        {(categoryStatus === 'pending' || categoryStatus === 'registration') && entryCount >= 2 && (
+          <SeedingPanel
+            entries={typedEntries}
+            categoryId={categoryId}
+            tournamentId={tournament.id}
+          />
         )}
 
         <div className="mb-8 border-t border-surface-border" />

@@ -158,6 +158,33 @@ export async function removeEntryAction(entryId: string, tournamentId: string) {
   return { success: true };
 }
 
+// ── Bulk update seeds for all entries in a category ───────────────────────
+export async function bulkUpdateSeedsAction(
+  categoryId: string,
+  seeds: { entryId: string; seed: number | null }[],
+  tournamentId: string,
+) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: 'Not authenticated' };
+
+  const t = await assertTournamentManager(tournamentId, user.id);
+  if (!t) return { error: 'Permission denied' };
+
+  const admin = createAdminClient();
+
+  // Update all entries in parallel
+  const updates = seeds.map(({ entryId, seed }) =>
+    admin.from('tournament_entries').update({ seed }).eq('id', entryId),
+  );
+  await Promise.all(updates);
+
+  revalidatePath(`/tournaments/${t.slug}`);
+  return { success: true };
+}
+
 // ── Update a seed number ───────────────────────────────────────────────────
 export async function updateSeedAction(
   entryId: string,
