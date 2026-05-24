@@ -123,7 +123,7 @@ function RoundColumn({
   );
 }
 
-// ── Bracket (elimination) ─────────────────────────────────────────────────────
+// ── Bracket (single elimination) ─────────────────────────────────────────────
 function EliminationBracket({ matches, tournamentSlug }: { matches: MatchWithPlayers[]; tournamentSlug: string }) {
   // Group by round
   const roundMap = new Map<number, MatchWithPlayers[]>();
@@ -156,6 +156,98 @@ function EliminationBracket({ matches, tournamentSlug }: { matches: MatchWithPla
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// ── Double elimination bracket ────────────────────────────────────────────────
+function DoubleEliminationBracket({ matches, tournamentSlug }: { matches: MatchWithPlayers[]; tournamentSlug: string }) {
+  const winners = matches.filter((m) => m.bracket_type === 'winners');
+  const losers  = matches.filter((m) => m.bracket_type === 'losers');
+  const gf      = matches.filter((m) => m.bracket_type === 'grand_final');
+
+  function buildSectionRounds(sectionMatches: MatchWithPlayers[]) {
+    const roundMap = new Map<number, MatchWithPlayers[]>();
+    for (const m of sectionMatches) {
+      const list = roundMap.get(m.round) ?? [];
+      list.push(m);
+      roundMap.set(m.round, list);
+    }
+    return Array.from(roundMap.entries()).sort(([a], [b]) => a - b);
+  }
+
+  const wbRounds = buildSectionRounds(winners);
+  const lbRounds = buildSectionRounds(losers);
+  const gfRounds = buildSectionRounds(gf);
+
+  const wbMaxSlots = wbRounds[0]?.[1].length ?? 1;
+  const lbMaxSlots = lbRounds[0]?.[1].length ?? 1;
+
+  return (
+    <div className="space-y-8">
+      {/* Winners bracket */}
+      {wbRounds.length > 0 && (
+        <div>
+          <p className="mb-3 text-xs font-bold uppercase tracking-widest text-green-500">
+            Winners Bracket
+          </p>
+          <div className="overflow-x-auto pb-2">
+            <div className="flex gap-6" style={{ minHeight: `${Math.max(wbMaxSlots * 72, 140)}px` }}>
+              {wbRounds.map(([, roundMatches]) => (
+                <RoundColumn
+                  key={roundMatches[0].round}
+                  round_name={roundMatches[0].round_name ?? `Round ${roundMatches[0].round}`}
+                  matches={roundMatches}
+                  matchSlots={wbMaxSlots}
+                  tournamentSlug={tournamentSlug}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Losers bracket */}
+      {lbRounds.length > 0 && (
+        <div>
+          <p className="mb-3 text-xs font-bold uppercase tracking-widest text-amber-500">
+            Losers Bracket
+          </p>
+          <div className="overflow-x-auto pb-2">
+            <div className="flex gap-6" style={{ minHeight: `${Math.max(lbMaxSlots * 72, 100)}px` }}>
+              {lbRounds.map(([, roundMatches]) => (
+                <RoundColumn
+                  key={roundMatches[0].round}
+                  round_name={roundMatches[0].round_name ?? `Round ${roundMatches[0].round}`}
+                  matches={roundMatches}
+                  matchSlots={lbMaxSlots}
+                  tournamentSlug={tournamentSlug}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Grand Final */}
+      {gfRounds.length > 0 && (
+        <div>
+          <p className="mb-3 text-xs font-bold uppercase tracking-widest text-brand-400">
+            Grand Final
+          </p>
+          <div className="flex gap-6">
+            {gfRounds.map(([, roundMatches]) => (
+              <RoundColumn
+                key={roundMatches[0].round}
+                round_name="Grand Final"
+                matches={roundMatches}
+                matchSlots={1}
+                tournamentSlug={tournamentSlug}
+              />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -244,13 +336,11 @@ export function BracketView({ matches, format, tournamentSlug }: Props) {
     );
   }
 
-  const isElimination =
-    format === 'single_elimination' ||
-    format === 'double_elimination';
-
-  return isElimination ? (
-    <EliminationBracket matches={matches} tournamentSlug={tournamentSlug} />
-  ) : (
-    <RoundRobinBracket matches={matches} tournamentSlug={tournamentSlug} />
-  );
+  if (format === 'double_elimination') {
+    return <DoubleEliminationBracket matches={matches} tournamentSlug={tournamentSlug} />;
+  }
+  if (format === 'single_elimination') {
+    return <EliminationBracket matches={matches} tournamentSlug={tournamentSlug} />;
+  }
+  return <RoundRobinBracket matches={matches} tournamentSlug={tournamentSlug} />;
 }

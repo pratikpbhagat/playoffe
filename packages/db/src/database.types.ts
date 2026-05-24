@@ -460,6 +460,7 @@ export type Database = {
       matches: {
         Row: {
           bracket_position: number | null
+          bracket_type: string | null
           category_id: string
           completed_at: string | null
           court: number | null
@@ -468,6 +469,8 @@ export type Database = {
           entry_b_id: string | null
           group_name: string | null
           id: string
+          loser_slot: string | null
+          loser_to_match_id: string | null
           round: number
           round_name: string | null
           scheduled_time: string | null
@@ -476,9 +479,12 @@ export type Database = {
           status: Database["public"]["Enums"]["match_status_enum"]
           tournament_id: string
           winner_entry_id: string | null
+          winner_slot: string | null
+          winner_to_match_id: string | null
         }
         Insert: {
           bracket_position?: number | null
+          bracket_type?: string | null
           category_id: string
           completed_at?: string | null
           court?: number | null
@@ -487,6 +493,8 @@ export type Database = {
           entry_b_id?: string | null
           group_name?: string | null
           id?: string
+          loser_slot?: string | null
+          loser_to_match_id?: string | null
           round: number
           round_name?: string | null
           scheduled_time?: string | null
@@ -495,9 +503,12 @@ export type Database = {
           status?: Database["public"]["Enums"]["match_status_enum"]
           tournament_id: string
           winner_entry_id?: string | null
+          winner_slot?: string | null
+          winner_to_match_id?: string | null
         }
         Update: {
           bracket_position?: number | null
+          bracket_type?: string | null
           category_id?: string
           completed_at?: string | null
           court?: number | null
@@ -506,6 +517,8 @@ export type Database = {
           entry_b_id?: string | null
           group_name?: string | null
           id?: string
+          loser_slot?: string | null
+          loser_to_match_id?: string | null
           round?: number
           round_name?: string | null
           scheduled_time?: string | null
@@ -514,6 +527,8 @@ export type Database = {
           status?: Database["public"]["Enums"]["match_status_enum"]
           tournament_id?: string
           winner_entry_id?: string | null
+          winner_slot?: string | null
+          winner_to_match_id?: string | null
         }
         Relationships: [
           {
@@ -538,6 +553,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "matches_loser_to_match_id_fkey"
+            columns: ["loser_to_match_id"]
+            isOneToOne: false
+            referencedRelation: "matches"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "matches_tournament_id_fkey"
             columns: ["tournament_id"]
             isOneToOne: false
@@ -549,6 +571,13 @@ export type Database = {
             columns: ["winner_entry_id"]
             isOneToOne: false
             referencedRelation: "tournament_entries"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "matches_winner_to_match_id_fkey"
+            columns: ["winner_to_match_id"]
+            isOneToOne: false
+            referencedRelation: "matches"
             referencedColumns: ["id"]
           },
         ]

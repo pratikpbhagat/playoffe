@@ -10,12 +10,59 @@ interface SetScore {
   score_b: number;
 }
 
+type MatchRow = {
+  id: string;
+  category_id: string;
+  round: number;
+  bracket_position: number | null;
+  bracket_type: string | null;
+  entry_a_id: string | null;
+  entry_b_id: string | null;
+  winner_to_match_id: string | null;
+  loser_to_match_id: string | null;
+  winner_slot: string | null;
+  loser_slot: string | null;
+};
+
+// ── Bracket advancement helper ────────────────────────────────────────────────
+// Works for both single-elimination (positional) and double-elimination (explicit links).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function advanceMatch(admin: any, match: MatchRow, winnerEntryId: string | null, loserEntryId: string | null) {
+  // Winner advancement
+  if (winnerEntryId) {
+    if (match.winner_to_match_id && match.winner_slot) {
+      const slot = match.winner_slot === 'a' ? 'entry_a_id' : 'entry_b_id';
+      await admin.from('matches').update({ [slot]: winnerEntryId }).eq('id', match.winner_to_match_id);
+    } else if (match.bracket_position !== null) {
+      // Fallback: positional advancement for SE
+      const nextPos = Math.floor(match.bracket_position / 2);
+      const slot = match.bracket_position % 2 === 0 ? 'entry_a_id' : 'entry_b_id';
+      const { data: nextMatch } = await admin
+        .from('matches')
+        .select('id')
+        .eq('category_id', match.category_id)
+        .eq('round', match.round + 1)
+        .eq('bracket_position', nextPos)
+        .maybeSingle();
+      if (nextMatch) {
+        await admin.from('matches').update({ [slot]: winnerEntryId }).eq('id', nextMatch.id);
+      }
+    }
+  }
+
+  // Loser advancement (DE only — sends loser to losers bracket)
+  if (loserEntryId && match.loser_to_match_id && match.loser_slot) {
+    const slot = match.loser_slot === 'a' ? 'entry_a_id' : 'entry_b_id';
+    await admin.from('matches').update({ [slot]: loserEntryId }).eq('id', match.loser_to_match_id);
+  }
+}
+
 // ── Auth guard ────────────────────────────────────────────────────────────────
 async function assertMatchManager(matchId: string, userId: string) {
   const admin = createAdminClient();
   const { data: match } = await admin
     .from('matches')
-    .select('id, category_id, tournament_id, round, bracket_position, status, entry_a_id, entry_b_id, winner_entry_id, sets')
+    .select('id, category_id, tournament_id, round, bracket_position, bracket_type, status, entry_a_id, entry_b_id, winner_entry_id, sets, winner_to_match_id, loser_to_match_id, winner_slot, loser_slot')
     .eq('id', matchId)
     .single();
   if (!match) return null;
@@ -184,22 +231,9 @@ export async function submitResultAction(
       .eq('player_id', entryB.player_id),
   ]);
 
-  // ── Bracket advancement (elimination only) ───────────────────────────────
-  if (match.bracket_position !== null && match.bracket_position !== undefined) {
-    const nextPos = Math.floor((match.bracket_position as number) / 2);
-    const slot = (match.bracket_position as number) % 2 === 0 ? 'entry_a_id' : 'entry_b_id';
-    const { data: nextMatch } = await admin
-      .from('matches')
-      .select('id')
-      .eq('category_id', match.category_id)
-      .eq('round', match.round + 1)
-      .eq('bracket_position', nextPos)
-      .maybeSingle();
-
-    if (nextMatch) {
-      await admin.from('matches').update({ [slot]: winnerEntryId }).eq('id', nextMatch.id);
-    }
-  }
+  // ── Bracket advancement ──────────────────────────────────────────────────
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await advanceMatch(admin, match as any, winnerEntryId, loserEntryId);
 
   const { data: catSlugRow } = await admin
     .from('tournament_categories')
@@ -235,21 +269,9 @@ export async function walkoverAction(matchId: string, winnerEntryId: string) {
   if (error) return { error: 'Failed to record walkover' };
 
   // Bracket advancement
-  if (match.bracket_position !== null && match.bracket_position !== undefined) {
-    const nextPos = Math.floor((match.bracket_position as number) / 2);
-    const slot = (match.bracket_position as number) % 2 === 0 ? 'entry_a_id' : 'entry_b_id';
-    const { data: nextMatch } = await admin
-      .from('matches')
-      .select('id')
-      .eq('category_id', match.category_id)
-      .eq('round', match.round + 1)
-      .eq('bracket_position', nextPos)
-      .maybeSingle();
-
-    if (nextMatch) {
-      await admin.from('matches').update({ [slot]: winnerEntryId }).eq('id', nextMatch.id);
-    }
-  }
+  const loserEntryId = winnerEntryId === match.entry_a_id ? match.entry_b_id : match.entry_a_id;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await advanceMatch(admin, match as any, winnerEntryId, loserEntryId);
 
   const { data: catSlugRow2 } = await admin
     .from('tournament_categories')

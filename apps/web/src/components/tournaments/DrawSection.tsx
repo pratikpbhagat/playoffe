@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { generateDrawAction, clearDrawAction } from '@/lib/actions/draws';
+import { generateDrawAction, clearDrawAction, scheduleMatchesAction } from '@/lib/actions/draws';
 import type { MatchWithPlayers } from '@/lib/actions/draws';
 import { BracketView } from './BracketView';
 
@@ -33,11 +33,17 @@ export function DrawSection({
 }: Props) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [scheduling, setScheduling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showRegenConfirm, setShowRegenConfirm] = useState(false);
   const [matches, setMatches] = useState(initialMatches);
 
   const isDrawn = categoryStatus === 'draw_generated' || categoryStatus === 'in_progress' || categoryStatus === 'completed';
+
+  // Count how many matches already have a court assigned
+  const unscheduledCount = matches.filter(
+    (m) => !m.court && m.entry_a !== null && m.entry_b !== null && (m.status === 'scheduled' || m.status === 'in_progress'),
+  ).length;
 
   async function handleGenerate() {
     setLoading(true);
@@ -61,22 +67,45 @@ export function DrawSection({
     setLoading(false);
   }
 
+  async function handleSchedule() {
+    setScheduling(true);
+    setError(null);
+    const result = await scheduleMatchesAction(categoryId);
+    if ('error' in result && result.error) {
+      setError(result.error);
+    } else {
+      router.refresh();
+    }
+    setScheduling(false);
+  }
+
   return (
     <section>
       {/* Section header */}
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide">Draw</h2>
           <p className="mt-0.5 text-xs text-slate-600">{FORMAT_LABEL[drawFormat] ?? drawFormat}</p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           {isDrawn ? (
             <>
               {/* Match count chip */}
               <span className="rounded-full bg-surface-card px-3 py-1 text-xs text-slate-400 ring-1 ring-surface-border">
                 {matches.length} match{matches.length !== 1 ? 'es' : ''}
               </span>
+
+              {/* Auto-schedule courts button */}
+              {categoryStatus === 'draw_generated' && unscheduledCount > 0 && !showRegenConfirm && (
+                <button
+                  onClick={handleSchedule}
+                  disabled={scheduling}
+                  className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs text-slate-300 hover:border-brand-500 hover:text-brand-400 transition-colors disabled:opacity-50"
+                >
+                  {scheduling ? 'Scheduling…' : `Assign courts (${unscheduledCount})`}
+                </button>
+              )}
 
               {categoryStatus === 'draw_generated' && !showRegenConfirm && (
                 <button
