@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import { TopProgressBar } from '@/components/layout/TopProgressBar';
 import { ConfirmProvider } from '@/components/ui/ConfirmProvider';
+import { ToastProvider } from '@/components/ui/ToastProvider';
 import './globals.css';
 
 const inter = Inter({ variable: '--font-inter', subsets: ['latin'] });
@@ -18,7 +19,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={`${inter.variable} min-h-screen bg-surface font-sans antialiased`}>
         <TopProgressBar />
         <ConfirmProvider>
-          {children}
+          <ToastProvider>
+            {children}
+          </ToastProvider>
         </ConfirmProvider>
       </body>
     </html>

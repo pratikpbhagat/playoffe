@@ -146,6 +146,19 @@ export function MatchScoreCard({
       setError('Please select a winner or adjust scores so one player leads.');
       return;
     }
+
+    // Guard: warn if every set is 0-0 (scores were never filled in)
+    const allZero = sets.every((s) => s.score_a === 0 && s.score_b === 0);
+    if (allZero) {
+      const ok = await confirm({
+        title: 'Submit blank scores?',
+        message: 'All sets show 0–0. Are you sure you want to submit this result without filling in the scores?',
+        confirmLabel: 'Submit anyway',
+        variant: 'danger',
+      });
+      if (!ok) return;
+    }
+
     setLoading(true);
     setError(null);
     const result = await submitResultAction(matchId, sets, effectiveWinner);

@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react';
 import { saveNotificationPrefsAction } from '@/lib/actions/notifications';
 import type { NotificationPrefs } from '@/lib/actions/notifications';
+import { useToast } from '@/components/ui/ToastProvider';
 
 const PREF_LABELS: { key: keyof NotificationPrefs; label: string; description: string }[] = [
   {
@@ -34,23 +35,20 @@ const PREF_LABELS: { key: keyof NotificationPrefs; label: string; description: s
 
 export function NotificationPrefsForm({ initialPrefs }: { initialPrefs: NotificationPrefs }) {
   const [prefs, setPrefs] = useState<NotificationPrefs>(initialPrefs);
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const { toast } = useToast();
 
   function toggle(key: keyof NotificationPrefs) {
     setPrefs((p) => ({ ...p, [key]: !p[key] }));
-    setSaved(false);
   }
 
   function handleSave() {
-    setError(null);
     startTransition(async () => {
       const result = await saveNotificationPrefsAction(prefs);
       if ('error' in result && result.error) {
-        setError(result.error as string);
+        toast(result.error as string, 'error');
       } else {
-        setSaved(true);
+        toast('Notification preferences saved', 'success');
       }
     });
   }
@@ -89,8 +87,6 @@ export function NotificationPrefsForm({ initialPrefs }: { initialPrefs: Notifica
         >
           {isPending ? 'Saving…' : 'Save preferences'}
         </button>
-        {saved && <span className="text-xs text-accent-400">✓ Saved</span>}
-        {error && <span className="text-xs text-red-400">{error}</span>}
       </div>
     </div>
   );

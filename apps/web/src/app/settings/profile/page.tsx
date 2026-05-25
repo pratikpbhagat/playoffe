@@ -2,7 +2,6 @@ import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
-import { AppNav } from '@/components/layout/AppNav';
 import { EditProfileForm } from '@/components/player/EditProfileForm';
 import { PhotoUpload } from '@/components/player/PhotoUpload';
 
@@ -30,60 +29,34 @@ export default async function EditProfilePage() {
   } | null;
 
   return (
-    <div className="min-h-screen bg-surface">
-      <AppNav />
+    <>
+      <nav className="mb-6 flex items-center gap-2 text-sm text-slate-500">
+        <Link href={`/p/${player.username}`} className="hover:text-slate-300 transition-colors">
+          My profile
+        </Link>
+        <span>/</span>
+        <span className="text-slate-400">Settings</span>
+      </nav>
 
-      <main className="mx-auto max-w-xl px-6 py-10">
-        {/* Breadcrumb */}
-        <nav className="mb-6 flex items-center gap-2 text-sm text-slate-500">
-          <Link href={`/p/${player.username}`} className="hover:text-slate-300 transition-colors">
-            My profile
-          </Link>
-          <span>/</span>
-          <span className="text-slate-400">Settings</span>
-        </nav>
+      <h1 className="mb-8 text-2xl font-bold text-white">Edit profile</h1>
 
-        {/* Settings nav */}
-        <div className="mb-8 flex gap-2 text-sm">
-          {[
-            { label: 'Profile',        href: '/settings/profile' },
-            { label: 'Notifications',  href: '/settings/notifications' },
-            { label: 'Account',        href: '/settings/account' },
-          ].map((tab) => (
-            <Link
-              key={tab.href}
-              href={tab.href}
-              className={`rounded-full px-4 py-1.5 font-medium transition-colors ${
-                tab.href === '/settings/profile'
-                  ? 'bg-brand-600 text-white'
-                  : 'text-slate-400 hover:text-white border border-surface-border hover:border-slate-500'
-              }`}
-            >
-              {tab.label}
-            </Link>
-          ))}
-        </div>
-
-        <h1 className="mb-8 text-2xl font-bold text-white">Edit profile</h1>
-
-        <div className="rounded-xl bg-surface-card p-6 ring-1 ring-surface-border">
-          <PhotoUpload
-            currentUrl={player.photo_url ?? null}
-            username={player.username}
-          />
-          <EditProfileForm
-            username={player.username}
-            initial={{
-              full_name: player.full_name,
-              location: player.location ?? null,
-              photo_url: player.photo_url ?? null,
-              headline: profile?.headline ?? null,
-              bio: profile?.bio ?? null,
-              playing_since: profile?.playing_since ?? null,
-            }}
-          />
-        </div>
-      </main>
-    </div>
+      <div className="rounded-xl bg-surface-card p-6 ring-1 ring-surface-border">
+        <PhotoUpload
+          currentUrl={player.photo_url ?? null}
+          username={player.username}
+        />
+        <EditProfileForm
+          username={player.username}
+          initial={{
+            full_name: player.full_name,
+            location: player.location ?? null,
+            photo_url: player.photo_url ?? null,
+            headline: profile?.headline ?? null,
+            bio: profile?.bio ?? null,
+            playing_since: profile?.playing_since ?? null,
+          }}
+        />
+      </div>
+    </>
   );
 }
