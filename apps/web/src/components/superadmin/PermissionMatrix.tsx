@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useState, useTransition, useOptimistic } from 'react';
+import { Fragment, useState, useTransition, useOptimistic, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { updateRolePermissionAction, resetClubPermissionsAction } from '@/lib/actions/superadmin';
 
@@ -233,7 +233,7 @@ export function PermissionMatrix({ permissions, clubs, selectedClubId }: Props) 
 
   return (
     <div>
-      {/* Scope toggle: global vs per-club */}
+      {/* Scope selector: global defaults + club dropdown */}
       <div className="mb-6 flex flex-wrap items-center gap-3">
         <button
           onClick={() => router.push('/superadmin/rbac')}
@@ -246,19 +246,15 @@ export function PermissionMatrix({ permissions, clubs, selectedClubId }: Props) 
           Global defaults
         </button>
 
-        {clubs.map((club) => (
-          <button
-            key={club.id}
-            onClick={() => router.push(`/superadmin/rbac?club=${club.id}`)}
-            className={`rounded-full px-4 py-1.5 text-sm font-semibold transition-colors ${
-              selectedClubId === club.id
-                ? 'bg-brand-600 text-white'
-                : 'border border-surface-border text-slate-400 hover:text-slate-300'
-            }`}
-          >
-            {club.name}
-          </button>
-        ))}
+        <ClubPicker
+          clubs={clubs}
+          selectedClubId={selectedClubId}
+          onSelect={(id) =>
+            id
+              ? router.push(`/superadmin/rbac?club=${id}`)
+              : router.push('/superadmin/rbac')
+          }
+        />
 
         {selectedClubId && (
           <button
@@ -398,6 +394,118 @@ export function PermissionMatrix({ permissions, clubs, selectedClubId }: Props) 
     </div>
   );
 }
+
+// ── Club picker (searchable dropdown) ────────────────────────────────────────
+
+function ClubPicker({
+  clubs,
+  selectedClubId,
+  onSelect,
+}: {
+  clubs: Array<{ id: string; name: string }>;
+  selectedClubId?: string;
+  onSelect: (id: string | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const selectedClub = clubs.find((c) => c.id === selectedClubId) ?? null;
+  const filtered = query.trim()
+    ? clubs.filter((c) => c.name.toLowerCase().includes(query.toLowerCase()))
+    : clubs;
+
+  // Close on outside click
+  useEffect(() => {
+    function onPointerDown(e: PointerEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setQuery('');
+      }
+    }
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, []);
+
+  // Focus search input when dropdown opens
+  useEffect(() => {
+    if (open) inputRef.current?.focus();
+  }, [open]);
+
+  function handleSelect(id: string | null) {
+    setOpen(false);
+    setQuery('');
+    onSelect(id);
+  }
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={`flex items-center gap-2 rounded-full px-4 py-1.5 text-sm font-semibold transition-colors ${
+          selectedClubId
+            ? 'bg-brand-600 text-white'
+            : 'border border-surface-border text-slate-400 hover:text-slate-300'
+        }`}
+      >
+        {selectedClub ? selectedClub.name : 'Club override…'}
+        <svg
+          className={`h-3.5 w-3.5 transition-transform ${open ? 'rotate-180' : ''}`}
+          viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2"
+        >
+          <path d="M2 4l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="absolute left-0 top-full z-50 mt-2 w-72 rounded-xl border border-surface-border bg-surface-card shadow-2xl">
+          {/* Search box */}
+          <div className="px-3 pt-3">
+            <div className="flex items-center gap-2 rounded-lg bg-surface px-3 py-2 ring-1 ring-surface-border focus-within:ring-brand-500">
+              <svg className="h-3.5 w-3.5 shrink-0 text-slate-500" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="6.5" cy="6.5" r="4.5" /><path d="M10.5 10.5l3 3" strokeLinecap="round" />
+              </svg>
+              <input
+                ref={inputRef}
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search clubs…"
+                className="w-full bg-transparent text-sm text-white placeholder-slate-500 outline-none"
+              />
+            </div>
+          </div>
+
+          {/* Options list */}
+          <ul className="mt-2 max-h-56 overflow-y-auto px-2 pb-2">
+            {filtered.length === 0 && (
+              <li className="px-3 py-2 text-xs text-slate-500">No clubs match "{query}"</li>
+            )}
+            {filtered.map((club) => (
+              <li key={club.id}>
+                <button
+                  type="button"
+                  onClick={() => handleSelect(club.id)}
+                  className={`w-full rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                    club.id === selectedClubId
+                      ? 'bg-brand-600/20 text-brand-400 font-semibold'
+                      : 'text-slate-300 hover:bg-white/[0.05]'
+                  }`}
+                >
+                  {club.name}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Toggle switch ─────────────────────────────────────────────────────────────
 
 function Toggle({
   checked,
