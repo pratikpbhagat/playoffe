@@ -37,11 +37,11 @@ export async function AppNav() {
 
         {/* Center nav */}
         <div className="hidden items-center gap-5 sm:flex">
+          {player && <NavLink href="/dashboard" exact>Dashboard</NavLink>}
           <NavLink href="/events">Events</NavLink>
           <NavLink href="/rankings">Rankings</NavLink>
           {player && (
             <>
-              <NavLink href="/dashboard" exact>Dashboard</NavLink>
               <NavLink href="/feed" exact>Feed</NavLink>
               <NavLink href="/practice" exact>Practice</NavLink>
               <NavLink href="/partners" exact>Partners</NavLink>
