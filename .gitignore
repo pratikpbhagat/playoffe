@@ -9,6 +9,7 @@ dist
 build
 out
 .expo
+*.tsbuildinfo
 
 # Turbo
 .turbo
