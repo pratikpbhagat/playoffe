@@ -30,6 +30,7 @@ const ICON: Record<string, string> = {
   score_reported: '📋',
   draw_published: '🗓',
   registration_approved: '✅',
+  tournament_invite: '🎾',
 };
 
 export function NotificationBell({ initialNotifications, userId }: Props) {

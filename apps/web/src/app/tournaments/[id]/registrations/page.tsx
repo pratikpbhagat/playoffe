@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { AppNav } from '@/components/layout/AppNav';
 import { PendingEntriesPanel } from '@/components/tournaments/PendingEntriesPanel';
+import { InvitePlayersPanel } from '@/components/tournaments/InvitePlayersPanel';
 
 export const metadata: Metadata = { title: 'Registrations' };
 
@@ -129,6 +130,8 @@ export default async function RegistrationsPage({ params }: Props) {
             })}
           </div>
         )}
+        {/* Invite players panel */}
+        <InvitePlayersPanel tournamentId={t.id} />
       </main>
     </div>
   );
