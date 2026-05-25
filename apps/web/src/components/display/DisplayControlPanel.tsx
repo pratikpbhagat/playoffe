@@ -1,8 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { createClient } from '@/lib/supabase/client';
-import type { Database } from '@pickleball/db';
+import { useState, useTransition } from 'react';
+import { QRCodeSVG as QRCode } from 'qrcode.react';
 import type { DisplaySlide } from '@pickleball/shared';
 import {
   updateDisplaySlideAction,
@@ -12,344 +11,352 @@ import {
   dismissAnnouncementAction,
 } from '@/lib/actions/display';
 
-type DisplayState = Database['public']['Tables']['display_state']['Row'];
-type Announcement = Database['public']['Tables']['announcements']['Row'];
+interface DisplayStateLocal {
+  tournament_id: string;
+  current_slide: string;
+  is_pinned: boolean;
+  rotation_interval_secs: number;
+  active_announcement_id: string | null;
+  active_category_filter: string | null;
+  is_paused: boolean;
+}
+
+interface AnnouncementRow {
+  id: string;
+  message: string;
+  urgency: string;
+  sent_at: string;
+  dismissed_at: string | null;
+}
 
 interface Props {
   tournamentId: string;
   tournamentSlug: string;
-  initialDisplayState: DisplayState;
-  initialAnnouncements: Announcement[];
+  initialDisplayState: DisplayStateLocal;
+  initialAnnouncements: AnnouncementRow[];
 }
 
-const SLIDES: { id: DisplaySlide; label: string; icon: string }[] = [
-  { id: 'live_scores', label: 'Live Scores', icon: '🎾' },
-  { id: 'upcoming_matches', label: 'Upcoming', icon: '📋' },
-  { id: 'full_schedule', label: 'Full Schedule', icon: '📅' },
-  { id: 'group_standings', label: 'Standings', icon: '📊' },
-  { id: 'live_bracket', label: 'Bracket', icon: '🏆' },
-  { id: 'category_podium', label: 'Podium', icon: '🥇' },
-  { id: 'wrap_up', label: 'Wrap-Up', icon: '🎉' },
-  { id: 'announcement', label: 'Announcement', icon: '📢' },
+const SLIDES: { value: DisplaySlide; label: string; icon: string }[] = [
+  { value: 'live_scores', label: 'Live Scores', icon: '🎯' },
+  { value: 'upcoming_matches', label: 'Upcoming', icon: '📅' },
+  { value: 'group_standings', label: 'Standings', icon: '📊' },
+  { value: 'live_bracket', label: 'Bracket', icon: '🏆' },
+  { value: 'full_schedule', label: 'Schedule', icon: '📋' },
+  { value: 'category_podium', label: 'Podium', icon: '🥇' },
+  { value: 'announcement', label: 'Announce', icon: '📢' },
+  { value: 'wrap_up', label: 'Wrap-Up', icon: '🎉' },
 ];
+
+const INTERVAL_OPTIONS = [10, 15, 20, 30, 45, 60];
 
 export function DisplayControlPanel({
   tournamentId,
+  tournamentSlug,
   initialDisplayState,
   initialAnnouncements,
 }: Props) {
-  const [ds, setDs] = useState<DisplayState>(initialDisplayState);
-  const [announcements, setAnnouncements] = useState<Announcement[]>(initialAnnouncements);
-  const [loading, setLoading] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  // Announcement form
-  const [annMessage, setAnnMessage] = useState('');
+  const [ds, setDs] = useState(initialDisplayState);
+  const [announcements, setAnnouncements] = useState(initialAnnouncements);
+  const [annMsg, setAnnMsg] = useState('');
   const [annUrgency, setAnnUrgency] = useState<'normal' | 'urgent'>('normal');
-  const [sendingAnn, setSendingAnn] = useState(false);
+  const [annError, setAnnError] = useState<string | null>(null);
+  const [annSent, setAnnSent] = useState(false);
+  const [isPending, startTransition] = useTransition();
 
-  // Interval editing
-  const [editingInterval, setEditingInterval] = useState(false);
-  const [intervalValue, setIntervalValue] = useState(ds.rotation_interval_secs);
+  const displayUrl =
+    typeof window !== 'undefined'
+      ? `${window.location.origin}/display/${tournamentSlug.toUpperCase()}`
+      : `/display/${tournamentSlug.toUpperCase()}`;
 
-  // Live Realtime sync
-  useEffect(() => {
-    const supabase = createClient();
-    const ch = supabase
-      .channel(`ctrl:${tournamentId}`)
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'display_state', filter: `tournament_id=eq.${tournamentId}` },
-        (payload) => setDs(payload.new as DisplayState),
-      )
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'announcements', filter: `tournament_id=eq.${tournamentId}` },
-        (payload) => setAnnouncements((prev) => [payload.new as Announcement, ...prev]),
-      )
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'announcements', filter: `tournament_id=eq.${tournamentId}` },
-        (payload) => {
-          const updated = payload.new as Announcement;
-          setAnnouncements((prev) =>
-            updated.dismissed_at
-              ? prev.filter((a) => a.id !== updated.id)
-              : prev.map((a) => (a.id === updated.id ? updated : a)),
-          );
-        },
-      )
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
-  }, [tournamentId]);
+  const handleSlideChange = (slide: DisplaySlide, pin: boolean) => {
+    startTransition(async () => {
+      const res = await updateDisplaySlideAction(tournamentId, slide, pin);
+      if (!res.error) setDs((prev) => ({ ...prev, current_slide: slide, is_pinned: pin }));
+    });
+  };
 
-  async function handleSlide(slide: DisplaySlide, pin: boolean) {
-    setLoading(slide);
-    setError(null);
-    const res = await updateDisplaySlideAction(tournamentId, slide, pin);
-    if ('error' in res && res.error) setError(res.error);
-    setLoading(null);
-  }
+  const handlePause = () => {
+    startTransition(async () => {
+      const next = !ds.is_paused;
+      const res = await updateDisplayPausedAction(tournamentId, next);
+      if (!res.error) setDs((prev) => ({ ...prev, is_paused: next }));
+    });
+  };
 
-  async function handlePause(paused: boolean) {
-    setLoading('pause');
-    setError(null);
-    const res = await updateDisplayPausedAction(tournamentId, paused);
-    if ('error' in res && res.error) setError(res.error);
-    setLoading(null);
-  }
+  const handleInterval = (secs: number) => {
+    startTransition(async () => {
+      const res = await updateRotationIntervalAction(tournamentId, secs);
+      if (!res.error) setDs((prev) => ({ ...prev, rotation_interval_secs: secs }));
+    });
+  };
 
-  async function handleIntervalSave() {
-    setLoading('interval');
-    setError(null);
-    const res = await updateRotationIntervalAction(tournamentId, intervalValue);
-    if ('error' in res && res.error) setError(res.error);
-    setEditingInterval(false);
-    setLoading(null);
-  }
+  const handleSendAnnouncement = () => {
+    if (!annMsg.trim()) { setAnnError('Message cannot be empty'); return; }
+    setAnnError(null);
+    startTransition(async () => {
+      const res = await sendAnnouncementAction(tournamentId, annMsg, annUrgency);
+      if (res.error) {
+        setAnnError(res.error);
+      } else {
+        setAnnMsg('');
+        setAnnSent(true);
+        setTimeout(() => setAnnSent(false), 3000);
+        const annId = (res as { announcementId?: string }).announcementId ?? null;
+        setDs((prev) => ({ ...prev, current_slide: 'announcement', is_pinned: true, active_announcement_id: annId }));
+      }
+    });
+  };
 
-  async function handleSendAnnouncement() {
-    if (!annMessage.trim()) return;
-    setSendingAnn(true);
-    setError(null);
-    const res = await sendAnnouncementAction(tournamentId, annMessage, annUrgency);
-    if ('error' in res && res.error) {
-      setError(res.error);
-    } else {
-      setAnnMessage('');
-      setAnnUrgency('normal');
-    }
-    setSendingAnn(false);
-  }
+  const handleDismiss = (annId: string) => {
+    startTransition(async () => {
+      const res = await dismissAnnouncementAction(tournamentId, annId);
+      if (!res.error) {
+        setAnnouncements((prev) => prev.filter((a) => a.id !== annId));
+        if (ds.active_announcement_id === annId) {
+          setDs((prev) => ({ ...prev, is_pinned: false, active_announcement_id: null }));
+        }
+      }
+    });
+  };
 
-  async function handleDismiss(annId: string) {
-    setLoading(annId);
-    setError(null);
-    const res = await dismissAnnouncementAction(tournamentId, annId);
-    if ('error' in res && res.error) setError(res.error);
-    setLoading(null);
-  }
-
-  const currentSlide = ds.current_slide as DisplaySlide;
+  const activeAnn = announcements.find(
+    (a) => a.id === ds.active_announcement_id && !a.dismissed_at,
+  );
 
   return (
     <div className="space-y-6">
-      {error && (
-        <div className="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-400">
-          {error}
+      {/* ── Status bar ── */}
+      <div className="rounded-xl bg-surface-card ring-1 ring-surface-border px-5 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <span
+            className={`flex h-2.5 w-2.5 rounded-full ${ds.is_paused ? 'bg-amber-500' : 'bg-accent-400'}`}
+          />
+          <span className="text-sm font-medium text-white">
+            {ds.is_paused
+              ? 'Paused'
+              : ds.is_pinned
+              ? `Pinned — ${SLIDES.find((s) => s.value === ds.current_slide)?.label ?? ds.current_slide}`
+              : 'Auto-rotating'}
+          </span>
         </div>
-      )}
+        <button
+          disabled={isPending}
+          onClick={handlePause}
+          className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-50 ${
+            ds.is_paused
+              ? 'bg-accent-500/20 text-accent-400 hover:bg-accent-500/30'
+              : 'bg-amber-500/20 text-amber-400 hover:bg-amber-500/30'
+          }`}
+        >
+          {ds.is_paused ? '▶ Resume' : '⏸ Pause'}
+        </button>
+      </div>
 
-      {/* Status strip */}
-      <div className="rounded-xl bg-surface-card ring-1 ring-surface-border px-5 py-4">
-        <div className="flex items-center justify-between flex-wrap gap-4">
-          <div>
-            <p className="text-xs text-slate-500 uppercase tracking-wide">Currently showing</p>
-            <p className="mt-1 text-lg font-bold text-white">
-              {SLIDES.find((s) => s.id === currentSlide)?.icon}{' '}
-              {SLIDES.find((s) => s.id === currentSlide)?.label ?? currentSlide}
-            </p>
-            <div className="mt-1 flex items-center gap-2">
-              {ds.is_pinned && (
-                <span className="rounded-full bg-brand-600/20 px-2 py-0.5 text-[10px] font-semibold text-brand-300">
-                  📌 Pinned
-                </span>
-              )}
-              {ds.is_paused && (
-                <span className="rounded-full bg-amber-600/20 px-2 py-0.5 text-[10px] font-semibold text-amber-300">
-                  ⏸ Paused
-                </span>
-              )}
-              {!ds.is_pinned && !ds.is_paused && (
-                <span className="rounded-full bg-accent-500/20 px-2 py-0.5 text-[10px] font-semibold text-accent-400">
-                  ▶ Rotating
-                </span>
-              )}
-            </div>
+      {/* ── QR Code + URL ── */}
+      <div className="rounded-xl bg-surface-card ring-1 ring-surface-border px-5 py-5">
+        <h2 className="text-sm font-semibold text-white mb-4">Display URL</h2>
+        <div className="flex items-start gap-6">
+          <div className="shrink-0 rounded-xl overflow-hidden bg-white p-2">
+            <QRCode value={displayUrl} size={120} level="M" />
           </div>
-
-          {/* Rotation controls */}
-          <div className="flex items-center gap-3">
-            {/* Pause / Resume */}
-            <button
-              onClick={() => handlePause(!ds.is_paused)}
-              disabled={loading === 'pause' || ds.is_pinned}
-              title={ds.is_pinned ? 'Unpin a slide first to control rotation' : undefined}
-              className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs font-medium text-slate-300 hover:border-brand-500 hover:text-brand-400 transition-colors disabled:opacity-40"
-            >
-              {loading === 'pause' ? '…' : ds.is_paused ? '▶ Resume' : '⏸ Pause'}
-            </button>
-
-            {/* Interval */}
-            {editingInterval ? (
-              <div className="flex items-center gap-1.5">
-                <input
-                  type="number"
-                  min={5}
-                  max={300}
-                  value={intervalValue}
-                  onChange={(e) => setIntervalValue(Number(e.target.value))}
-                  className="w-16 rounded-lg border border-slate-700 bg-surface-card px-2 py-1.5 text-center text-xs text-slate-300 focus:border-brand-500 focus:outline-none"
-                />
-                <span className="text-xs text-slate-500">sec</span>
-                <button
-                  onClick={handleIntervalSave}
-                  disabled={loading === 'interval'}
-                  className="rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-700 transition-colors disabled:opacity-50"
-                >
-                  {loading === 'interval' ? '…' : 'Save'}
-                </button>
-                <button
-                  onClick={() => setEditingInterval(false)}
-                  className="text-xs text-slate-500 hover:text-slate-300"
-                >
-                  Cancel
-                </button>
-              </div>
-            ) : (
+          <div className="flex-1 min-w-0">
+            <p className="text-xs text-slate-500 mb-2">
+              Open this URL on any browser connected to a TV or projector.
+            </p>
+            <div className="flex items-center gap-2 rounded-lg bg-surface px-3 py-2 ring-1 ring-surface-border">
+              <code className="text-xs text-brand-300 truncate flex-1">{displayUrl}</code>
               <button
-                onClick={() => { setEditingInterval(true); setIntervalValue(ds.rotation_interval_secs); }}
-                className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs text-slate-400 hover:border-slate-500 hover:text-slate-300 transition-colors"
+                onClick={() => void navigator.clipboard.writeText(displayUrl)}
+                className="shrink-0 text-xs text-slate-500 hover:text-white transition-colors"
               >
-                {ds.rotation_interval_secs}s interval
+                Copy
               </button>
-            )}
+            </div>
+            <p className="mt-2 text-xs text-slate-600">
+              Display auto-rotates every {ds.rotation_interval_secs}s. Pin a slide below to freeze it.
+            </p>
           </div>
         </div>
       </div>
 
-      {/* Slide selector */}
-      <div>
-        <h2 className="mb-3 text-sm font-semibold text-slate-400 uppercase tracking-wide">
-          Switch slide
-        </h2>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      {/* ── Slide selector ── */}
+      <div className="rounded-xl bg-surface-card ring-1 ring-surface-border px-5 py-5">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-white">Slide control</h2>
+          {ds.is_pinned && (
+            <button
+              disabled={isPending}
+              onClick={() => handleSlideChange(ds.current_slide as DisplaySlide, false)}
+              className="text-xs text-slate-500 hover:text-white transition-colors disabled:opacity-50"
+            >
+              Unpin (resume rotation)
+            </button>
+          )}
+        </div>
+        <div className="grid grid-cols-4 gap-2">
           {SLIDES.map((slide) => {
-            const isActive = currentSlide === slide.id;
+            const isActive = ds.current_slide === slide.value;
             const isPinned = isActive && ds.is_pinned;
             return (
-              <div key={slide.id} className="space-y-1">
-                <button
-                  onClick={() => handleSlide(slide.id, true)}
-                  disabled={loading === slide.id}
-                  className={`w-full rounded-xl px-4 py-4 text-left transition-all ring-1 ${
-                    isPinned
-                      ? 'bg-brand-600/20 ring-brand-500 text-brand-300'
-                      : isActive
-                      ? 'bg-surface-card ring-slate-500 text-white'
-                      : 'bg-surface-card ring-surface-border text-slate-400 hover:ring-slate-500 hover:text-slate-300'
-                  } disabled:opacity-50`}
-                >
-                  <p className="text-2xl mb-1">{slide.icon}</p>
-                  <p className="text-xs font-semibold">{slide.label}</p>
-                  {isPinned && <p className="text-[10px] text-brand-400 mt-0.5">Pinned</p>}
-                </button>
-                {isActive && isPinned && (
-                  <button
-                    onClick={() => handleSlide(slide.id, false)}
-                    className="w-full rounded-lg border border-slate-700 py-1 text-[10px] text-slate-500 hover:text-slate-300 transition-colors"
-                  >
-                    Unpin (resume rotation)
-                  </button>
+              <button
+                key={slide.value}
+                disabled={isPending}
+                onClick={() => handleSlideChange(slide.value, true)}
+                className={`rounded-xl p-3 text-center transition-all disabled:opacity-50 ${
+                  isPinned
+                    ? 'bg-brand-600 ring-2 ring-brand-400 text-white'
+                    : isActive
+                    ? 'bg-surface ring-1 ring-brand-600/50 text-white'
+                    : 'bg-surface ring-1 ring-surface-border text-slate-400 hover:text-white hover:ring-slate-500'
+                }`}
+              >
+                <span className="block text-xl mb-1">{slide.icon}</span>
+                <span className="block text-xs font-medium">{slide.label}</span>
+                {isPinned && (
+                  <span className="block text-[10px] text-brand-300 mt-0.5">Pinned</span>
                 )}
-              </div>
+              </button>
             );
           })}
         </div>
       </div>
 
-      {/* Announcement sender */}
-      <div>
-        <h2 className="mb-3 text-sm font-semibold text-slate-400 uppercase tracking-wide">
-          Send announcement
-        </h2>
-        <div className="rounded-xl bg-surface-card ring-1 ring-surface-border p-5 space-y-4">
-          <div>
-            <textarea
-              value={annMessage}
-              onChange={(e) => setAnnMessage(e.target.value.slice(0, 200))}
-              placeholder="Type your announcement (max 200 chars)…"
-              rows={3}
-              className="w-full rounded-lg border border-slate-700 bg-surface px-3 py-2.5 text-sm text-slate-200 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none resize-none"
-            />
-            <p className="mt-1 text-right text-xs text-slate-600">{annMessage.length}/200</p>
-          </div>
-
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <label className="text-xs text-slate-500">Urgency:</label>
-              <button
-                onClick={() => setAnnUrgency('normal')}
-                className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                  annUrgency === 'normal'
-                    ? 'bg-brand-600/20 text-brand-300 ring-1 ring-brand-500'
-                    : 'text-slate-500 hover:text-slate-300'
-                }`}
-              >
-                Normal
-              </button>
-              <button
-                onClick={() => setAnnUrgency('urgent')}
-                className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                  annUrgency === 'urgent'
-                    ? 'bg-red-900/40 text-red-400 ring-1 ring-red-600'
-                    : 'text-slate-500 hover:text-slate-300'
-                }`}
-              >
-                ⚠ Urgent
-              </button>
-            </div>
-
+      {/* ── Rotation speed ── */}
+      <div className="rounded-xl bg-surface-card ring-1 ring-surface-border px-5 py-5">
+        <h2 className="text-sm font-semibold text-white mb-4">Rotation speed</h2>
+        <div className="flex items-center gap-2 flex-wrap">
+          {INTERVAL_OPTIONS.map((secs) => (
             <button
-              onClick={handleSendAnnouncement}
-              disabled={sendingAnn || !annMessage.trim()}
-              className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 transition-colors disabled:opacity-50"
+              key={secs}
+              disabled={isPending}
+              onClick={() => handleInterval(secs)}
+              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-50 ${
+                ds.rotation_interval_secs === secs
+                  ? 'bg-brand-600 text-white'
+                  : 'bg-surface ring-1 ring-surface-border text-slate-400 hover:text-white'
+              }`}
             >
-              {sendingAnn ? 'Sending…' : '📢 Send & display'}
+              {secs}s
             </button>
-          </div>
+          ))}
         </div>
       </div>
 
-      {/* Active announcements */}
-      {announcements.length > 0 && (
-        <div>
-          <h2 className="mb-3 text-sm font-semibold text-slate-400 uppercase tracking-wide">
-            Active announcements
-          </h2>
-          <div className="space-y-2">
-            {announcements.map((ann) => (
-              <div
-                key={ann.id}
-                className={`flex items-start justify-between gap-4 rounded-xl px-5 py-4 ring-1 ${
-                  ann.urgency === 'urgent'
-                    ? 'bg-red-950/40 ring-red-800'
-                    : 'bg-surface-card ring-surface-border'
-                }`}
-              >
-                <div className="min-w-0 flex-1">
-                  {ann.urgency === 'urgent' && (
-                    <span className="mb-1 inline-block rounded-full bg-red-900/60 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-red-400">
-                      Urgent
-                    </span>
-                  )}
-                  <p className="text-sm text-white">{ann.message}</p>
-                  <p className="mt-1 text-xs text-slate-600">
-                    {new Date(ann.sent_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </p>
-                </div>
-                <button
-                  onClick={() => handleDismiss(ann.id)}
-                  disabled={loading === ann.id}
-                  className="shrink-0 rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-400 hover:border-red-600 hover:text-red-400 transition-colors disabled:opacity-50"
-                >
-                  {loading === ann.id ? '…' : 'Dismiss'}
-                </button>
+      {/* ── Announcement sender ── */}
+      <div className="rounded-xl bg-surface-card ring-1 ring-surface-border px-5 py-5">
+        <h2 className="text-sm font-semibold text-white mb-4">Send announcement</h2>
+
+        {/* Active announcement banner */}
+        {activeAnn && (
+          <div
+            className={`mb-4 rounded-lg px-4 py-3 ring-1 ${
+              activeAnn.urgency === 'urgent'
+                ? 'bg-red-900/20 ring-red-700/40'
+                : 'bg-amber-900/20 ring-amber-700/40'
+            }`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold text-amber-400 mb-1">
+                  {activeAnn.urgency === 'urgent'
+                    ? '🚨 Urgent — currently displayed'
+                    : '📢 Active announcement'}
+                </p>
+                <p className="text-sm text-white">{activeAnn.message}</p>
               </div>
-            ))}
+              <button
+                disabled={isPending}
+                onClick={() => handleDismiss(activeAnn.id)}
+                className="shrink-0 rounded-lg bg-slate-700/50 px-2.5 py-1 text-xs text-slate-300 hover:bg-slate-700 transition-colors disabled:opacity-50"
+              >
+                Dismiss
+              </button>
+            </div>
           </div>
+        )}
+
+        {/* Compose form */}
+        <div className="space-y-3">
+          <textarea
+            value={annMsg}
+            onChange={(e) => {
+              setAnnMsg(e.target.value.slice(0, 200));
+              setAnnError(null);
+            }}
+            placeholder="Type your announcement... (max 200 chars)"
+            rows={3}
+            className="block w-full rounded-lg border border-slate-700 bg-surface px-3 py-2 text-sm text-white placeholder-slate-600 outline-none focus:border-brand-500 resize-none"
+          />
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-slate-500">{annMsg.length}/200</span>
+              <div className="flex items-center gap-1">
+                {(['normal', 'urgent'] as const).map((u) => (
+                  <button
+                    key={u}
+                    onClick={() => setAnnUrgency(u)}
+                    className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors ${
+                      annUrgency === u
+                        ? u === 'urgent'
+                          ? 'bg-red-600/30 text-red-300 ring-1 ring-red-600'
+                          : 'bg-brand-600/20 text-brand-300 ring-1 ring-brand-600'
+                        : 'text-slate-500 hover:text-slate-300'
+                    }`}
+                  >
+                    {u === 'urgent' ? '🚨 Urgent' : '📢 Normal'}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <button
+              disabled={isPending || !annMsg.trim()}
+              onClick={handleSendAnnouncement}
+              className="rounded-lg bg-brand-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 transition-colors disabled:opacity-50"
+            >
+              {annSent ? 'Sent ✓' : isPending ? 'Sending...' : 'Send & display'}
+            </button>
+          </div>
+          {annError && <p className="text-xs text-red-400">{annError}</p>}
         </div>
-      )}
+
+        {/* Recent announcements */}
+        {announcements.filter((a) => a.id !== activeAnn?.id).length > 0 && (
+          <div className="mt-4 border-t border-surface-border pt-4">
+            <p className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-widest">
+              Recent
+            </p>
+            <div className="space-y-2">
+              {announcements
+                .filter((a) => a.id !== activeAnn?.id)
+                .slice(0, 5)
+                .map((ann) => (
+                  <div
+                    key={ann.id}
+                    className="flex items-center justify-between gap-3 rounded-lg bg-surface px-3 py-2"
+                  >
+                    <p className="text-xs text-slate-400 truncate flex-1">{ann.message}</p>
+                    <span className="text-xs text-slate-600 shrink-0">
+                      {new Date(ann.sent_at).toLocaleTimeString('en-AU', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: true,
+                      })}
+                    </span>
+                    {!ann.dismissed_at && (
+                      <button
+                        disabled={isPending}
+                        onClick={() => handleDismiss(ann.id)}
+                        className="text-xs text-slate-600 hover:text-red-400 transition-colors disabled:opacity-50 shrink-0"
+                      >
+                        dismiss
+                      </button>
+                    )}
+                  </div>
+                ))}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

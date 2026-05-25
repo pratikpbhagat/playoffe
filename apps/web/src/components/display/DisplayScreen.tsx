@@ -1,761 +1,317 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import type { Database } from '@pickleball/db';
-import type { DisplaySlide } from '@pickleball/shared';
+import type { DisplaySlide, DisplayState, Announcement } from '@pickleball/shared';
 
-// Slides that participate in auto-rotation (announcement is always organiser-triggered)
-const ROTATION_SLIDES: DisplaySlide[] = [
-  'live_scores',
-  'upcoming_matches',
-  'group_standings',
-  'live_bracket',
-  'category_podium',
-  'full_schedule',
-  'wrap_up',
-];
-
-type Tournament = Database['public']['Tables']['tournaments']['Row'] & {
-  clubs: Pick<
-    Database['public']['Tables']['clubs']['Row'],
-    'id' | 'name' | 'logo_url' | 'brand_primary_color' | 'brand_secondary_color'
-  > | null;
-};
-type DisplayState = Database['public']['Tables']['display_state']['Row'];
-
-interface Props {
-  tournament: Tournament;
-  initialDisplayState: DisplayState;
+interface MatchRow {
+  id: string; status: string; court: number | null; round: number;
+  round_name: string | null; group_name: string | null; category_id: string;
+  entry_a_id: string | null; entry_b_id: string | null; winner_entry_id: string | null;
+  sets: unknown; scheduled_time: string | null; started_at: string | null;
+  completed_at: string | null; bracket_position: number | null; bracket_type: string | null;
 }
 
-// ── Shared match type with player names ───────────────────────────────────────
-type LiveMatch = {
+interface CategoryRow {
+  id: string; name: string; play_format: string; draw_format: string; status: string;
+  winner_entry_id: string | null; runner_up_entry_id: string | null; third_place_entry_id: string | null;
+}
+
+interface EntryPlayer { entryId: string; playerName: string; partnerName: string | null; }
+interface SetScore { set_number: number; score_a: number; score_b: number; }
+interface StandingRow { entryId: string; played: number; wins: number; losses: number; setsFor: number; setsAgainst: number; pointDiff: number; }
+
+interface TournamentWithClub {
   id: string;
-  court: number | null;
-  round_name: string | null;
-  sets: { set_number: number; score_a: number; score_b: number }[];
-  name_a: string;
-  name_b: string;
+  name: string;
+  display_code: string;
+  clubs: { name: string; logo_url: string | null; brand_primary_color: string | null } | null;
+}
+interface Props { tournament: TournamentWithClub; initialDisplayState: DisplayState; }
+
+const SLIDE_LABELS: Record<DisplaySlide, string> = {
+  live_scores: 'Live Scores', group_standings: 'Group Standings', live_bracket: 'Live Bracket',
+  upcoming_matches: 'Upcoming', full_schedule: 'Full Schedule', category_podium: 'Podium',
+  announcement: 'Announcement', wrap_up: 'Wrap-Up',
 };
 
-const MATCH_WITH_PLAYERS = `
-  id, court, round_name, sets,
-  ea:tournament_entries!entry_a_id(players!player_id(full_name)),
-  eb:tournament_entries!entry_b_id(players!player_id(full_name))
-` as const;
-
-function extractName(entry: unknown): string {
-  const e = entry as { players: { full_name: string } | null } | null;
-  return e?.players?.full_name ?? 'TBD';
-}
+const ROTATION_ORDER: DisplaySlide[] = ['live_scores','upcoming_matches','group_standings','live_bracket','full_schedule'];
 
 export function DisplayScreen({ tournament, initialDisplayState }: Props) {
+  const supabase = createClient();
   const [displayState, setDisplayState] = useState<DisplayState>(initialDisplayState);
-  const [currentSlide, setCurrentSlide] = useState<DisplaySlide>(
-    initialDisplayState.current_slide as DisplaySlide,
-  );
-  const [currentTime, setCurrentTime] = useState<Date | null>(null);
+  const [rotationIndex, setRotationIndex] = useState(0);
   const [isConnected, setIsConnected] = useState(true);
+  const [clock, setClock] = useState(new Date());
+  const [matches, setMatches] = useState<MatchRow[]>([]);
+  const [categories, setCategories] = useState<CategoryRow[]>([]);
+  const [entryPlayers, setEntryPlayers] = useState<Map<string, EntryPlayer>>(new Map());
+  const [activeAnnouncement, setActiveAnnouncement] = useState<Announcement | null>(null);
+  const rotationRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Track seconds elapsed for rotation progress bar
-  const [elapsed, setElapsed] = useState(0);
-  const elapsedRef = useRef(0);
-
-  // Clock
-  useEffect(() => {
-    setCurrentTime(new Date());
-    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  // Realtime subscription for display_state updates
-  useEffect(() => {
-    const supabase = createClient();
-    const channel = supabase
-      .channel(`tournament:${tournament.id}`)
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'display_state', filter: `tournament_id=eq.${tournament.id}` },
-        (payload) => {
-          const ds = payload.new as DisplayState;
-          setDisplayState(ds);
-          // Organiser override: jump to the pinned slide immediately and reset timer
-          if (ds.is_pinned) {
-            setCurrentSlide(ds.current_slide as DisplaySlide);
-          }
-          elapsedRef.current = 0;
-          setElapsed(0);
-        },
-      )
-      .subscribe((status) => setIsConnected(status === 'SUBSCRIBED'));
-    return () => { supabase.removeChannel(channel); };
+  const fetchData = useCallback(async () => {
+    const [matchesRes, categoriesRes] = await Promise.all([
+      supabase.from('matches')
+        .select('id,status,court,round,round_name,group_name,category_id,entry_a_id,entry_b_id,winner_entry_id,sets,scheduled_time,started_at,completed_at,bracket_position,bracket_type')
+        .eq('tournament_id', tournament.id).order('scheduled_time', { ascending: true }),
+      supabase.from('tournament_categories')
+        .select('id,name,play_format,draw_format,status,winner_entry_id,runner_up_entry_id,third_place_entry_id')
+        .eq('tournament_id', tournament.id),
+    ]);
+    const fetchedMatches = (matchesRes.data ?? []) as MatchRow[];
+    const fetchedCategories = (categoriesRes.data ?? []) as CategoryRow[];
+    setMatches(fetchedMatches);
+    setCategories(fetchedCategories);
+    const entryIds = new Set<string>();
+    for (const m of fetchedMatches) { if (m.entry_a_id) entryIds.add(m.entry_a_id); if (m.entry_b_id) entryIds.add(m.entry_b_id); }
+    for (const c of fetchedCategories) { if (c.winner_entry_id) entryIds.add(c.winner_entry_id); if (c.runner_up_entry_id) entryIds.add(c.runner_up_entry_id); if (c.third_place_entry_id) entryIds.add(c.third_place_entry_id); }
+    if (entryIds.size > 0) {
+      const { data: entries } = await supabase.from('tournament_entries').select('id,player_id,partner_id,players!player_id(full_name)').in('id', [...entryIds]);
+      const partnerIds = (entries ?? []).map((e) => e.partner_id).filter((x): x is string => x != null);
+      let partnerMap = new Map<string, string>();
+      if (partnerIds.length > 0) { const { data: p } = await supabase.from('players').select('id,full_name').in('id', partnerIds); partnerMap = new Map((p ?? []).map((x) => [x.id, x.full_name])); }
+      const map = new Map<string, EntryPlayer>();
+      for (const e of entries ?? []) { const pn = (e.players as { full_name: string } | null)?.full_name ?? 'Unknown'; const ptn = e.partner_id ? (partnerMap.get(e.partner_id) ?? null) : null; map.set(e.id, { entryId: e.id, playerName: pn, partnerName: ptn }); }
+      setEntryPlayers(map);
+    }
+    const ds = await supabase.from('display_state').select('active_announcement_id').eq('tournament_id', tournament.id).single();
+    if (ds.data?.active_announcement_id) { const { data: ann } = await supabase.from('announcements').select('*').eq('id', ds.data.active_announcement_id).single(); setActiveAnnouncement(ann as Announcement | null); }
+    else setActiveAnnouncement(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tournament.id]);
 
-  // Auto-rotation timer
+  useEffect(() => { void fetchData(); }, [fetchData]);
+  useEffect(() => { const t = setInterval(() => setClock(new Date()), 1000); return () => clearInterval(t); }, []);
+
   useEffect(() => {
-    const intervalMs = 1000;
-    const timer = setInterval(() => {
-      const ds = displayState;
-      if (ds.is_pinned || ds.is_paused) {
-        // Reset elapsed when paused/pinned so bar shows full on resume
-        elapsedRef.current = 0;
-        setElapsed(0);
-        return;
-      }
+    const ch = supabase.channel('display:' + tournament.id)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'display_state', filter: 'tournament_id=eq.' + tournament.id },
+        (p) => { if (p.new) { setDisplayState(p.new as DisplayState); void fetchData(); } })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'matches', filter: 'tournament_id=eq.' + tournament.id }, () => { void fetchData(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'announcements', filter: 'tournament_id=eq.' + tournament.id }, () => { void fetchData(); })
+      .subscribe((s) => setIsConnected(s === 'SUBSCRIBED'));
+    return () => { void supabase.removeChannel(ch); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tournament.id]);
 
-      elapsedRef.current += 1;
-      setElapsed(elapsedRef.current);
-
-      if (elapsedRef.current >= ds.rotation_interval_secs) {
-        elapsedRef.current = 0;
-        setElapsed(0);
-        setCurrentSlide((prev) => {
-          const idx = ROTATION_SLIDES.indexOf(prev);
-          const next = (idx + 1) % ROTATION_SLIDES.length;
-          return ROTATION_SLIDES[next];
-        });
-      }
-    }, intervalMs);
-    return () => clearInterval(timer);
-  }, [displayState]);
-
-  // When displayState changes and not pinned, keep currentSlide at current (don't reset)
-  // but if pinned, track the pinned slide
   useEffect(() => {
-    if (displayState.is_pinned) {
-      setCurrentSlide(displayState.current_slide as DisplaySlide);
+    if (rotationRef.current) clearInterval(rotationRef.current);
+    if (!displayState.is_pinned && !displayState.is_paused) {
+      const ms = (displayState.rotation_interval_secs ?? 20) * 1000;
+      rotationRef.current = setInterval(() => setRotationIndex((i) => (i + 1) % ROTATION_ORDER.length), ms);
     }
-  }, [displayState]);
+    return () => { if (rotationRef.current) clearInterval(rotationRef.current); };
+  }, [displayState.is_pinned, displayState.is_paused, displayState.rotation_interval_secs]);
 
-  const club = tournament.clubs;
-  const primaryColor = club?.brand_primary_color ?? '#7c3aed';
-  const rotationProgress = displayState.is_pinned || displayState.is_paused
-    ? 0
-    : Math.min(elapsed / displayState.rotation_interval_secs, 1);
+  const effectiveSlide: DisplaySlide = displayState.is_pinned ? displayState.current_slide : (ROTATION_ORDER[rotationIndex] ?? 'live_scores');
+  const entryLabel = (id: string | null): string => { if (!id) return 'BYE'; const ep = entryPlayers.get(id); if (!ep) return '—'; return ep.partnerName ? ep.playerName + ' / ' + ep.partnerName : ep.playerName; };
+  const formatTime = (s: string | null): string => { if (!s) return '—'; return new Date(s).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: true }); };
+  const parseSets = (s: unknown): SetScore[] => Array.isArray(s) ? s as SetScore[] : [];
+  const catName = (id: string) => categories.find((c) => c.id === id)?.name ?? '';
+  const liveMatches = matches.filter((m) => m.status === 'in_progress');
+  const upcomingMatches = matches.filter((m) => m.status === 'scheduled').slice(0, 12);
+  const completedMatches = matches.filter((m) => m.status === 'completed');
+  const nextSlide: DisplaySlide = ROTATION_ORDER[(rotationIndex + 1) % ROTATION_ORDER.length] ?? 'live_scores';
+
+  const renderSlide = () => {
+    switch (effectiveSlide) {
+      case 'live_scores': return <LiveScoresSlide matches={liveMatches} entryLabel={entryLabel} parseSets={parseSets} catName={catName} />;
+      case 'group_standings': return <GroupStandingsSlide matches={completedMatches} categories={categories} entryLabel={entryLabel} categoryFilter={displayState.active_category_filter} />;
+      case 'live_bracket': return <LiveBracketSlide matches={matches} categories={categories} entryLabel={entryLabel} categoryFilter={displayState.active_category_filter} />;
+      case 'upcoming_matches': return <UpcomingMatchesSlide matches={upcomingMatches} entryLabel={entryLabel} formatTime={formatTime} catName={catName} />;
+      case 'full_schedule': return <FullScheduleSlide matches={matches} entryLabel={entryLabel} formatTime={formatTime} catName={catName} />;
+      case 'category_podium': return <CategoryPodiumSlide categories={categories} entryLabel={entryLabel} categoryFilter={displayState.active_category_filter} />;
+      case 'announcement': return <AnnouncementSlide announcement={activeAnnouncement} tournamentName={tournament.name} />;
+      case 'wrap_up': return <WrapUpSlide categories={categories} entryLabel={entryLabel} tournamentName={tournament.name} />;
+      default: return <LiveScoresSlide matches={liveMatches} entryLabel={entryLabel} parseSets={parseSets} catName={catName} />;
+    }
+  };
 
   return (
-    <div
-      className="relative flex h-screen w-screen flex-col overflow-hidden bg-gray-950 text-white"
-      style={{ fontFamily: 'system-ui, sans-serif' }}
-    >
+    <div className="fixed inset-0 bg-black overflow-hidden" style={{ fontFamily: 'system-ui, sans-serif' }}>
+      <div className="absolute inset-x-0 top-0 flex items-center justify-between px-[3vw]"
+        style={{ height: '7vh', background: 'linear-gradient(to right, #0f172a, #1e293b)', borderBottom: '1px solid #334155' }}>
+        <div className="flex items-center gap-[2vw]">
+          <span style={{ fontSize: '2.2vw', fontWeight: 900, color: '#ffffff' }}>{tournament.clubs?.name ?? 'PLAYOFFE'}</span>
+          <span style={{ fontSize: '1.8vw', fontWeight: 600, color: '#94a3b8' }}>{tournament.name}</span>
+        </div>
+        <div className="flex items-center gap-[2vw]">
+          <span style={{ fontSize: '1.4vw', fontWeight: 700, color: '#64748b', background: '#1e293b', borderRadius: '0.4vw', padding: '0.3vh 1vw', border: '1px solid #334155' }}>{SLIDE_LABELS[effectiveSlide]}</span>
+          <span style={{ fontSize: '2vw', fontWeight: 700, color: '#ffffff', fontVariantNumeric: 'tabular-nums' }}>{clock.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: true })}</span>
+        </div>
+      </div>
+      <div className="absolute inset-x-0 overflow-hidden" style={{ top: '7vh', bottom: '5vh' }}>{renderSlide()}</div>
+      <div className="absolute inset-x-0 bottom-0 flex items-center justify-between px-[3vw]"
+        style={{ height: '5vh', background: '#0f172a', borderTop: '1px solid #1e293b' }}>
+        <div className="flex items-center gap-[0.8vw]">
+          {ROTATION_ORDER.map((s) => <div key={s} style={{ width: effectiveSlide === s ? '2vw' : '0.8vw', height: '0.5vh', borderRadius: '9999px', background: effectiveSlide === s ? '#6366f1' : '#334155', transition: 'all 0.3s ease' }} />)}
+        </div>
+        {displayState.is_pinned ? <span style={{ fontSize: '1.1vw', color: '#6366f1' }}>Pinned</span> : <span style={{ fontSize: '1.1vw', color: '#475569' }}>Next: {SLIDE_LABELS[nextSlide]}</span>}
+        <span style={{ fontSize: '1vw', color: '#334155' }}>PLAYOFFE</span>
+      </div>
       {!isConnected && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/70">
-          <div className="rounded-xl bg-gray-900 px-8 py-6 text-center">
-            <div className="mb-2 animate-spin text-2xl">⟳</div>
-            <p className="text-lg font-semibold">Reconnecting...</p>
+        <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.7)', zIndex: 50 }}>
+          <div style={{ background: '#1e293b', border: '1px solid #475569', borderRadius: '1vw', padding: '3vh 4vw', textAlign: 'center' }}>
+            <p style={{ fontSize: '2vw', color: '#f59e0b', fontWeight: 700 }}>Reconnecting...</p>
+            <p style={{ fontSize: '1.4vw', color: '#64748b', marginTop: '1vh' }}>Live updates paused</p>
           </div>
         </div>
       )}
-
-      <TopBar
-        tournamentName={tournament.name}
-        clubName={club?.name ?? ''}
-        currentTime={currentTime}
-        primaryColor={primaryColor}
-        currentSlide={currentSlide}
-        isPinned={displayState.is_pinned}
-        isPaused={displayState.is_paused}
-      />
-
-      <main className="flex flex-1 items-center justify-center p-8 overflow-hidden">
-        <SlideContent
-          slide={currentSlide}
-          tournamentId={tournament.id}
-        />
-      </main>
-
-      <BottomBar primaryColor={primaryColor} progress={rotationProgress} />
     </div>
   );
 }
 
-// ── Top bar ───────────────────────────────────────────────────────────────────
-function TopBar({
-  tournamentName,
-  clubName,
-  currentTime,
-  primaryColor,
-  currentSlide,
-  isPinned,
-  isPaused,
-}: {
-  tournamentName: string;
-  clubName: string;
-  currentTime: Date | null;
-  primaryColor: string;
-  currentSlide: DisplaySlide;
-  isPinned: boolean;
-  isPaused: boolean;
+function EmptySlide({ icon, title, subtitle }: { icon: string; title: string; subtitle: string }) {
+  return (
+    <div className="h-full flex flex-col items-center justify-center" style={{ gap: '2vh' }}>
+      <p style={{ fontSize: '6vw' }}>{icon}</p>
+      <p style={{ fontSize: '2.5vw', fontWeight: 700, color: '#475569' }}>{title}</p>
+      <p style={{ fontSize: '1.5vw', color: '#334155' }}>{subtitle}</p>
+    </div>
+  );
+}
+
+function LiveScoresSlide({ matches, entryLabel, parseSets, catName }: {
+  matches: MatchRow[]; entryLabel: (id: string | null) => string;
+  parseSets: (s: unknown) => SetScore[]; catName: (id: string) => string;
 }) {
-  const slideLabels: Record<DisplaySlide, string> = {
-    live_scores: 'Live Scores',
-    group_standings: 'Group Standings',
-    live_bracket: 'Live Bracket',
-    upcoming_matches: 'Upcoming Matches',
-    full_schedule: 'Full Schedule',
-    category_podium: 'Category Podium',
-    announcement: 'Announcement',
-    wrap_up: 'Tournament Wrap-Up',
-  };
-
+  if (matches.length === 0) return <EmptySlide icon="🎯" title="No live matches" subtitle="Matches will appear here when in progress" />;
   return (
-    <div className="flex shrink-0 items-center justify-between px-10 py-5" style={{ backgroundColor: primaryColor }}>
-      <div>
-        <p className="text-xl font-black leading-tight tracking-tight">{tournamentName}</p>
-        <div className="mt-0.5 flex items-center gap-2">
-          <p className="text-sm opacity-75">{clubName} · {slideLabels[currentSlide]}</p>
-          {isPinned && (
-            <span className="rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">
-              📌 Pinned
-            </span>
-          )}
-          {isPaused && !isPinned && (
-            <span className="rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">
-              ⏸ Paused
-            </span>
-          )}
-        </div>
-      </div>
-      <div className="text-right font-mono text-3xl font-black tabular-nums">
-        {currentTime?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) ?? ''}
-      </div>
-    </div>
-  );
-}
-
-// ── Bottom bar ────────────────────────────────────────────────────────────────
-function BottomBar({ primaryColor, progress }: { primaryColor: string; progress: number }) {
-  return (
-    <div className="flex shrink-0 flex-col bg-gray-900/80">
-      {/* Rotation progress bar */}
-      <div className="h-0.5 w-full bg-white/5">
-        <div
-          className="h-full transition-all duration-1000 ease-linear rounded-full opacity-60"
-          style={{ width: `${progress * 100}%`, backgroundColor: primaryColor }}
-        />
-      </div>
-      <div className="flex items-center justify-between px-10 py-2.5">
-        <p className="text-xs font-bold tracking-widest opacity-40">PLAYOFFE</p>
-        <div className="h-1 w-24 rounded-full opacity-30" style={{ backgroundColor: primaryColor }} />
-      </div>
-    </div>
-  );
-}
-
-// ── Slide router ──────────────────────────────────────────────────────────────
-function SlideContent({ slide, tournamentId }: { slide: DisplaySlide; tournamentId: string }) {
-  switch (slide) {
-    case 'live_scores':      return <LiveScoresSlide tournamentId={tournamentId} />;
-    case 'upcoming_matches': return <UpcomingMatchesSlide tournamentId={tournamentId} />;
-    case 'announcement':     return <AnnouncementSlide tournamentId={tournamentId} />;
-    case 'group_standings':  return <GroupStandingsSlide tournamentId={tournamentId} />;
-    case 'live_bracket':     return <LiveBracketSlide tournamentId={tournamentId} />;
-    case 'category_podium':  return <CategoryPodiumSlide tournamentId={tournamentId} />;
-    case 'wrap_up':          return <WrapUpSlide tournamentId={tournamentId} />;
-    case 'full_schedule':    return <FullScheduleSlide tournamentId={tournamentId} />;
-    default:
-      return (
-        <div className="text-center opacity-20">
-          <p className="text-5xl font-black">{(slide as string).replace(/_/g, ' ').toUpperCase()}</p>
-          <p className="mt-2 text-sm">Coming soon</p>
-        </div>
-      );
-  }
-}
-
-// ── Live scores ───────────────────────────────────────────────────────────────
-function LiveScoresSlide({ tournamentId }: { tournamentId: string }) {
-  const [matches, setMatches] = useState<LiveMatch[]>([]);
-  const supabase = createClient();
-
-  const load = useCallback(async () => {
-    const { data } = await supabase
-      .from('matches')
-      .select(MATCH_WITH_PLAYERS)
-      .eq('tournament_id', tournamentId)
-      .eq('status', 'in_progress')
-      .order('court');
-
-    setMatches(
-      (data ?? []).map((m) => ({
-        id: m.id,
-        court: m.court,
-        round_name: m.round_name,
-        sets: (m.sets as { set_number: number; score_a: number; score_b: number }[]) ?? [],
-        name_a: extractName(m.ea),
-        name_b: extractName(m.eb),
-      })),
-    );
-  }, [tournamentId, supabase]);
-
-  useEffect(() => {
-    load();
-    const channel = supabase
-      .channel(`live-scores:${tournamentId}`)
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'matches',
-        filter: `tournament_id=eq.${tournamentId}` }, load)
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [tournamentId, load, supabase]);
-
-  if (matches.length === 0) {
-    return (
-      <div className="text-center">
-        <p className="text-6xl mb-4">🎾</p>
-        <p className="text-3xl font-semibold text-gray-500">No live matches right now</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="grid w-full grid-cols-1 gap-6 md:grid-cols-2">
-      {matches.slice(0, 4).map((match) => {
-        const current = match.sets[match.sets.length - 1];
-        const scoreA = match.sets.filter((s) => s.score_a > s.score_b).length;
-        const scoreB = match.sets.filter((s) => s.score_b > s.score_a).length;
-        return (
-          <div key={match.id} className="rounded-2xl bg-gray-800/80 p-6 ring-1 ring-white/5">
-            <p className="mb-5 text-sm font-semibold uppercase tracking-widest text-gray-400">
-              {match.court ? `Court ${match.court}` : ''}
-              {match.court && match.round_name ? ' · ' : ''}
-              {match.round_name ?? ''}
-            </p>
-
-            {/* Players + current set score */}
-            <div className="flex items-center gap-4">
-              <p className="flex-1 truncate text-2xl font-bold leading-tight">{match.name_a}</p>
-              <div className="shrink-0 text-center">
-                <p className="font-mono text-6xl font-black tabular-nums leading-none">
-                  {current?.score_a ?? 0}
-                  <span className="mx-2 text-gray-600">:</span>
-                  {current?.score_b ?? 0}
-                </p>
-                <p className="mt-1 text-xs text-gray-500">Set {match.sets.length}</p>
-              </div>
-              <p className="flex-1 truncate text-right text-2xl font-bold leading-tight">{match.name_b}</p>
-            </div>
-
-            {/* Set score summary */}
-            {match.sets.length > 1 && (
-              <div className="mt-4 flex items-center justify-center gap-3">
-                <span className="text-sm font-bold text-gray-300">{scoreA}</span>
-                <div className="flex gap-1.5">
-                  {match.sets.map((s, i) => (
-                    <span key={i} className="rounded bg-gray-700 px-2 py-0.5 font-mono text-xs text-gray-400">
-                      {s.score_a}-{s.score_b}
-                    </span>
-                  ))}
-                </div>
-                <span className="text-sm font-bold text-gray-300">{scoreB}</span>
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// ── Upcoming matches ──────────────────────────────────────────────────────────
-function UpcomingMatchesSlide({ tournamentId }: { tournamentId: string }) {
-  const [matches, setMatches] = useState<(LiveMatch & { scheduled_time: string | null; category_name: string })[]>([]);
-  const supabase = createClient();
-
-  useEffect(() => {
-    supabase
-      .from('matches')
-      .select(`${MATCH_WITH_PLAYERS}, scheduled_time, tc:tournament_categories!category_id(name)`)
-      .eq('tournament_id', tournamentId)
-      .eq('status', 'scheduled')
-      .not('entry_a_id', 'is', null)
-      .not('entry_b_id', 'is', null)
-      .order('scheduled_time', { nullsFirst: false })
-      .order('court', { nullsFirst: false })
-      .limit(8)
-      .then(({ data }) => {
-        setMatches(
-          (data ?? []).map((m) => ({
-            id: m.id,
-            court: m.court,
-            round_name: m.round_name,
-            sets: [],
-            name_a: extractName(m.ea),
-            name_b: extractName(m.eb),
-            scheduled_time: m.scheduled_time,
-            category_name: (m.tc as { name: string } | null)?.name ?? '',
-          })),
-        );
-      });
-  }, [tournamentId, supabase]);
-
-  if (matches.length === 0) {
-    return (
-      <div className="text-center">
-        <p className="text-6xl mb-4">📋</p>
-        <p className="text-3xl font-semibold text-gray-500">No upcoming matches scheduled</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="w-full space-y-3">
-      {matches.map((match) => (
-        <div
-          key={match.id}
-          className="flex items-center gap-6 rounded-xl bg-gray-800/60 px-6 py-4 ring-1 ring-white/5"
-        >
-          {/* Time */}
-          <p className="w-16 shrink-0 font-mono text-sm text-gray-400">
-            {match.scheduled_time
-              ? new Date(match.scheduled_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-              : '--:--'}
-          </p>
-
-          {/* Court */}
-          {match.court && (
-            <p className="w-20 shrink-0 text-center text-sm font-bold text-gray-300">
-              Court {match.court}
-            </p>
-          )}
-
-          {/* Match */}
-          <p className="flex-1 text-lg font-semibold">
-            {match.name_a}
-            <span className="mx-3 text-gray-500 font-normal">vs</span>
-            {match.name_b}
-          </p>
-
-          {/* Round / category */}
-          <p className="shrink-0 text-sm text-gray-500">
-            {match.category_name}
-            {match.category_name && match.round_name ? ' · ' : ''}
-            {match.round_name ?? ''}
-          </p>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ── Group Standings ───────────────────────────────────────────────────────────
-type GroupMatchRow = {
-  categoryName: string;
-  groupName: string;
-  entryAId: string | null;
-  entryBId: string | null;
-  nameA: string;
-  nameB: string;
-  winnerId: string | null;
-  status: string;
-};
-
-type Standing = {
-  entryId: string;
-  name: string;
-  played: number;
-  wins: number;
-  losses: number;
-  points: number;
-};
-
-function computeStandings(matches: GroupMatchRow[]): Standing[] {
-  const map = new Map<string, Standing>();
-
-  const ensure = (id: string, name: string) => {
-    if (!map.has(id)) map.set(id, { entryId: id, name, played: 0, wins: 0, losses: 0, points: 0 });
-    return map.get(id)!;
-  };
-
-  for (const m of matches) {
-    if (m.status !== 'completed' && m.status !== 'walkover') continue;
-    if (!m.entryAId || !m.entryBId) continue;
-
-    const a = ensure(m.entryAId, m.nameA);
-    const b = ensure(m.entryBId, m.nameB);
-
-    a.played += 1;
-    b.played += 1;
-
-    if (m.winnerId === m.entryAId) {
-      a.wins += 1; a.points += 2;
-      b.losses += 1;
-    } else if (m.winnerId === m.entryBId) {
-      b.wins += 1; b.points += 2;
-      a.losses += 1;
-    }
-  }
-
-  return Array.from(map.values()).sort((a, b) => b.points - a.points || b.wins - a.wins);
-}
-
-function GroupStandingsSlide({ tournamentId }: { tournamentId: string }) {
-  const [groups, setGroups] = useState<{ categoryName: string; groupName: string; standings: Standing[] }[]>([]);
-  const supabase = createClient();
-
-  useEffect(() => {
-    supabase
-      .from('matches')
-      .select(`
-        id, status, winner_entry_id, group_name,
-        tc:tournament_categories!category_id(name),
-        ea:tournament_entries!entry_a_id(id, players!player_id(full_name)),
-        eb:tournament_entries!entry_b_id(id, players!player_id(full_name))
-      `)
-      .eq('tournament_id', tournamentId)
-      .not('group_name', 'is', null)
-      .then(({ data }) => {
-        if (!data) return;
-
-        const rows: GroupMatchRow[] = data.map((m) => {
-          const ea = m.ea as { id: string; players: { full_name: string } | null } | null;
-          const eb = m.eb as { id: string; players: { full_name: string } | null } | null;
-          return {
-            categoryName: (m.tc as { name: string } | null)?.name ?? '',
-            groupName: m.group_name ?? '',
-            entryAId: ea?.id ?? null,
-            entryBId: eb?.id ?? null,
-            nameA: ea?.players?.full_name ?? 'TBD',
-            nameB: eb?.players?.full_name ?? 'TBD',
-            winnerId: m.winner_entry_id,
-            status: m.status,
-          };
-        });
-
-        // Group by category + group name
-        const groupMap = new Map<string, GroupMatchRow[]>();
-        for (const r of rows) {
-          const key = `${r.categoryName}__${r.groupName}`;
-          const list = groupMap.get(key) ?? [];
-          list.push(r);
-          groupMap.set(key, list);
-        }
-
-        const result = Array.from(groupMap.entries()).map(([key, matches]) => {
-          const [categoryName, groupName] = key.split('__');
-          return { categoryName, groupName, standings: computeStandings(matches) };
-        });
-
-        setGroups(result);
-      });
-  }, [tournamentId, supabase]);
-
-  if (groups.length === 0) {
-    return (
-      <div className="text-center">
-        <p className="text-6xl mb-4">📊</p>
-        <p className="text-3xl font-semibold text-gray-500">No group stage data yet</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="w-full grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3 overflow-auto max-h-full">
-      {groups.map(({ categoryName, groupName, standings }) => (
-        <div key={`${categoryName}${groupName}`} className="rounded-2xl bg-gray-800/80 p-5 ring-1 ring-white/5">
-          <p className="mb-1 text-xs font-semibold uppercase tracking-widest text-gray-400">{categoryName}</p>
-          <p className="mb-4 text-lg font-bold text-white">{groupName}</p>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-700 text-xs uppercase tracking-wider text-gray-500">
-                <th className="pb-2 text-left font-medium">Player</th>
-                <th className="pb-2 text-center font-medium">P</th>
-                <th className="pb-2 text-center font-medium">W</th>
-                <th className="pb-2 text-center font-medium">L</th>
-                <th className="pb-2 text-right font-medium">Pts</th>
-              </tr>
-            </thead>
-            <tbody>
-              {standings.map((s, i) => (
-                <tr key={s.entryId} className={`border-b border-gray-800/60 ${i === 0 ? 'text-white' : 'text-gray-300'}`}>
-                  <td className="py-2 pr-2">
-                    <span className={`mr-2 text-xs font-bold ${i === 0 ? 'text-yellow-400' : i === 1 ? 'text-gray-400' : 'text-gray-600'}`}>
-                      {i + 1}
-                    </span>
-                    <span className={`font-${i === 0 ? 'bold' : 'normal'} truncate`}>{s.name}</span>
-                  </td>
-                  <td className="py-2 text-center text-gray-400">{s.played}</td>
-                  <td className="py-2 text-center font-semibold text-white">{s.wins}</td>
-                  <td className="py-2 text-center text-gray-500">{s.losses}</td>
-                  <td className="py-2 text-right font-black tabular-nums">{s.points}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ── Live Bracket ──────────────────────────────────────────────────────────────
-type BracketMatchTV = {
-  id: string;
-  round: number;
-  roundName: string | null;
-  nameA: string;
-  nameB: string;
-  setsA: number;
-  setsB: number;
-  winnerId: string | null;
-  entryAId: string | null;
-  entryBId: string | null;
-  status: string;
-};
-
-type CategoryBracketTV = {
-  categoryName: string;
-  maxRound: number;
-  rounds: Map<number, BracketMatchTV[]>;
-};
-
-function TVMatchCard({ match, primary }: { match: BracketMatchTV; primary: string }) {
-  const aWins = match.status === 'completed' || match.status === 'walkover'
-    ? match.winnerId === match.entryAId
-    : false;
-  const bWins = match.status === 'completed' || match.status === 'walkover'
-    ? match.winnerId === match.entryBId
-    : false;
-  const isLive = match.status === 'in_progress';
-
-  return (
-    <div className={`rounded-xl overflow-hidden ring-1 ${isLive ? 'ring-green-500/50' : 'ring-white/10'}`}
-      style={isLive ? { boxShadow: `0 0 20px ${primary}40` } : undefined}
-    >
-      {isLive && (
-        <div className="px-3 py-1 text-center text-xs font-bold uppercase tracking-widest text-green-400 bg-green-900/40">
-          Live
-        </div>
-      )}
-      {[
-        { name: match.nameA, sets: match.setsA, wins: aWins, entryId: match.entryAId },
-        { name: match.nameB, sets: match.setsB, wins: bWins, entryId: match.entryBId },
-      ].map((player, i) => (
-        <div
-          key={i}
-          className={`flex items-center justify-between gap-3 px-4 py-3 ${
-            i === 0 ? 'border-b border-white/5' : ''
-          } ${player.wins ? 'bg-white/5' : ''}`}
-        >
-          <span className={`flex-1 truncate text-lg font-${player.wins ? 'bold' : 'normal'} ${
-            player.entryId ? (player.wins ? 'text-white' : 'text-gray-400') : 'text-gray-600 italic'
-          }`}>
-            {player.entryId ? player.name : 'TBD'}
-          </span>
-          {(isLive || player.wins) && (
-            <span className={`shrink-0 font-mono text-2xl font-black tabular-nums ${
-              player.wins ? 'text-white' : 'text-gray-400'
-            }`}>
-              {player.sets}
-            </span>
-          )}
-          {player.wins && <span className="shrink-0 text-sm text-yellow-400">✓</span>}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function LiveBracketSlide({ tournamentId }: { tournamentId: string }) {
-  const [brackets, setBrackets] = useState<CategoryBracketTV[]>([]);
-  const supabase = createClient();
-
-  const load = useCallback(async () => {
-    // Get active elimination categories
-    const { data: cats } = await supabase
-      .from('tournament_categories')
-      .select('id, name, draw_format, status')
-      .eq('tournament_id', tournamentId)
-      .in('status', ['draw_generated', 'in_progress', 'completed'])
-      .in('draw_format', ['single_elimination', 'double_elimination']);
-
-    if (!cats || cats.length === 0) { setBrackets([]); return; }
-
-    const result: CategoryBracketTV[] = [];
-
-    for (const cat of cats) {
-      const { data: matches } = await supabase
-        .from('matches')
-        .select(`
-          id, round, round_name, status, winner_entry_id, sets,
-          ea:tournament_entries!entry_a_id(id, players!player_id(full_name)),
-          eb:tournament_entries!entry_b_id(id, players!player_id(full_name))
-        `)
-        .eq('category_id', cat.id)
-        .order('round', { ascending: true });
-
-      if (!matches || matches.length === 0) continue;
-
-      const maxRound = Math.max(...matches.map((m) => m.round));
-      const roundMap = new Map<number, BracketMatchTV[]>();
-
-      for (const m of matches) {
-        const ea = m.ea as { id: string; players: { full_name: string } | null } | null;
-        const eb = m.eb as { id: string; players: { full_name: string } | null } | null;
-        const sets = (m.sets as { score_a: number; score_b: number }[]) ?? [];
-        const setsA = sets.filter((s) => s.score_a > s.score_b).length;
-        const setsB = sets.filter((s) => s.score_b > s.score_a).length;
-
-        const row: BracketMatchTV = {
-          id: m.id,
-          round: m.round,
-          roundName: m.round_name,
-          nameA: ea?.players?.full_name ?? 'TBD',
-          nameB: eb?.players?.full_name ?? 'TBD',
-          setsA,
-          setsB,
-          winnerId: m.winner_entry_id,
-          entryAId: ea?.id ?? null,
-          entryBId: eb?.id ?? null,
-          status: m.status,
-        };
-
-        const list = roundMap.get(m.round) ?? [];
-        list.push(row);
-        roundMap.set(m.round, list);
-      }
-
-      result.push({ categoryName: cat.name, maxRound, rounds: roundMap });
-    }
-
-    setBrackets(result);
-  }, [tournamentId, supabase]);
-
-  useEffect(() => {
-    load();
-    const ch = supabase
-      .channel(`live-bracket:${tournamentId}`)
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'matches',
-        filter: `tournament_id=eq.${tournamentId}` }, load)
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
-  }, [tournamentId, load, supabase]);
-
-  if (brackets.length === 0) {
-    return (
-      <div className="text-center">
-        <p className="text-6xl mb-4">🏆</p>
-        <p className="text-3xl font-semibold text-gray-500">No bracket data yet</p>
-      </div>
-    );
-  }
-
-  // Show the first bracket's last 2 rounds (semi + final)
-  const bracket = brackets[0];
-  const showRounds = [bracket.maxRound - 1, bracket.maxRound].filter((r) => r >= 1 && bracket.rounds.has(r));
-
-  return (
-    <div className="w-full max-w-5xl space-y-6">
-      <p className="text-center text-2xl font-bold text-white">{bracket.categoryName}</p>
-      <div className="flex gap-8 justify-center">
-        {showRounds.map((round) => {
-          const matches = bracket.rounds.get(round) ?? [];
-          const roundName = matches[0]?.roundName ?? `Round ${round}`;
+    <div className="h-full px-[3vw] py-[2vh] overflow-hidden">
+      <div className="grid h-full gap-[2vw]" style={{ gridTemplateColumns: matches.length === 1 ? '1fr' : 'repeat(2, 1fr)' }}>
+        {matches.slice(0, 4).map((m) => {
+          const sets = parseSets(m.sets);
+          const aWins = sets.filter((s) => s.score_a > s.score_b).length;
+          const bWins = sets.filter((s) => s.score_b > s.score_a).length;
           return (
-            <div key={round} className="flex-1 max-w-sm space-y-4">
-              <p className="text-center text-xs font-semibold uppercase tracking-widest text-gray-400">{roundName}</p>
-              {matches.map((m) => (
-                <TVMatchCard key={m.id} match={m} primary="#7c3aed" />
+            <div key={m.id} style={{ background: 'linear-gradient(135deg,#1e293b,#0f172a)', border: '1px solid #334155', borderRadius: '1.5vw', padding: '2.5vh 2.5vw', display: 'flex', flexDirection: 'column', gap: '1.5vh' }}>
+              <div className="flex items-center justify-between">
+                <span style={{ fontSize: '1.4vw', fontWeight: 700, color: '#6366f1', background: '#312e81', borderRadius: '0.4vw', padding: '0.2vh 0.8vw' }}>{m.court != null ? 'Court ' + m.court : 'Live'}</span>
+                <span style={{ fontSize: '1.2vw', color: '#64748b' }}>{catName(m.category_id)} · {m.round_name ?? 'R' + m.round}</span>
+              </div>
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '1.5vh' }}>
+                <div className="flex items-center justify-between">
+                  <span style={{ fontSize: '2vw', fontWeight: 600, color: aWins > bWins ? '#a5f3fc' : '#94a3b8', maxWidth: '65%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entryLabel(m.entry_a_id)}</span>
+                  <div className="flex items-center gap-[1vw]">
+                    {sets.map((s, i) => <span key={i} style={{ fontSize: '2.5vw', fontWeight: 700, color: s.score_a > s.score_b ? '#ffffff' : '#64748b', minWidth: '2vw', textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>{s.score_a}</span>)}
+                    <span style={{ fontSize: '3.5vw', fontWeight: 900, color: aWins > bWins ? '#6366f1' : '#1e293b', minWidth: '3vw', textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>{aWins}</span>
+                  </div>
+                </div>
+                <div style={{ height: '1px', background: '#1e293b' }} />
+                <div className="flex items-center justify-between">
+                  <span style={{ fontSize: '2vw', fontWeight: 600, color: bWins > aWins ? '#a5f3fc' : '#94a3b8', maxWidth: '65%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entryLabel(m.entry_b_id)}</span>
+                  <div className="flex items-center gap-[1vw]">
+                    {sets.map((s, i) => <span key={i} style={{ fontSize: '2.5vw', fontWeight: 700, color: s.score_b > s.score_a ? '#ffffff' : '#64748b', minWidth: '2vw', textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>{s.score_b}</span>)}
+                    <span style={{ fontSize: '3.5vw', fontWeight: 900, color: bWins > aWins ? '#6366f1' : '#1e293b', minWidth: '3vw', textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>{bWins}</span>
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5vw', fontSize: '1.2vw', color: '#f87171', fontWeight: 700 }}>
+                <span style={{ display: 'inline-block', width: '0.7vw', height: '0.7vw', borderRadius: '50%', background: '#ef4444' }} />
+                LIVE
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function UpcomingMatchesSlide({ matches, entryLabel, formatTime, catName }: {
+  matches: MatchRow[]; entryLabel: (id: string | null) => string;
+  formatTime: (s: string | null) => string; catName: (id: string) => string;
+}) {
+  if (matches.length === 0) return <EmptySlide icon="📅" title="No upcoming matches" subtitle="All matches may already be in progress or completed" />;
+  return (
+    <div className="h-full px-[3vw] py-[2vh] overflow-hidden">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2vh', height: '100%' }}>
+        {matches.map((m, i) => (
+          <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '2vw', background: i % 2 === 0 ? '#0f172a' : '#1e293b', border: '1px solid #1e293b', borderRadius: '0.8vw', padding: '1.5vh 2vw', flexShrink: 0 }}>
+            <span style={{ fontSize: '1.6vw', fontWeight: 700, color: '#6366f1', minWidth: '8vw' }}>{formatTime(m.scheduled_time)}</span>
+            {m.court != null && <span style={{ fontSize: '1.3vw', color: '#64748b', minWidth: '6vw' }}>Court {m.court}</span>}
+            <span style={{ fontSize: '1.3vw', color: '#475569', minWidth: '10vw', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{catName(m.category_id)} · {m.round_name ?? 'R' + m.round}</span>
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '1.5vw', overflow: 'hidden' }}>
+              <span style={{ fontSize: '1.8vw', fontWeight: 600, color: '#e2e8f0', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entryLabel(m.entry_a_id)}</span>
+              <span style={{ fontSize: '1.4vw', color: '#475569', fontWeight: 700, flexShrink: 0 }}>vs</span>
+              <span style={{ fontSize: '1.8vw', fontWeight: 600, color: '#e2e8f0', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entryLabel(m.entry_b_id)}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function FullScheduleSlide({ matches, entryLabel, formatTime, catName }: {
+  matches: MatchRow[]; entryLabel: (id: string | null) => string;
+  formatTime: (s: string | null) => string; catName: (id: string) => string;
+}) {
+  const SC: Record<string, string> = { completed: '#22c55e', in_progress: '#6366f1', scheduled: '#334155' };
+  return (
+    <div className="h-full px-[3vw] py-[2vh] overflow-hidden">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8vh', height: '100%' }}>
+        {matches.slice(0, 18).map((m, i) => (
+          <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '1.5vw', background: i % 2 === 0 ? '#0f172a' : '#111827', borderRadius: '0.5vw', padding: '0.8vh 1.5vw', flexShrink: 0 }}>
+            <span style={{ width: '0.4vw', height: '3vh', borderRadius: '9999px', background: SC[m.status] ?? '#334155', flexShrink: 0 }} />
+            <span style={{ fontSize: '1.2vw', color: '#64748b', minWidth: '7vw', fontVariantNumeric: 'tabular-nums' }}>{formatTime(m.scheduled_time)}</span>
+            <span style={{ fontSize: '1.2vw', color: '#475569', minWidth: '5vw' }}>{m.court != null ? 'C' + m.court : '—'}</span>
+            <span style={{ fontSize: '1.1vw', color: '#334155', minWidth: '9vw', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{catName(m.category_id)}</span>
+            <span style={{ flex: 1, fontSize: '1.5vw', fontWeight: 500, color: '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {entryLabel(m.entry_a_id)} <span style={{ color: '#334155' }}>vs</span> {entryLabel(m.entry_b_id)}
+            </span>
+            {m.status === 'completed' && m.winner_entry_id && <span style={{ fontSize: '1.1vw', color: '#22c55e', fontWeight: 700, flexShrink: 0 }}>Won: {entryLabel(m.winner_entry_id)}</span>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function GroupStandingsSlide({ matches, categories, entryLabel, categoryFilter }: {
+  matches: MatchRow[]; categories: CategoryRow[];
+  entryLabel: (id: string | null) => string; categoryFilter: string | null;
+}) {
+  const rrCats = categories.filter((c) => c.draw_format === 'round_robin' || c.draw_format === 'group_stage_knockout');
+  const filtered = categoryFilter ? rrCats.filter((c) => c.id === categoryFilter) : rrCats.slice(0, 2);
+  if (filtered.length === 0) return <EmptySlide icon="📊" title="No group standings" subtitle="Round-robin draws will appear here" />;
+
+  const buildStandings = (catId: string): StandingRow[] => {
+    const rowMap = new Map<string, StandingRow>();
+    const ensure = (id: string) => { if (!rowMap.has(id)) rowMap.set(id, { entryId: id, played: 0, wins: 0, losses: 0, setsFor: 0, setsAgainst: 0, pointDiff: 0 }); return rowMap.get(id)!; };
+    for (const m of matches.filter((m) => m.category_id === catId && m.status === 'completed')) {
+      if (!m.entry_a_id || !m.entry_b_id) continue;
+      const a = ensure(m.entry_a_id); const b = ensure(m.entry_b_id);
+      for (const s of (Array.isArray(m.sets) ? m.sets : []) as SetScore[]) {
+        if (s.score_a > s.score_b) { a.setsFor++; b.setsAgainst++; } else { b.setsFor++; a.setsAgainst++; }
+        a.pointDiff += s.score_a - s.score_b; b.pointDiff += s.score_b - s.score_a;
+      }
+      a.played++; b.played++;
+      if (m.winner_entry_id === m.entry_a_id) { a.wins++; b.losses++; } else { b.wins++; a.losses++; }
+    }
+    return [...rowMap.values()].sort((a, b) => b.wins - a.wins || (b.setsFor - b.setsAgainst) - (a.setsFor - a.setsAgainst) || b.pointDiff - a.pointDiff);
+  };
+
+  return (
+    <div className="h-full px-[3vw] py-[2vh] overflow-hidden">
+      <div style={{ display: 'grid', gridTemplateColumns: filtered.length === 1 ? '1fr' : 'repeat(2, 1fr)', gap: '2vw', height: '100%' }}>
+        {filtered.map((cat) => {
+          const standings = buildStandings(cat.id);
+          return (
+            <div key={cat.id} style={{ display: 'flex', flexDirection: 'column', gap: '1.5vh' }}>
+              <h2 style={{ fontSize: '2vw', fontWeight: 700, color: '#e2e8f0' }}>{cat.name}</h2>
+              <div style={{ display: 'flex', gap: '1vw', fontSize: '1.1vw', color: '#475569', fontWeight: 600, padding: '0 1vw' }}>
+                <span style={{ flex: 1 }}>Player</span><span style={{ width: '3vw', textAlign: 'center' }}>P</span><span style={{ width: '3vw', textAlign: 'center' }}>W</span><span style={{ width: '3vw', textAlign: 'center' }}>L</span><span style={{ width: '4vw', textAlign: 'center' }}>Sets</span>
+              </div>
+              {standings.map((row, i) => (
+                <div key={row.entryId} style={{ display: 'flex', alignItems: 'center', gap: '1vw', padding: '1vh 1vw', background: i === 0 ? 'rgba(99,102,241,0.15)' : i % 2 === 0 ? '#0f172a' : '#1e293b', borderRadius: '0.5vw', border: i === 0 ? '1px solid #4f46e5' : '1px solid transparent' }}>
+                  <span style={{ fontSize: '1.2vw', color: '#475569', minWidth: '1.5vw' }}>{i + 1}</span>
+                  <span style={{ flex: 1, fontSize: '1.6vw', fontWeight: 600, color: i === 0 ? '#a5b4fc' : '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entryLabel(row.entryId)}</span>
+                  <span style={{ width: '3vw', textAlign: 'center', fontSize: '1.5vw', color: '#64748b' }}>{row.played}</span>
+                  <span style={{ width: '3vw', textAlign: 'center', fontSize: '1.5vw', fontWeight: 700, color: '#22c55e' }}>{row.wins}</span>
+                  <span style={{ width: '3vw', textAlign: 'center', fontSize: '1.5vw', color: '#ef4444' }}>{row.losses}</span>
+                  <span style={{ width: '4vw', textAlign: 'center', fontSize: '1.4vw', color: '#94a3b8', fontVariantNumeric: 'tabular-nums' }}>{row.setsFor}-{row.setsAgainst}</span>
+                </div>
               ))}
             </div>
           );
@@ -765,392 +321,110 @@ function LiveBracketSlide({ tournamentId }: { tournamentId: string }) {
   );
 }
 
-// ── Category Podium ───────────────────────────────────────────────────────────
-type PodiumEntry = { categoryName: string; gold: string; silver: string; bronze?: string };
+function LiveBracketSlide({ matches, categories, entryLabel, categoryFilter }: {
+  matches: MatchRow[]; categories: CategoryRow[];
+  entryLabel: (id: string | null) => string; categoryFilter: string | null;
+}) {
+  const elimCats = categories.filter((c) => c.draw_format === 'single_elimination' || c.draw_format === 'double_elimination' || c.draw_format === 'group_stage_knockout');
+  const cat = categoryFilter ? (elimCats.find((c) => c.id === categoryFilter) ?? elimCats[0]) : elimCats[0];
+  if (!cat) return <EmptySlide icon="🏆" title="No bracket available" subtitle="Elimination draws will appear here" />;
 
-function CategoryPodiumSlide({ tournamentId }: { tournamentId: string }) {
-  const [podiums, setPodiums] = useState<PodiumEntry[]>([]);
-  const supabase = createClient();
-
-  useEffect(() => {
-    (async () => {
-      // Get completed categories
-      const { data: cats } = await supabase
-        .from('tournament_categories')
-        .select('id, name')
-        .eq('tournament_id', tournamentId)
-        .eq('status', 'completed');
-
-      if (!cats || cats.length === 0) { setPodiums([]); return; }
-
-      const result: PodiumEntry[] = [];
-
-      for (const cat of cats) {
-        // Find final match (highest round) with completed status
-        const { data: matches } = await supabase
-          .from('matches')
-          .select(`
-            id, round, round_name, status, winner_entry_id,
-            ea:tournament_entries!entry_a_id(id, players!player_id(full_name)),
-            eb:tournament_entries!entry_b_id(id, players!player_id(full_name))
-          `)
-          .eq('category_id', cat.id)
-          .in('status', ['completed', 'walkover'])
-          .order('round', { ascending: false })
-          .limit(3);
-
-        if (!matches || matches.length === 0) continue;
-
-        const finalMatch = matches[0];
-        const ea = finalMatch.ea as { id: string; players: { full_name: string } | null } | null;
-        const eb = finalMatch.eb as { id: string; players: { full_name: string } | null } | null;
-
-        if (!finalMatch.winner_entry_id) continue;
-
-        const isAWinner = finalMatch.winner_entry_id === ea?.id;
-        const gold = isAWinner ? (ea?.players?.full_name ?? 'Unknown') : (eb?.players?.full_name ?? 'Unknown');
-        const silver = isAWinner ? (eb?.players?.full_name ?? 'Unknown') : (ea?.players?.full_name ?? 'Unknown');
-
-        // Look for 3rd-place match
-        const thirdMatch = matches.find(
-          (m) => (m.round_name?.toLowerCase().includes('3rd') || m.round_name?.toLowerCase().includes('third') || m.round_name?.toLowerCase().includes('bronze')),
-        );
-
-        let bronze: string | undefined;
-        if (thirdMatch) {
-          const tea = thirdMatch.ea as { id: string; players: { full_name: string } | null } | null;
-          const teb = thirdMatch.eb as { id: string; players: { full_name: string } | null } | null;
-          const winnerId = thirdMatch.winner_entry_id;
-          if (winnerId) {
-            bronze = winnerId === tea?.id ? (tea?.players?.full_name ?? 'Unknown') : (teb?.players?.full_name ?? 'Unknown');
-          }
-        }
-
-        result.push({ categoryName: cat.name, gold, silver, bronze });
-      }
-
-      setPodiums(result);
-    })();
-  }, [tournamentId, supabase]);
-
-  if (podiums.length === 0) {
-    return (
-      <div className="text-center">
-        <p className="text-6xl mb-4">🥇</p>
-        <p className="text-3xl font-semibold text-gray-500">No completed categories yet</p>
-      </div>
-    );
-  }
+  const cm = matches.filter((m) => m.category_id === cat.id && m.bracket_type !== 'losers').sort((a, b) => (a.bracket_position ?? 0) - (b.bracket_position ?? 0));
+  const rounds = [...new Set(cm.map((m) => m.round))].sort((a, b) => a - b);
 
   return (
-    <div className="w-full grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3 max-h-full overflow-auto">
-      {podiums.map((p) => (
-        <div key={p.categoryName} className="rounded-2xl bg-gray-800/80 p-6 ring-1 ring-white/5 text-center">
-          <p className="mb-5 text-sm font-semibold uppercase tracking-widest text-gray-400">{p.categoryName}</p>
-
-          {/* Gold */}
-          <div className="mb-4">
-            <p className="text-4xl mb-2">🥇</p>
-            <p className="text-xl font-black text-yellow-300">{p.gold}</p>
-          </div>
-
-          {/* Silver */}
-          <div className="mb-4 opacity-85">
-            <p className="text-3xl mb-1.5">🥈</p>
-            <p className="text-lg font-bold text-gray-300">{p.silver}</p>
-          </div>
-
-          {/* Bronze */}
-          {p.bronze && (
-            <div className="opacity-75">
-              <p className="text-2xl mb-1">🥉</p>
-              <p className="text-base font-semibold text-amber-600">{p.bronze}</p>
+    <div className="h-full px-[2vw] py-[2vh] overflow-hidden">
+      <h2 style={{ fontSize: '1.8vw', fontWeight: 700, color: '#e2e8f0', marginBottom: '1.5vh' }}>{cat.name} — Bracket</h2>
+      <div style={{ display: 'flex', gap: '2vw', height: 'calc(100% - 5vh)', overflowX: 'auto' }}>
+        {rounds.map((round) => {
+          const rm = cm.filter((m) => m.round === round);
+          return (
+            <div key={round} style={{ display: 'flex', flexDirection: 'column', gap: '1.5vh', minWidth: '20vw' }}>
+              <span style={{ fontSize: '1.2vw', fontWeight: 700, color: '#6366f1', textAlign: 'center', padding: '0.5vh', background: '#1e1b4b', borderRadius: '0.4vw' }}>{rm[0]?.round_name ?? 'Round ' + round}</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1vh', flex: 1, justifyContent: 'space-evenly' }}>
+                {rm.map((m) => {
+                  const aWon = m.winner_entry_id === m.entry_a_id;
+                  const bWon = m.winner_entry_id === m.entry_b_id;
+                  return (
+                    <div key={m.id} style={{ background: '#0f172a', border: '1px solid ' + (m.status === 'in_progress' ? '#6366f1' : '#1e293b'), borderRadius: '0.6vw', overflow: 'hidden' }}>
+                      {[{ id: m.entry_a_id, won: aWon }, { id: m.entry_b_id, won: bWon }].map((p, i) => (
+                        <div key={i} style={{ padding: '0.8vh 1vw', fontSize: '1.4vw', fontWeight: p.won ? 700 : 500, color: p.won ? '#ffffff' : m.winner_entry_id ? '#475569' : '#cbd5e1', background: p.won ? 'rgba(99,102,241,0.2)' : 'transparent', borderBottom: i === 0 ? '1px solid #1e293b' : 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {p.id ? entryLabel(p.id) : 'TBD'}{p.won ? ' ✓' : ''}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-          )}
-        </div>
-      ))}
+          );
+        })}
+      </div>
     </div>
   );
 }
 
-// ── Tournament Wrap-Up ────────────────────────────────────────────────────────
-type WrapUpData = {
-  totalEntries: number;
-  totalMatches: number;
-  completedMatches: number;
-  categoriesTotal: number;
-  categoriesCompleted: number;
-  podiums: PodiumEntry[];
-};
-
-function WrapUpSlide({ tournamentId }: { tournamentId: string }) {
-  const [data, setData] = useState<WrapUpData | null>(null);
-  const supabase = createClient();
-
-  useEffect(() => {
-    (async () => {
-      const [entriesRes, matchesRes, catsRes] = await Promise.all([
-        supabase
-          .from('tournament_entries')
-          .select('id', { count: 'exact', head: true })
-          .eq('tournament_id', tournamentId)
-          .eq('status', 'active'),
-        supabase
-          .from('matches')
-          .select('id, status')
-          .eq('tournament_id', tournamentId),
-        supabase
-          .from('tournament_categories')
-          .select('id, name, status')
-          .eq('tournament_id', tournamentId),
-      ]);
-
-      const matches = matchesRes.data ?? [];
-      const cats = catsRes.data ?? [];
-      const completedCats = cats.filter((c) => c.status === 'completed');
-
-      // Build podiums for completed categories
-      const podiums: PodiumEntry[] = [];
-
-      for (const cat of completedCats) {
-        const { data: finalMatches } = await supabase
-          .from('matches')
-          .select(`
-            id, round, round_name, status, winner_entry_id,
-            ea:tournament_entries!entry_a_id(id, players!player_id(full_name)),
-            eb:tournament_entries!entry_b_id(id, players!player_id(full_name))
-          `)
-          .eq('category_id', cat.id)
-          .in('status', ['completed', 'walkover'])
-          .order('round', { ascending: false })
-          .limit(2);
-
-        if (!finalMatches || finalMatches.length === 0) continue;
-
-        const fm = finalMatches[0];
-        const ea = fm.ea as { id: string; players: { full_name: string } | null } | null;
-        const eb = fm.eb as { id: string; players: { full_name: string } | null } | null;
-        if (!fm.winner_entry_id) continue;
-
-        const isAWinner = fm.winner_entry_id === ea?.id;
-        podiums.push({
-          categoryName: cat.name,
-          gold: isAWinner ? (ea?.players?.full_name ?? 'Unknown') : (eb?.players?.full_name ?? 'Unknown'),
-          silver: isAWinner ? (eb?.players?.full_name ?? 'Unknown') : (ea?.players?.full_name ?? 'Unknown'),
-        });
-      }
-
-      setData({
-        totalEntries: entriesRes.count ?? 0,
-        totalMatches: matches.length,
-        completedMatches: matches.filter((m) => m.status === 'completed' || m.status === 'walkover').length,
-        categoriesTotal: cats.length,
-        categoriesCompleted: completedCats.length,
-        podiums,
-      });
-    })();
-  }, [tournamentId, supabase]);
-
-  if (!data) {
-    return (
-      <div className="text-center">
-        <p className="text-6xl mb-4">🏅</p>
-        <p className="text-3xl font-semibold text-gray-500">Loading results…</p>
-      </div>
-    );
-  }
-
+function CategoryPodiumSlide({ categories, entryLabel, categoryFilter }: {
+  categories: CategoryRow[]; entryLabel: (id: string | null) => string; categoryFilter: string | null;
+}) {
+  const completed = categories.filter((c) => c.winner_entry_id);
+  const toShow = categoryFilter ? completed.filter((c) => c.id === categoryFilter) : completed;
+  if (toShow.length === 0) return <EmptySlide icon="🏅" title="No results yet" subtitle="Category winners will appear here after completion" />;
   return (
-    <div className="w-full max-w-5xl space-y-8">
-      {/* Stats row */}
-      <div className="grid grid-cols-4 gap-4">
-        {[
-          { label: 'Players', value: data.totalEntries },
-          { label: 'Matches played', value: data.completedMatches },
-          { label: 'Categories', value: data.categoriesTotal },
-          { label: 'Completed', value: data.categoriesCompleted },
-        ].map((s) => (
-          <div key={s.label} className="rounded-2xl bg-gray-800/80 p-5 text-center ring-1 ring-white/5">
-            <p className="text-4xl font-black tabular-nums text-white">{s.value}</p>
-            <p className="mt-1 text-xs text-gray-400 uppercase tracking-widest">{s.label}</p>
+    <div className="h-full px-[3vw] py-[2vh] overflow-hidden">
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(' + Math.min(toShow.length, 3) + ', 1fr)', gap: '2vw', height: '100%' }}>
+        {toShow.slice(0, 3).map((cat) => (
+          <div key={cat.id} style={{ background: 'linear-gradient(180deg,#1e1b4b,#0f172a)', border: '1px solid #312e81', borderRadius: '1.5vw', padding: '3vh 2.5vw', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2.5vh' }}>
+            <h3 style={{ fontSize: '1.8vw', fontWeight: 700, color: '#a5b4fc', textAlign: 'center' }}>{cat.name}</h3>
+            {[{ emoji: '🥇', label: 'Champion', entryId: cat.winner_entry_id, color: '#fbbf24' }, { emoji: '🥈', label: 'Runner-up', entryId: cat.runner_up_entry_id, color: '#94a3b8' }, { emoji: '🥉', label: '3rd Place', entryId: cat.third_place_entry_id, color: '#cd7c2e' }].map((pos, i) => pos.entryId ? (
+              <div key={i} style={{ width: '100%', textAlign: 'center', padding: '1.5vh 1.5vw', background: i === 0 ? 'rgba(251,191,36,0.1)' : 'rgba(255,255,255,0.03)', borderRadius: '0.8vw', border: i === 0 ? '1px solid rgba(251,191,36,0.3)' : '1px solid transparent' }}>
+                <span style={{ fontSize: '2.5vw' }}>{pos.emoji}</span>
+                <p style={{ fontSize: i === 0 ? '2vw' : '1.6vw', fontWeight: 700, color: pos.color, marginTop: '0.5vh', lineHeight: 1.2 }}>{entryLabel(pos.entryId)}</p>
+                <p style={{ fontSize: '1.1vw', color: '#475569', marginTop: '0.3vh' }}>{pos.label}</p>
+              </div>
+            ) : null)}
           </div>
         ))}
       </div>
-
-      {/* Winners grid */}
-      {data.podiums.length > 0 && (
-        <div>
-          <p className="mb-4 text-center text-sm font-semibold uppercase tracking-widest text-gray-500">
-            Category Winners
-          </p>
-          <div className="grid gap-4 grid-cols-2 lg:grid-cols-3">
-            {data.podiums.map((p) => (
-              <div key={p.categoryName} className="rounded-xl bg-gray-800/60 px-5 py-4 ring-1 ring-white/5">
-                <p className="text-xs text-gray-500 uppercase tracking-widest mb-2">{p.categoryName}</p>
-                <p className="flex items-center gap-2 text-lg font-bold text-yellow-300">
-                  <span>🥇</span>{p.gold}
-                </p>
-                <p className="flex items-center gap-2 text-sm text-gray-400 mt-1">
-                  <span>🥈</span>{p.silver}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
-// ── Full Schedule ─────────────────────────────────────────────────────────────
-type ScheduleMatch = {
-  id: string;
-  court: number | null;
-  round_name: string | null;
-  scheduled_time: string | null;
-  status: string;
-  category_name: string;
-  name_a: string;
-  name_b: string;
-};
-
-function FullScheduleSlide({ tournamentId }: { tournamentId: string }) {
-  const [matches, setMatches] = useState<ScheduleMatch[]>([]);
-  const supabase = createClient();
-
-  useEffect(() => {
-    supabase
-      .from('matches')
-      .select(`
-        id, court, round_name, scheduled_time, status,
-        tc:tournament_categories!category_id(name),
-        ea:tournament_entries!entry_a_id(players!player_id(full_name)),
-        eb:tournament_entries!entry_b_id(players!player_id(full_name))
-      `)
-      .eq('tournament_id', tournamentId)
-      .not('entry_a_id', 'is', null)
-      .not('entry_b_id', 'is', null)
-      .in('status', ['scheduled', 'in_progress', 'completed', 'walkover'])
-      .order('scheduled_time', { nullsFirst: false })
-      .order('court', { nullsFirst: false })
-      .limit(20)
-      .then(({ data }) => {
-        setMatches(
-          (data ?? []).map((m) => ({
-            id: m.id,
-            court: m.court,
-            round_name: m.round_name,
-            scheduled_time: m.scheduled_time,
-            status: m.status,
-            category_name: (m.tc as { name: string } | null)?.name ?? '',
-            name_a: extractName(m.ea),
-            name_b: extractName(m.eb),
-          })),
-        );
-      });
-  }, [tournamentId, supabase]);
-
-  if (matches.length === 0) {
-    return (
-      <div className="text-center">
-        <p className="text-6xl mb-4">📅</p>
-        <p className="text-3xl font-semibold text-gray-500">No matches scheduled</p>
-      </div>
-    );
-  }
-
-  const statusStyle: Record<string, string> = {
-    scheduled: 'text-gray-500',
-    in_progress: 'text-green-400 font-bold',
-    completed: 'text-gray-600 line-through',
-    walkover: 'text-gray-600',
-  };
-  const statusLabel: Record<string, string> = {
-    scheduled: '—',
-    in_progress: '● Live',
-    completed: '✓',
-    walkover: 'W/O',
-  };
-
-  return (
-    <div className="w-full overflow-auto max-h-full space-y-1.5">
-      {matches.map((m) => (
-        <div
-          key={m.id}
-          className={`flex items-center gap-4 rounded-xl px-5 py-3 ring-1 ${
-            m.status === 'in_progress'
-              ? 'bg-green-900/20 ring-green-500/30'
-              : m.status === 'completed' || m.status === 'walkover'
-              ? 'bg-gray-900/40 ring-white/5 opacity-50'
-              : 'bg-gray-800/60 ring-white/5'
-          }`}
-        >
-          {/* Time */}
-          <p className="w-14 shrink-0 font-mono text-xs text-gray-400">
-            {m.scheduled_time
-              ? new Date(m.scheduled_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-              : '--:--'}
-          </p>
-
-          {/* Court */}
-          <p className="w-16 shrink-0 text-center text-sm font-bold text-gray-300">
-            {m.court ? `Ct ${m.court}` : ''}
-          </p>
-
-          {/* Match */}
-          <p className="flex-1 text-base font-semibold truncate">
-            {m.name_a}
-            <span className="mx-2 text-gray-600 font-normal text-sm">vs</span>
-            {m.name_b}
-          </p>
-
-          {/* Category / Round */}
-          <p className="shrink-0 text-xs text-gray-500 hidden lg:block">
-            {m.category_name}{m.category_name && m.round_name ? ' · ' : ''}{m.round_name ?? ''}
-          </p>
-
-          {/* Status */}
-          <p className={`shrink-0 text-xs w-12 text-right ${statusStyle[m.status] ?? 'text-gray-500'}`}>
-            {statusLabel[m.status] ?? m.status}
-          </p>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ── Announcement ──────────────────────────────────────────────────────────────
-function AnnouncementSlide({ tournamentId }: { tournamentId: string }) {
-  const [announcement, setAnnouncement] = useState<Database['public']['Tables']['announcements']['Row'] | null>(null);
-  const supabase = createClient();
-
-  useEffect(() => {
-    supabase
-      .from('announcements')
-      .select('*')
-      .eq('tournament_id', tournamentId)
-      .is('dismissed_at', null)
-      .order('sent_at', { ascending: false })
-      .limit(1)
-      .single()
-      .then(({ data }) => setAnnouncement(data));
-  }, [tournamentId, supabase]);
-
-  if (!announcement) {
-    return <p className="text-3xl font-semibold text-gray-500">No active announcement</p>;
-  }
-
+function AnnouncementSlide({ announcement, tournamentName }: { announcement: Announcement | null; tournamentName: string }) {
+  if (!announcement) return <EmptySlide icon="📢" title="Announcement" subtitle="No active announcement" />;
   const isUrgent = announcement.urgency === 'urgent';
-
   return (
-    <div className={`w-full max-w-4xl rounded-3xl p-14 text-center ${isUrgent ? 'bg-red-900/60 ring-4 ring-red-500' : 'bg-gray-800/70 ring-1 ring-white/10'}`}>
-      {isUrgent && (
-        <p className="mb-5 text-base font-black uppercase tracking-widest text-red-300">⚠ Urgent</p>
-      )}
-      <p className="text-5xl font-bold leading-snug">{announcement.message}</p>
-      <p className="mt-8 text-sm text-gray-400">
-        {new Date(announcement.sent_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-      </p>
+    <div className="h-full flex flex-col items-center justify-center px-[8vw]" style={{ background: isUrgent ? 'radial-gradient(ellipse at center,rgba(239,68,68,0.15) 0%,transparent 70%)' : 'radial-gradient(ellipse at center,rgba(99,102,241,0.1) 0%,transparent 70%)' }}>
+      <div style={{ fontSize: '5vw', marginBottom: '2vh' }}>{isUrgent ? '🚨' : '📢'}</div>
+      {isUrgent && <div style={{ fontSize: '1.5vw', fontWeight: 700, color: '#ef4444', letterSpacing: '0.2em', marginBottom: '2vh', textTransform: 'uppercase' }}>URGENT ANNOUNCEMENT</div>}
+      <p style={{ fontSize: '3.5vw', fontWeight: 700, color: isUrgent ? '#fca5a5' : '#e2e8f0', textAlign: 'center', lineHeight: 1.3, maxWidth: '80vw' }}>{announcement.message}</p>
+      <p style={{ fontSize: '1.2vw', color: '#475569', marginTop: '4vh' }}>{tournamentName}</p>
+    </div>
+  );
+}
+
+function WrapUpSlide({ categories, entryLabel, tournamentName }: { categories: CategoryRow[]; entryLabel: (id: string | null) => string; tournamentName: string }) {
+  const completed = categories.filter((c) => c.winner_entry_id);
+  return (
+    <div className="h-full flex flex-col items-center justify-center px-[4vw] py-[2vh]">
+      <div style={{ textAlign: 'center', marginBottom: '3vh' }}>
+        <p style={{ fontSize: '5vw', marginBottom: '1vh' }}>🏆</p>
+        <h1 style={{ fontSize: '3vw', fontWeight: 900, color: '#ffffff' }}>Tournament Complete!</h1>
+        <p style={{ fontSize: '1.6vw', color: '#64748b', marginTop: '0.5vh' }}>{tournamentName}</p>
+      </div>
+      {completed.length > 0 ? (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(' + Math.min(completed.length, 3) + ', 1fr)', gap: '2vw', width: '100%' }}>
+          {completed.map((cat) => (
+            <div key={cat.id} style={{ background: 'linear-gradient(135deg,#1e1b4b,#0f172a)', border: '1px solid #312e81', borderRadius: '1vw', padding: '2vh 2vw', textAlign: 'center' }}>
+              <p style={{ fontSize: '1.3vw', color: '#6366f1', fontWeight: 700, marginBottom: '1vh' }}>{cat.name}</p>
+              <p style={{ fontSize: '2vw', marginBottom: '0.5vh' }}>🥇</p>
+              <p style={{ fontSize: '1.8vw', fontWeight: 700, color: '#fbbf24' }}>{entryLabel(cat.winner_entry_id)}</p>
+              {cat.runner_up_entry_id && <p style={{ fontSize: '1.2vw', color: '#94a3b8', marginTop: '0.5vh' }}>Runner-up: {entryLabel(cat.runner_up_entry_id)}</p>}
+            </div>
+          ))}
+        </div>
+      ) : <p style={{ fontSize: '1.8vw', color: '#475569' }}>Results coming soon...</p>}
+      <p style={{ fontSize: '1.3vw', color: '#334155', marginTop: '4vh' }}>Thanks for playing · powered by PLAYOFFE</p>
     </div>
   );
 }
