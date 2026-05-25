@@ -154,7 +154,11 @@ export function PermissionMatrix({ permissions, clubs, selectedClubId }: Props) 
         state.some((p) => p.id === update.id) ? [] : [update],
       ),
   );
-  const [isPending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
+  // Track pending state per cell key ("role:feature:sub") so only the row
+  // being saved is disabled — not every toggle on the page.
+  const [pendingCells, setPendingCells] = useState<Set<string>>(new Set());
+  const [isResetting, setIsResetting] = useState(false);
 
   const permMap = buildPermMap(optimisticPerms, selectedClubId);
 
@@ -197,6 +201,9 @@ export function PermissionMatrix({ permissions, clubs, selectedClubId }: Props) 
       club_id: selectedClubId ?? null,
     };
 
+    const cellKey = `${role}:${feature}:${sub}`;
+    setPendingCells((prev) => new Set(prev).add(cellKey));
+
     startTransition(async () => {
       updateOptimistic(updatedPerm);
       await updateRolePermissionAction({
@@ -205,14 +212,21 @@ export function PermissionMatrix({ permissions, clubs, selectedClubId }: Props) 
         scope: selectedClubId ? 'club' : 'global',
         clubId: selectedClubId,
       });
+      setPendingCells((prev) => {
+        const next = new Set(prev);
+        next.delete(cellKey);
+        return next;
+      });
     });
   }
 
   function handleResetToGlobal() {
     if (!selectedClubId) return;
     if (!window.confirm('Reset all permissions for this club to the global defaults? Club-specific overrides will be deleted.')) return;
+    setIsResetting(true);
     startTransition(async () => {
       await resetClubPermissionsAction(selectedClubId);
+      setIsResetting(false);
       router.refresh();
     });
   }
@@ -249,7 +263,7 @@ export function PermissionMatrix({ permissions, clubs, selectedClubId }: Props) 
         {selectedClubId && (
           <button
             onClick={handleResetToGlobal}
-            disabled={isPending}
+            disabled={isResetting}
             className="ml-auto rounded-lg border border-red-800/50 px-3 py-1.5 text-xs font-semibold text-red-400 hover:bg-red-950/30 transition-colors disabled:opacity-50"
           >
             Reset to global defaults
@@ -334,6 +348,7 @@ export function PermissionMatrix({ permissions, clubs, selectedClubId }: Props) 
                     {ROLES.map((role) => {
                       const cell = getCell(role, key, sub);
                       const theme = ROLE_THEME[role];
+                      const cellPending = pendingCells.has(`${role}:${key}:${sub}`);
                       return (
                         <Fragment key={role}>
                           {/* Enabled toggle */}
@@ -346,7 +361,7 @@ export function PermissionMatrix({ permissions, clubs, selectedClubId }: Props) 
                               )}
                               <Toggle
                                 checked={cell.is_enabled}
-                                disabled={isPending}
+                                disabled={cellPending}
                                 color="green"
                                 onChange={() => handleToggle(role, key, sub, 'is_enabled')}
                               />
@@ -356,7 +371,7 @@ export function PermissionMatrix({ permissions, clubs, selectedClubId }: Props) 
                           <td className="py-2 px-3 text-center">
                             <Toggle
                               checked={cell.can_read}
-                              disabled={isPending || !cell.is_enabled}
+                              disabled={cellPending || !cell.is_enabled}
                               color="blue"
                               onChange={() => handleToggle(role, key, sub, 'can_read')}
                             />
@@ -365,7 +380,7 @@ export function PermissionMatrix({ permissions, clubs, selectedClubId }: Props) 
                           <td className="py-2 px-3 text-center">
                             <Toggle
                               checked={cell.can_write}
-                              disabled={isPending || !cell.is_enabled || !cell.can_read}
+                              disabled={cellPending || !cell.is_enabled || !cell.can_read}
                               color="amber"
                               onChange={() => handleToggle(role, key, sub, 'can_write')}
                             />
