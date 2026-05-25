@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { calculateRatingChange } from '@pickleball/rating';
 import { createNotificationsForPlayers } from './notifications';
+import { sendMatchResultNotification } from '@/lib/email/notifications';
 import { awardBadgesForPlayer } from './badges';
 
 interface SetScore {
@@ -74,7 +75,7 @@ async function assertMatchManager(matchId: string, userId: string) {
 
   const { data: t } = await admin
     .from('tournaments')
-    .select('club_id, slug')
+    .select('club_id, slug, name')
     .eq('id', match.tournament_id)
     .single();
   if (!t) return null;
@@ -86,7 +87,7 @@ async function assertMatchManager(matchId: string, userId: string) {
     .eq('player_id', userId)
     .maybeSingle();
 
-  return mgr ? { match, clubId: t.club_id, tournamentSlug: t.slug } : null;
+  return mgr ? { match, clubId: t.club_id, tournamentSlug: t.slug, tournamentName: t.name } : null;
 }
 
 // ── Start a match ─────────────────────────────────────────────────────────────
@@ -259,6 +260,45 @@ export async function submitResultAction(
     drawLink ?? undefined,
   );
 
+  // ── Match result emails to both players ──────────────────────────────────
+  const [{ data: playerA }, { data: playerB }] = await Promise.all([
+    admin.from('players').select('email, full_name').eq('id', entryA.player_id).single(),
+    admin.from('players').select('email, full_name').eq('id', entryB.player_id).single(),
+  ]);
+
+  if (playerA?.email) {
+    void sendMatchResultNotification({
+      playerEmail: playerA.email,
+      playerName: playerA.full_name,
+      opponentName: playerB?.full_name ?? 'Opponent',
+      isWin: aWins,
+      isWalkover: false,
+      score: scoreStr,
+      ratingChange: resultA.change,
+      newRating: resultA.newRating,
+      tournamentName: ctx.tournamentName,
+      categoryName: catSlugRow?.name ?? '',
+      tournamentSlug: ctx.tournamentSlug,
+      matchId,
+    });
+  }
+  if (playerB?.email) {
+    void sendMatchResultNotification({
+      playerEmail: playerB.email,
+      playerName: playerB.full_name,
+      opponentName: playerA?.full_name ?? 'Opponent',
+      isWin: !aWins,
+      isWalkover: false,
+      score: scoreStr,
+      ratingChange: resultB.change,
+      newRating: resultB.newRating,
+      tournamentName: ctx.tournamentName,
+      categoryName: catSlugRow?.name ?? '',
+      tournamentSlug: ctx.tournamentSlug,
+      matchId,
+    });
+  }
+
   // Award any newly-earned badges to both players (fire-and-forget)
   void awardBadgesForPlayer(entryA.player_id);
   void awardBadgesForPlayer(entryB.player_id);
@@ -298,9 +338,34 @@ export async function walkoverAction(matchId: string, winnerEntryId: string) {
 
   const { data: catSlugRow2 } = await admin
     .from('tournament_categories')
-    .select('slug')
+    .select('slug, name')
     .eq('id', match.category_id)
     .maybeSingle();
+
+  // ── Walkover emails ───────────────────────────────────────────────────────
+  if (match.entry_a_id && match.entry_b_id) {
+    const [{ data: entryWA }, { data: entryLA }] = await Promise.all([
+      admin.from('tournament_entries').select('player_id').eq('id', winnerEntryId).single(),
+      admin.from('tournament_entries').select('player_id').eq('id', loserEntryId ?? '').maybeSingle(),
+    ]);
+    const winnerPId = entryWA?.player_id;
+    const loserPId = entryLA?.player_id;
+
+    if (winnerPId && loserPId) {
+      const [{ data: winPl }, { data: losPl }] = await Promise.all([
+        admin.from('players').select('email, full_name').eq('id', winnerPId).single(),
+        admin.from('players').select('email, full_name').eq('id', loserPId).single(),
+      ]);
+      const commonOpts = {
+        isWalkover: true, score: '', ratingChange: 0, newRating: 0,
+        tournamentName: ctx.tournamentName, categoryName: catSlugRow2?.name ?? '',
+        tournamentSlug: ctx.tournamentSlug, matchId,
+      };
+      if (winPl?.email) void sendMatchResultNotification({ ...commonOpts, playerEmail: winPl.email, playerName: winPl.full_name, opponentName: losPl?.full_name ?? 'Opponent', isWin: true });
+      if (losPl?.email) void sendMatchResultNotification({ ...commonOpts, playerEmail: losPl.email, playerName: losPl.full_name, opponentName: winPl?.full_name ?? 'Opponent', isWin: false });
+    }
+  }
+
   revalidatePath(`/tournaments/${ctx.tournamentSlug}/scoring/${matchId}`);
   revalidatePath(`/tournaments/${ctx.tournamentSlug}/categories/${catSlugRow2?.slug ?? match.category_id}`);
   return { success: true };

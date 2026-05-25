@@ -13,6 +13,7 @@ import {
   buildWaitlistPromotedEmail,
 } from './templates/entry-status';
 import { buildScoreReportedEmail } from './templates/score-reported';
+import { buildMatchResultEmail } from './templates/match-result';
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
 
@@ -104,6 +105,45 @@ export async function sendWaitlistPromotedNotification(opts: {
     await sendEmail({ to: opts.playerEmail, ...payload });
   } catch (err) {
     console.error('[email] sendWaitlistPromotedNotification failed:', err);
+  }
+}
+
+// ── Match result (to both players) ───────────────────────────────────────────
+
+export async function sendMatchResultNotification(opts: {
+  playerEmail: string;
+  playerName: string;
+  opponentName: string;
+  isWin: boolean;
+  isWalkover: boolean;
+  score: string;
+  ratingChange: number;
+  newRating: number;
+  tournamentName: string;
+  categoryName: string;
+  tournamentSlug: string;
+  matchId: string;
+}) {
+  try {
+    const result = opts.isWalkover
+      ? (opts.isWin ? 'walkover_win' : 'walkover_loss')
+      : (opts.isWin ? 'win' : 'loss');
+
+    const payload = buildMatchResultEmail({
+      playerName: opts.playerName,
+      opponentName: opts.opponentName,
+      result,
+      score: opts.score,
+      tournamentName: opts.tournamentName,
+      categoryName: opts.categoryName,
+      ratingChange: opts.ratingChange,
+      newRating: opts.newRating,
+      matchUrl: `${APP_URL}/events/${opts.tournamentSlug}/score-report/${opts.matchId}`,
+      appUrl: APP_URL,
+    });
+    await sendEmail({ to: opts.playerEmail, ...payload });
+  } catch (err) {
+    console.error('[email] sendMatchResultNotification failed:', err);
   }
 }
 

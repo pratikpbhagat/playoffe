@@ -65,9 +65,9 @@ export default async function ScoringHubPage({ params, searchParams }: Props) {
     .select(`
       id, round, round_name, group_name, status, court, scheduled_time, sets,
       player_reported_winner_id, player_reported_sets,
-      ea:tournament_entries!entry_a_id(id, seed, players!player_id(full_name)),
-      eb:tournament_entries!entry_b_id(id, seed, players!player_id(full_name)),
-      tc:tournament_categories!category_id(name)
+      ea:tournament_entries!entry_a_id(id, seed, players!player_id(full_name), partner:players!partner_id(full_name)),
+      eb:tournament_entries!entry_b_id(id, seed, players!player_id(full_name), partner:players!partner_id(full_name)),
+      tc:tournament_categories!category_id(name, play_format)
     `)
     .eq('tournament_id', t.id)
     .not('entry_a_id', 'is', null)
@@ -87,9 +87,9 @@ export default async function ScoringHubPage({ params, searchParams }: Props) {
     sets: { set_number: number; score_a: number; score_b: number }[];
     player_reported_winner_id: string | null;
     player_reported_sets: unknown;
-    ea: { id: string; seed: number | null; players: { full_name: string } | null } | null;
-    eb: { id: string; seed: number | null; players: { full_name: string } | null } | null;
-    tc: { name: string } | null;
+    ea: { id: string; seed: number | null; players: { full_name: string } | null; partner: { full_name: string } | null } | null;
+    eb: { id: string; seed: number | null; players: { full_name: string } | null; partner: { full_name: string } | null } | null;
+    tc: { name: string; play_format: string } | null;
   };
 
   const rows = (matches ?? []) as unknown as MatchRow[];
@@ -130,8 +130,8 @@ export default async function ScoringHubPage({ params, searchParams }: Props) {
 
   // Shape dispute data for the DisputeQueue component
   const disputeMatches = pendingReport.map((m) => {
-    const aName = m.ea?.players?.full_name ?? 'TBD';
-    const bName = m.eb?.players?.full_name ?? 'TBD';
+    const aName = entryTeamName(m.ea, m.tc?.play_format);
+    const bName = entryTeamName(m.eb, m.tc?.play_format);
     const reportedWinnerName =
       m.player_reported_winner_id === m.ea?.id ? aName
       : m.player_reported_winner_id === m.eb?.id ? bName
@@ -154,9 +154,16 @@ export default async function ScoringHubPage({ params, searchParams }: Props) {
     };
   });
 
+  function entryTeamName(entry: MatchRow['ea'], playFormat?: string | null): string {
+    if (!entry?.players) return 'TBD';
+    const isDoubles = playFormat === 'doubles' || playFormat === 'mixed_doubles';
+    if (isDoubles && entry.partner) return `${entry.players.full_name} / ${entry.partner.full_name}`;
+    return entry.players.full_name;
+  }
+
   function MatchCard({ match }: { match: MatchRow }) {
-    const aName = match.ea?.players?.full_name ?? 'TBD';
-    const bName = match.eb?.players?.full_name ?? 'TBD';
+    const aName = entryTeamName(match.ea, match.tc?.play_format);
+    const bName = entryTeamName(match.eb, match.tc?.play_format);
     const sets = match.sets as { score_a: number; score_b: number }[] ?? [];
     const scoreStr = sets.length > 0
       ? sets.map((s) => `${s.score_a}-${s.score_b}`).join(', ')

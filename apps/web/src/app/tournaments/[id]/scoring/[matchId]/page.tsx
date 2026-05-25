@@ -45,11 +45,13 @@ export default async function MatchScoringPage({ params }: Props) {
       player_reported_winner_id, player_reported_sets,
       ea:tournament_entries!entry_a_id(
         id, seed,
-        players!player_id(id, full_name, username, global_stats(current_rating))
+        players!player_id(id, full_name, username, global_stats(current_rating)),
+        partner:players!partner_id(id, full_name, username)
       ),
       eb:tournament_entries!entry_b_id(
         id, seed,
-        players!player_id(id, full_name, username, global_stats(current_rating))
+        players!player_id(id, full_name, username, global_stats(current_rating)),
+        partner:players!partner_id(id, full_name, username)
       ),
       tc:tournament_categories!category_id(id, name, play_format)
     `)
@@ -67,11 +69,21 @@ export default async function MatchScoringPage({ params }: Props) {
       username: string;
       global_stats: { current_rating: number } | null;
     } | null;
+    partner: { id: string; full_name: string; username: string } | null;
   };
 
   const ea = match.ea as unknown as EntryDetail | null;
   const eb = match.eb as unknown as EntryDetail | null;
   const tc = match.tc as unknown as { id: string; name: string; play_format: string } | null;
+  const isDoubles = tc?.play_format === 'doubles' || tc?.play_format === 'mixed_doubles';
+
+  // Build team display names (e.g. "Alice / Bob" for doubles)
+  function teamName(entry: EntryDetail | null): string {
+    if (!entry?.players) return 'TBD';
+    const main = entry.players.full_name;
+    if (isDoubles && entry.partner) return `${main} / ${entry.partner.full_name}`;
+    return main;
+  }
 
   return (
     <div className="min-h-screen bg-surface">
@@ -88,7 +100,7 @@ export default async function MatchScoringPage({ params }: Props) {
           </Link>
           <span>/</span>
           <span className="text-slate-400">
-            {ea?.players?.full_name ?? 'TBD'} vs {eb?.players?.full_name ?? 'TBD'}
+            {teamName(ea)} vs {teamName(eb)}
           </span>
         </nav>
 
@@ -99,9 +111,9 @@ export default async function MatchScoringPage({ params }: Props) {
             {match.group_name ? ` · ${match.group_name}` : ''}
           </p>
           <h1 className="text-xl font-bold text-white">
-            {ea?.players?.full_name ?? 'TBD'}
+            {teamName(ea)}
             <span className="mx-3 text-slate-600 font-normal">vs</span>
-            {eb?.players?.full_name ?? 'TBD'}
+            {teamName(eb)}
           </h1>
         </div>
 
@@ -132,14 +144,14 @@ export default async function MatchScoringPage({ params }: Props) {
           entryA={ea ? {
             id: ea.id,
             seed: ea.seed,
-            player_name: ea.players?.full_name ?? 'Unknown',
+            player_name: teamName(ea),
             player_username: ea.players?.username ?? '',
             rating: ea.players?.global_stats?.current_rating ?? 3.5,
           } : null}
           entryB={eb ? {
             id: eb.id,
             seed: eb.seed,
-            player_name: eb.players?.full_name ?? 'Unknown',
+            player_name: teamName(eb),
             player_username: eb.players?.username ?? '',
             rating: eb.players?.global_stats?.current_rating ?? 3.5,
           } : null}
@@ -154,9 +166,9 @@ export default async function MatchScoringPage({ params }: Props) {
           <OverrideResultPanel
             matchId={matchId}
             entryAId={ea.id}
-            entryAName={ea.players?.full_name ?? 'Player A'}
+            entryAName={teamName(ea)}
             entryBId={eb.id}
-            entryBName={eb.players?.full_name ?? 'Player B'}
+            entryBName={teamName(eb)}
             currentWinnerId={match.winner_entry_id ?? null}
             currentSets={(match.sets as { set_number: number; score_a: number; score_b: number }[]) ?? []}
           />

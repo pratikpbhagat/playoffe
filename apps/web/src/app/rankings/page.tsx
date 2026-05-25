@@ -2,17 +2,19 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { AppNav } from '@/components/layout/AppNav';
+import { PlayerSearchInput } from '@/components/player/PlayerSearchInput';
 
 export const metadata: Metadata = { title: 'Global Rankings' };
 
 export default async function RankingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ format?: string; page?: string }>;
+  searchParams: Promise<{ format?: string; page?: string; q?: string }>;
 }) {
   const sp = await searchParams;
   const format = sp.format ?? 'all';
   const page = Math.max(1, parseInt(sp.page ?? '1', 10));
+  const searchQuery = (sp.q ?? '').trim();
   const perPage = 50;
   const offset = (page - 1) * perPage;
 
@@ -42,6 +44,16 @@ export default async function RankingsPage({
     }
   }
 
+  // ── Player search: resolve matching IDs first ─────────────────────────────
+  let searchPlayerIds: string[] | null = null;
+  if (searchQuery) {
+    const { data: matched } = await admin
+      .from('players')
+      .select('id')
+      .or(`full_name.ilike.%${searchQuery}%,username.ilike.%${searchQuery}%`);
+    searchPlayerIds = (matched ?? []).map((p) => p.id);
+  }
+
   // Build query — global_stats joined with players
   let q = admin
     .from('global_stats')
@@ -68,6 +80,13 @@ export default async function RankingsPage({
     q = q.gt('doubles_matches', 0);
   } else if (format === 'mixed') {
     q = q.gt('mixed_doubles_matches', 0);
+  }
+
+  // Filter by search
+  if (searchPlayerIds !== null) {
+    // If search returned no matches, use a sentinel that matches nothing
+    const ids = searchPlayerIds.length > 0 ? searchPlayerIds : ['00000000-0000-0000-0000-000000000000'];
+    q = q.in('player_id', ids);
   }
 
   const { data, count } = await q
@@ -143,30 +162,45 @@ export default async function RankingsPage({
           </div>
         )}
 
+        {/* Search */}
+        <div className="mb-4">
+          <PlayerSearchInput defaultValue={searchQuery} />
+        </div>
+
         {/* Format filter */}
         <div className="mb-6 flex flex-wrap gap-2">
-          {formats.map((f) => (
-            <Link
-              key={f.id}
-              href={`/rankings?format=${f.id}`}
-              className={`rounded-full px-4 py-1.5 text-xs font-semibold transition-colors ${
-                format === f.id
-                  ? 'bg-brand-600 text-white'
-                  : 'border border-surface-border text-slate-400 hover:border-slate-500 hover:text-slate-300'
-              }`}
-            >
-              {f.label}
-            </Link>
-          ))}
+          {formats.map((f) => {
+            const href = `/rankings?format=${f.id}${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ''}`;
+            return (
+              <Link
+                key={f.id}
+                href={href}
+                className={`rounded-full px-4 py-1.5 text-xs font-semibold transition-colors ${
+                  format === f.id
+                    ? 'bg-brand-600 text-white'
+                    : 'border border-surface-border text-slate-400 hover:border-slate-500 hover:text-slate-300'
+                }`}
+              >
+                {f.label}
+              </Link>
+            );
+          })}
         </div>
 
         {rows.length === 0 ? (
           <div className="rounded-xl bg-surface-card p-10 text-center ring-1 ring-surface-border">
             <p className="text-2xl mb-2">🏆</p>
-            <p className="text-sm font-medium text-white mb-1">No ranked players yet</p>
-            <p className="text-xs text-slate-500">
-              Players appear here after completing rated matches.
-            </p>
+            {searchQuery ? (
+              <>
+                <p className="text-sm font-medium text-white mb-1">No players found</p>
+                <p className="text-xs text-slate-500">Try a different name or username.</p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm font-medium text-white mb-1">No ranked players yet</p>
+                <p className="text-xs text-slate-500">Players appear here after completing rated matches.</p>
+              </>
+            )}
           </div>
         ) : (
           <>
@@ -253,7 +287,7 @@ export default async function RankingsPage({
                 <div className="flex items-center gap-2">
                   {page > 1 && (
                     <Link
-                      href={`/rankings?format=${format}&page=${page - 1}`}
+                      href={`/rankings?format=${format}&page=${page - 1}${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ''}`}
                       className="rounded-lg border border-surface-border px-3 py-1.5 text-xs text-slate-400 hover:border-slate-500 hover:text-slate-300 transition-colors"
                     >
                       ← Prev
@@ -262,7 +296,7 @@ export default async function RankingsPage({
                   <span className="text-xs text-slate-600">Page {page} of {totalPages}</span>
                   {page < totalPages && (
                     <Link
-                      href={`/rankings?format=${format}&page=${page + 1}`}
+                      href={`/rankings?format=${format}&page=${page + 1}${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ''}`}
                       className="rounded-lg border border-surface-border px-3 py-1.5 text-xs text-slate-400 hover:border-slate-500 hover:text-slate-300 transition-colors"
                     >
                       Next →
