@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { createAdminClient } from '@/lib/supabase/server';
+import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { AppNav } from '@/components/layout/AppNav';
 
 export const metadata: Metadata = { title: 'Global Rankings' };
@@ -16,7 +16,31 @@ export default async function RankingsPage({
   const perPage = 50;
   const offset = (page - 1) * perPage;
 
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
   const admin = createAdminClient();
+
+  // ── Viewer's own rank (if signed in) ───────────────────────────────────────
+  type MyRank = { rank: number; rating: number } | null;
+  let myRank: MyRank = null;
+
+  if (user) {
+    const { data: myStats } = await admin
+      .from('global_stats')
+      .select('current_rating')
+      .eq('player_id', user.id)
+      .maybeSingle();
+
+    if (myStats) {
+      // Count players with a strictly higher rating
+      const { count } = await admin
+        .from('global_stats')
+        .select('player_id', { count: 'exact', head: true })
+        .gt('current_rating', myStats.current_rating);
+
+      myRank = { rank: (count ?? 0) + 1, rating: myStats.current_rating };
+    }
+  }
 
   // Build query — global_stats joined with players
   let q = admin
@@ -93,6 +117,31 @@ export default async function RankingsPage({
           <h1 className="text-2xl font-bold text-white">Global Rankings</h1>
           <p className="mt-1 text-sm text-slate-500">Rated players across all registered tournaments</p>
         </div>
+
+        {/* Viewer's own rank callout */}
+        {myRank && (
+          <div className="mb-6 flex items-center gap-4 rounded-xl bg-brand-900/20 ring-1 ring-brand-700/30 px-5 py-4">
+            <span className="text-2xl">🏅</span>
+            <div>
+              <p className="text-sm font-semibold text-white">
+                You are ranked{' '}
+                <span className="text-brand-300">#{myRank.rank}</span>
+                {' '}globally
+              </p>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Current rating: <span className="text-slate-300 font-medium tabular-nums">{myRank.rating.toFixed(0)}</span>
+              </p>
+            </div>
+            {myRank.rank > perPage && (
+              <Link
+                href={`/rankings?format=${format}&page=${Math.ceil(myRank.rank / perPage)}`}
+                className="ml-auto shrink-0 text-xs text-brand-400 hover:text-brand-300 transition-colors"
+              >
+                Jump to my page →
+              </Link>
+            )}
+          </div>
+        )}
 
         {/* Format filter */}
         <div className="mb-6 flex flex-wrap gap-2">

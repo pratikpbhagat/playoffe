@@ -13,38 +13,70 @@ type FeedItem =
   | { kind: 'badge'; id: string; at: string; playerName: string; playerUsername: string; badgeSlug: string }
   | { kind: 'follow'; id: string; at: string; followerName: string; followerUsername: string; followingName: string; followingUsername: string };
 
-export default async function FeedPage() {
+interface Props {
+  searchParams: Promise<{ scope?: string }>;
+}
+
+export default async function FeedPage({ searchParams }: Props) {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/login');
+
+  const { scope } = await searchParams;
+  const showAll = scope === 'all';
 
   const admin = createAdminClient();
 
-  // ── Fetch recent activity across the platform ─────────────────────────────
-  const [matchesRes, badgesRes, followsRes] = await Promise.all([
-    // Recent match results (last 50)
-    admin
+  // ── Resolve which player IDs to show ─────────────────────────────────────
+  let scopedPlayerIds: string[] | null = null; // null = no filter (show all)
+
+  if (!showAll) {
+    // Following mode: viewer + everyone they follow
+    const { data: follows } = await admin
+      .from('player_follows')
+      .select('following_id')
+      .eq('follower_id', user.id);
+
+    const followingIds = (follows ?? []).map((f) => f.following_id as string);
+    scopedPlayerIds = [user.id, ...followingIds];
+  }
+
+  // ── Fetch activity ────────────────────────────────────────────────────────
+  const buildMatchQ = () => {
+    let q = admin
       .from('match_history')
       .select('id, player_id, result, rating_change, played_at, tournament_id, opponent_entry_id')
       .in('result', ['win', 'loss'])
       .order('played_at', { ascending: false })
-      .limit(50),
+      .limit(50);
+    if (scopedPlayerIds) q = q.in('player_id', scopedPlayerIds);
+    return q;
+  };
 
-    // Recent badges awarded (last 30)
-    admin
+  const buildBadgeQ = () => {
+    let q = admin
       .from('player_badges')
       .select('id, player_id, badge_slug, awarded_at')
       .order('awarded_at', { ascending: false })
-      .limit(30),
+      .limit(30);
+    if (scopedPlayerIds) q = q.in('player_id', scopedPlayerIds);
+    return q;
+  };
 
-    // Recent follows (last 20)
-    admin
+  const buildFollowQ = () => {
+    let q = admin
       .from('player_follows')
       .select('id, follower_id, following_id, created_at')
       .order('created_at', { ascending: false })
-      .limit(20),
+      .limit(20);
+    if (scopedPlayerIds) q = q.in('follower_id', scopedPlayerIds);
+    return q;
+  };
+
+  const [matchesRes, badgesRes, followsRes] = await Promise.all([
+    buildMatchQ(),
+    buildBadgeQ(),
+    buildFollowQ(),
   ]);
 
   // ── Collect all player IDs we need ───────────────────────────────────────
@@ -56,10 +88,9 @@ export default async function FeedPage() {
     playerIds.add(f.following_id);
   }
 
-  const { data: players } = await admin
-    .from('players')
-    .select('id, full_name, username')
-    .in('id', [...playerIds]);
+  const { data: players } = playerIds.size > 0
+    ? await admin.from('players').select('id, full_name, username').in('id', [...playerIds])
+    : { data: [] };
 
   const playerMap = new Map((players ?? []).map((p) => [p.id, p]));
 
@@ -83,11 +114,10 @@ export default async function FeedPage() {
   }
 
   // ── Tournament names ─────────────────────────────────────────────────────
-  const tournamentIds = [...new Set((matchesRes.data ?? []).map((m) => m.tournament_id))];
-  const { data: tournaments } = await admin
-    .from('tournaments')
-    .select('id, name')
-    .in('id', tournamentIds);
+  const tournamentIds = [...new Set((matchesRes.data ?? []).map((m) => m.tournament_id).filter(Boolean))];
+  const { data: tournaments } = tournamentIds.length > 0
+    ? await admin.from('tournaments').select('id, name').in('id', tournamentIds)
+    : { data: [] };
   const tournamentMap = new Map((tournaments ?? []).map((t) => [t.id, t.name]));
 
   // ── Build feed items ─────────────────────────────────────────────────────
@@ -141,17 +171,56 @@ export default async function FeedPage() {
   items.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
   const feed = items.slice(0, 60);
 
+  const followingCount = scopedPlayerIds ? scopedPlayerIds.length - 1 : 0; // excludes self
+
   return (
     <div className="min-h-screen bg-surface">
       <AppNav />
 
       <main className="mx-auto max-w-2xl px-4 py-10">
-        <h1 className="mb-6 text-xl font-bold text-white">Activity Feed</h1>
+        {/* Header + scope toggle */}
+        <div className="mb-6 flex items-center justify-between gap-4">
+          <h1 className="text-xl font-bold text-white">Activity Feed</h1>
+          <div className="flex items-center gap-1 rounded-full bg-surface-card p-1 ring-1 ring-surface-border text-xs">
+            <Link
+              href="/feed"
+              className={`rounded-full px-3 py-1 font-medium transition-colors ${
+                !showAll ? 'bg-brand-600 text-white' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Following
+            </Link>
+            <Link
+              href="/feed?scope=all"
+              className={`rounded-full px-3 py-1 font-medium transition-colors ${
+                showAll ? 'bg-brand-600 text-white' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              All activity
+            </Link>
+          </div>
+        </div>
 
+        {/* Empty state */}
         {feed.length === 0 ? (
           <div className="rounded-xl bg-surface-card p-10 text-center ring-1 ring-surface-border">
             <p className="text-2xl mb-2">🎾</p>
-            <p className="text-sm text-slate-500">No activity yet. Play some matches to get started!</p>
+            {!showAll && followingCount === 0 ? (
+              <>
+                <p className="text-sm font-medium text-white mb-1">Your feed is empty</p>
+                <p className="text-xs text-slate-500 mb-4">
+                  Follow players to see their match results, badges, and activity here.
+                </p>
+                <Link
+                  href="/rankings"
+                  className="inline-block rounded-lg bg-brand-600 px-4 py-2 text-xs font-semibold text-white hover:bg-brand-700 transition-colors"
+                >
+                  Find players to follow →
+                </Link>
+              </>
+            ) : (
+              <p className="text-sm text-slate-500">No activity yet. Play some matches to get started!</p>
+            )}
           </div>
         ) : (
           <div className="space-y-2">

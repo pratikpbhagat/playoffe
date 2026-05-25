@@ -211,12 +211,12 @@ export default async function DashboardPage() {
                 <div className="space-y-2">
                   {myEntries.slice(0, 5).map((entry) => {
                     const cat = entry.tournament_categories as { id: string; name: string; play_format: string } | null;
-                    const t = entry.tournaments as { id: string; name: string; start_date: string; status: string } | null;
+                    const t = entry.tournaments as { id: string; name: string; slug: string; start_date: string; status: string } | null;
                     const badge = ENTRY_STATUS_BADGE[entry.status as string] ?? { label: entry.status, className: 'text-slate-500' };
                     return (
                       <Link
                         key={entry.id}
-                        href={`/events/${t?.id}`}
+                        href={`/events/${t?.slug}`}
                         className="flex items-center justify-between rounded-lg p-3 hover:bg-surface transition-colors"
                       >
                         <div className="min-w-0">

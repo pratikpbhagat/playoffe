@@ -683,7 +683,7 @@ export async function getMyEntries() {
     .select(`
       id, status, registered_at, partner_id,
       tournament_categories!category_id(id, name, play_format, draw_format),
-      tournaments!tournament_id(id, name, start_date, status),
+      tournaments!tournament_id(id, name, slug, start_date, status),
       partner:players!partner_id(full_name, username)
     `)
     .eq('player_id', user.id)

@@ -82,6 +82,38 @@ export async function markAllNotificationsReadAction() {
   }
 }
 
+// ── Notification type → preference key mapping ────────────────────────────────
+// Any type not listed here bypasses the pref check (always delivered).
+const TYPE_TO_PREF: Record<string, keyof NotificationPrefs> = {
+  match_result:      'score_results',
+  score_reported:    'score_results',
+  match_reminder:    'match_reminders',
+  tournament_invite: 'tournament_updates',
+  tournament_update: 'tournament_updates',
+  partner_invite:    'partner_requests',
+  partner_request:   'partner_requests',
+  new_follower:      'new_followers',
+};
+
+async function getPrefsForPlayers(
+  admin: ReturnType<typeof createAdminClient>,
+  playerIds: string[],
+): Promise<Map<string, NotificationPrefs>> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data } = await (admin.from('player_profiles') as any)
+    .select('player_id, notification_prefs')
+    .in('player_id', playerIds);
+
+  const map = new Map<string, NotificationPrefs>();
+  for (const row of (data ?? []) as Array<{ player_id: string; notification_prefs: unknown }>) {
+    map.set(
+      row.player_id,
+      { ...DEFAULT_NOTIFICATION_PREFS, ...(row.notification_prefs as Partial<NotificationPrefs>) },
+    );
+  }
+  return map;
+}
+
 // ── Write helpers (called internally from other actions via admin client) ─────
 
 export async function createNotificationForPlayer(
@@ -93,6 +125,15 @@ export async function createNotificationForPlayer(
 ) {
   try {
     const admin = createAdminClient();
+
+    // Respect opt-out preferences
+    const prefKey = TYPE_TO_PREF[type];
+    if (prefKey) {
+      const prefsMap = await getPrefsForPlayers(admin, [playerId]);
+      const prefs = prefsMap.get(playerId) ?? DEFAULT_NOTIFICATION_PREFS;
+      if (!prefs[prefKey]) return; // player opted out
+    }
+
     await admin.from('notifications').insert({
       player_id: playerId,
       type,
@@ -115,8 +156,22 @@ export async function createNotificationsForPlayers(
   if (playerIds.length === 0) return;
   try {
     const admin = createAdminClient();
+
+    // Respect opt-out preferences — filter to players who want this type
+    const prefKey = TYPE_TO_PREF[type];
+    let eligibleIds = playerIds;
+    if (prefKey) {
+      const prefsMap = await getPrefsForPlayers(admin, playerIds);
+      eligibleIds = playerIds.filter((id) => {
+        const prefs = prefsMap.get(id) ?? DEFAULT_NOTIFICATION_PREFS;
+        return prefs[prefKey];
+      });
+    }
+
+    if (eligibleIds.length === 0) return;
+
     await admin.from('notifications').insert(
-      playerIds.map((player_id) => ({
+      eligibleIds.map((player_id) => ({
         player_id,
         type,
         title,
