@@ -123,6 +123,7 @@ export default async function RegistrationsPage({ params }: Props) {
                 <PendingEntriesPanel
                   key={cat.id}
                   tournamentSlug={slug}
+                  tournamentId={t.id}
                   category={cat}
                   entries={catEntries}
                 />

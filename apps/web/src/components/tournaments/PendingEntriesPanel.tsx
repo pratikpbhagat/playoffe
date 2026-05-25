@@ -11,6 +11,7 @@ import {
   removeEntryAction,
   updateEntrySeedAction,
 } from '@/lib/actions/registration';
+import { withdrawAndWalkoverAction } from '@/lib/actions/scoring';
 
 interface EntryRow {
   id: string;
@@ -41,6 +42,7 @@ interface Category {
 
 interface Props {
   tournamentSlug: string;
+  tournamentId: string;
   category: Category;
   entries: EntryRow[];
 }
@@ -58,7 +60,7 @@ const PLAY_FORMAT: Record<string, string> = {
   mixed_doubles: 'Mixed doubles',
 };
 
-export function PendingEntriesPanel({ tournamentSlug, category, entries }: Props) {
+export function PendingEntriesPanel({ tournamentSlug, tournamentId, category, entries }: Props) {
   const router = useRouter();
   const [acting, setActing] = useState<string | null>(null);
   const [bulkLoading, setBulkLoading] = useState(false);
@@ -94,6 +96,19 @@ export function PendingEntriesPanel({ tournamentSlug, category, entries }: Props
     const result = await removeEntryAction(entryId);
     if (result.error) setMsg(`Error: ${result.error}`);
     else router.refresh();
+    setActing(null);
+  }
+
+  async function handleWithdraw(entryId: string, playerName: string) {
+    if (!confirm(`Withdraw ${playerName} mid-tournament? Their remaining matches will be awarded as walkovers to opponents.`)) return;
+    setActing(entryId);
+    const result = await withdrawAndWalkoverAction(entryId, tournamentId);
+    if ('error' in result && result.error) setMsg(`Error: ${result.error}`);
+    else {
+      const w = 'walkovers' in result ? result.walkovers : 0;
+      setMsg(`Withdrawn. ${w} walkover${w !== 1 ? 's' : ''} awarded.`);
+      router.refresh();
+    }
     setActing(null);
   }
 
@@ -332,12 +347,22 @@ export function PendingEntriesPanel({ tournamentSlug, category, entries }: Props
                           {acting === entry.id ? '…' : 'Promote'}
                         </button>
                       )}
+                      {isActive && (
+                        <button
+                          onClick={() => handleWithdraw(entry.id, player?.full_name ?? 'player')}
+                          disabled={acting === entry.id}
+                          className="text-xs text-slate-600 hover:text-amber-400 transition-colors disabled:opacity-50"
+                          title="Withdraw mid-tournament: awards walkovers to opponents"
+                        >
+                          {acting === entry.id ? '…' : 'Withdraw'}
+                        </button>
+                      )}
                       {(isActive || isWaitlisted) && (
                         <button
                           onClick={() => handleRemove(entry.id, player?.full_name ?? 'player')}
                           disabled={acting === entry.id}
                           className="text-xs text-slate-600 hover:text-red-400 transition-colors disabled:opacity-50"
-                          title="Remove entry"
+                          title="Remove entry (pre-tournament)"
                         >
                           {acting === entry.id ? '…' : 'Remove'}
                         </button>

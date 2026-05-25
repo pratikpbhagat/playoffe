@@ -6,6 +6,7 @@ import { AppNav } from '@/components/layout/AppNav';
 import { TournamentStatusControl } from '@/components/tournaments/TournamentStatusControl';
 import { AddCategoryInline } from '@/components/tournaments/AddCategoryInline';
 import { RegistrationQR } from '@/components/ui/RegistrationQR';
+import { CloneTournamentButton } from '@/components/tournaments/CloneTournamentButton';
 import type { TournamentStatus } from '@/lib/actions/tournaments';
 
 export const metadata: Metadata = { title: 'Tournament' };
@@ -248,6 +249,13 @@ export default async function TournamentPage({ params }: Props) {
           >
             <span>🌐</span> Public page
           </Link>
+          <Link
+            href={`/tournaments/${slug}/results`}
+            className="flex items-center gap-2 rounded-lg border border-surface-border px-4 py-2 text-sm text-slate-300 hover:bg-surface-card transition-colors"
+          >
+            <span>🏆</span> Results
+          </Link>
+          <CloneTournamentButton tournamentId={t.id} />
         </div>
 
         {/* Categories */}

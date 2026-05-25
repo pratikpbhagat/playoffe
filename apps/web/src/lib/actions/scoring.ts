@@ -306,6 +306,78 @@ export async function walkoverAction(matchId: string, winnerEntryId: string) {
   return { success: true };
 }
 
+// ── Mid-tournament withdrawal: walkover all pending matches for an entry ───────
+// Organiser-only. Marks the entry as withdrawn and grants walkovers to every
+// opponent the withdrawn player/pair was yet to face.
+export async function withdrawAndWalkoverAction(entryId: string, tournamentId: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: 'Not authenticated' };
+
+  const admin = createAdminClient();
+
+  // Auth: caller must be a club manager for this tournament
+  const { data: t } = await admin
+    .from('tournaments')
+    .select('club_id, slug')
+    .eq('id', tournamentId)
+    .single();
+  if (!t) return { error: 'Tournament not found' };
+
+  const { data: mgr } = await admin
+    .from('club_managers')
+    .select('role')
+    .eq('club_id', t.club_id)
+    .eq('player_id', user.id)
+    .maybeSingle();
+  if (!mgr) return { error: 'Permission denied' };
+
+  const { data: entry } = await admin
+    .from('tournament_entries')
+    .select('id, status, category_id')
+    .eq('id', entryId)
+    .eq('tournament_id', tournamentId)
+    .single();
+  if (!entry) return { error: 'Entry not found' };
+  if (entry.status === 'withdrawn') return { error: 'Entry is already withdrawn' };
+
+  // Find every scheduled/in-progress match that involves this entry
+  const { data: pending } = await admin
+    .from('matches')
+    .select('id, round, bracket_position, bracket_type, category_id, tournament_id, entry_a_id, entry_b_id, winner_entry_id, winner_to_match_id, loser_to_match_id, winner_slot, loser_slot, status')
+    .eq('tournament_id', tournamentId)
+    .in('status', ['scheduled', 'in_progress'])
+    .or(`entry_a_id.eq.${entryId},entry_b_id.eq.${entryId}`);
+
+  const now = new Date().toISOString();
+  let walkovers = 0;
+
+  for (const m of pending ?? []) {
+    const opponentId = m.entry_a_id === entryId ? m.entry_b_id : m.entry_a_id;
+    await admin.from('matches').update({
+      status: 'walkover',
+      winner_entry_id: opponentId ?? null,
+      completed_at: now,
+    }).eq('id', m.id);
+
+    if (opponentId) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await advanceMatch(admin, m as any, opponentId, entryId);
+      walkovers++;
+    }
+  }
+
+  await admin.from('tournament_entries').update({ status: 'withdrawn' }).eq('id', entryId);
+
+  const { data: catSlug } = await admin
+    .from('tournament_categories').select('slug').eq('id', entry.category_id).maybeSingle();
+
+  revalidatePath(`/tournaments/${t.slug}/registrations`);
+  revalidatePath(`/tournaments/${t.slug}/scoring`);
+  revalidatePath(`/tournaments/${t.slug}/categories/${catSlug?.slug ?? entry.category_id}`);
+  return { success: true, walkovers };
+}
+
 // ── Override / correct a completed match result ───────────────────────────────
 // Organiser override: undo old bracket advancement + rating changes, then apply
 // the corrected result.  Blocked if any downstream match has already started.

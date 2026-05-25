@@ -40,8 +40,29 @@ export default async function EditProfilePage() {
             My profile
           </Link>
           <span>/</span>
-          <span className="text-slate-400">Edit</span>
+          <span className="text-slate-400">Settings</span>
         </nav>
+
+        {/* Settings nav */}
+        <div className="mb-8 flex gap-2 text-sm">
+          {[
+            { label: 'Profile',        href: '/settings/profile' },
+            { label: 'Notifications',  href: '/settings/notifications' },
+            { label: 'Account',        href: '/settings/account' },
+          ].map((tab) => (
+            <Link
+              key={tab.href}
+              href={tab.href}
+              className={`rounded-full px-4 py-1.5 font-medium transition-colors ${
+                tab.href === '/settings/profile'
+                  ? 'bg-brand-600 text-white'
+                  : 'text-slate-400 hover:text-white border border-surface-border hover:border-slate-500'
+              }`}
+            >
+              {tab.label}
+            </Link>
+          ))}
+        </div>
 
         <h1 className="mb-8 text-2xl font-bold text-white">Edit profile</h1>
 

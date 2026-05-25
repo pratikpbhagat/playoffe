@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { AppNav } from '@/components/layout/AppNav';
 import { getMyTournaments } from '@/lib/actions/tournaments';
 import { getMyClubs } from '@/lib/actions/clubs';
@@ -35,6 +35,81 @@ export default async function DashboardPage() {
     getMyPartnerInvites(),
   ]);
 
+  // ── Next match widget ────────────────────────────────────────────────────────
+  const admin = createAdminClient();
+  const activeEntryIds = myEntries
+    .filter((e) => (e.status as string) === 'active')
+    .map((e) => e.id);
+
+  type NextMatch = {
+    id: string;
+    scheduled_time: string;
+    court: number | null;
+    round_name: string | null;
+    opponentName: string;
+    categoryName: string;
+    tournamentName: string;
+    tournamentSlug: string;
+  };
+
+  let nextMatch: NextMatch | null = null;
+
+  if (activeEntryIds.length > 0) {
+    const { data: nm } = await admin
+      .from('matches')
+      .select(`
+        id, scheduled_time, court, round_name,
+        entry_a_id, entry_b_id,
+        ea:tournament_entries!entry_a_id(id, player_id, players!player_id(full_name)),
+        eb:tournament_entries!entry_b_id(id, player_id, players!player_id(full_name)),
+        tc:tournament_categories!category_id(name),
+        t:tournaments!tournament_id(name, slug)
+      `)
+      .or(`entry_a_id.in.(${activeEntryIds.join(',')}),entry_b_id.in.(${activeEntryIds.join(',')})`)
+      .eq('status', 'scheduled')
+      .not('scheduled_time', 'is', null)
+      .gte('scheduled_time', new Date().toISOString())
+      .order('scheduled_time', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (nm) {
+      type EntryRef = { id: string; player_id: string; players: { full_name: string } | null } | null;
+      const ea = nm.ea as unknown as EntryRef;
+      const eb = nm.eb as unknown as EntryRef;
+      const tc = nm.tc as { name: string } | null;
+      const t = nm.t as { name: string; slug: string } | null;
+
+      // Which side is the viewer? Opponent is the other side.
+      const isA = activeEntryIds.includes(nm.entry_a_id ?? '');
+      const opponentEntry = isA ? eb : ea;
+      const opponentName = opponentEntry?.players?.full_name ?? 'TBD';
+
+      nextMatch = {
+        id: nm.id,
+        scheduled_time: nm.scheduled_time!,
+        court: nm.court as number | null,
+        round_name: nm.round_name as string | null,
+        opponentName,
+        categoryName: tc?.name ?? '',
+        tournamentName: t?.name ?? '',
+        tournamentSlug: t?.slug ?? '',
+      };
+    }
+  }
+
+  function formatMatchTime(iso: string) {
+    const d = new Date(iso);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const tomorrow = new Date(today.getTime() + 86400000);
+    const matchDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const timeStr = d.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' });
+    if (matchDay.getTime() === today.getTime()) return `Today at ${timeStr}`;
+    if (matchDay.getTime() === tomorrow.getTime()) return `Tomorrow at ${timeStr}`;
+    return d.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' }) + ` at ${timeStr}`;
+  }
+
   return (
     <div className="min-h-screen bg-surface">
       <AppNav />
@@ -67,6 +142,48 @@ export default async function DashboardPage() {
             </div>
           ))}
         </div>
+
+        {/* Next match widget */}
+        {nextMatch && (
+          <div className="mt-8 rounded-xl bg-brand-900/20 ring-1 ring-brand-700/30 overflow-hidden">
+            <div className="flex items-center gap-3 px-6 py-4 border-b border-brand-700/20">
+              <span className="text-lg">📅</span>
+              <div>
+                <p className="text-xs font-semibold text-brand-300 uppercase tracking-wide">Your next match</p>
+                <p className="text-sm font-bold text-white mt-0.5">
+                  {formatMatchTime(nextMatch.scheduled_time)}
+                  {nextMatch.court ? <span className="ml-2 text-brand-400/70 font-normal">· Court {nextMatch.court}</span> : ''}
+                </p>
+              </div>
+              <Link
+                href={`/events/${nextMatch.tournamentSlug}`}
+                className="ml-auto shrink-0 rounded-lg bg-brand-600/30 px-3 py-1.5 text-xs font-semibold text-brand-300 hover:bg-brand-600/50 transition-colors"
+              >
+                View event →
+              </Link>
+            </div>
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-1 px-6 py-4">
+              <div>
+                <p className="text-xs text-slate-500">vs</p>
+                <p className="text-base font-semibold text-white">{nextMatch.opponentName}</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-500">Category</p>
+                <p className="text-sm text-slate-300">{nextMatch.categoryName}</p>
+              </div>
+              {nextMatch.round_name && (
+                <div>
+                  <p className="text-xs text-slate-500">Round</p>
+                  <p className="text-sm text-slate-300">{nextMatch.round_name}</p>
+                </div>
+              )}
+              <div>
+                <p className="text-xs text-slate-500">Tournament</p>
+                <p className="text-sm text-slate-300">{nextMatch.tournamentName}</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="mt-10 grid gap-6 lg:grid-cols-3">
           {/* Partner invites — shown prominently when present */}

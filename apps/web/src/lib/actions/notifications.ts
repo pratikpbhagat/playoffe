@@ -128,3 +128,55 @@ export async function createNotificationsForPlayers(
     // Fire-and-forget
   }
 }
+
+// ── Notification preferences ──────────────────────────────────────────────────
+
+export interface NotificationPrefs {
+  match_reminders: boolean;
+  score_results: boolean;
+  tournament_updates: boolean;
+  partner_requests: boolean;
+  new_followers: boolean;
+}
+
+export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
+  match_reminders: true,
+  score_results: true,
+  tournament_updates: true,
+  partner_requests: true,
+  new_followers: true,
+};
+
+export async function getNotificationPrefsAction(): Promise<NotificationPrefs> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return DEFAULT_NOTIFICATION_PREFS;
+
+  // Use admin to bypass RLS and select the JSONB column (may not be in generated types yet)
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from('player_profiles')
+    .select('notification_prefs')
+    .eq('player_id', user.id)
+    .maybeSingle();
+
+  const prefs = (data as Record<string, unknown> | null)?.notification_prefs;
+  if (!prefs) return DEFAULT_NOTIFICATION_PREFS;
+  return { ...DEFAULT_NOTIFICATION_PREFS, ...(prefs as Partial<NotificationPrefs>) };
+}
+
+export async function saveNotificationPrefsAction(prefs: NotificationPrefs) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: 'Not authenticated' };
+
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from('player_profiles')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .upsert({ player_id: user.id, notification_prefs: prefs } as any, { onConflict: 'player_id' });
+
+  if (error) return { error: error.message };
+  revalidatePath('/settings/notifications');
+  return { success: true };
+}

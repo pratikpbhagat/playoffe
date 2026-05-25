@@ -5,6 +5,7 @@ import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { AppNav } from '@/components/layout/AppNav';
 import { RefereePinsPanel } from '@/components/tournaments/RefereePinsPanel';
 import { PrintButton } from '@/components/ui/PrintButton';
+import { DisputeQueue } from '@/components/scoring/DisputeQueue';
 
 export const metadata: Metadata = { title: 'Scoring' };
 
@@ -126,6 +127,32 @@ export default async function ScoringHubPage({ params, searchParams }: Props) {
       m.status !== 'completed' &&
       m.status !== 'walkover',
   );
+
+  // Shape dispute data for the DisputeQueue component
+  const disputeMatches = pendingReport.map((m) => {
+    const aName = m.ea?.players?.full_name ?? 'TBD';
+    const bName = m.eb?.players?.full_name ?? 'TBD';
+    const reportedWinnerName =
+      m.player_reported_winner_id === m.ea?.id ? aName
+      : m.player_reported_winner_id === m.eb?.id ? bName
+      : 'Unknown';
+    const reportedSetsArr = Array.isArray(m.player_reported_sets)
+      ? (m.player_reported_sets as { score_a: number; score_b: number }[])
+      : [];
+    const reportedSets = reportedSetsArr
+      .map((s) => `${s.score_a}-${s.score_b}`)
+      .join(', ');
+    return {
+      id: m.id,
+      tournamentSlug: slug,
+      categoryName: m.tc?.name ?? '',
+      roundLabel: m.round_name ?? `Round ${m.round}`,
+      playerA: aName,
+      playerB: bName,
+      reportedWinnerName,
+      reportedSets,
+    };
+  });
 
   function MatchCard({ match }: { match: MatchRow }) {
     const aName = match.ea?.players?.full_name ?? 'TBD';
@@ -258,6 +285,9 @@ export default async function ScoringHubPage({ params, searchParams }: Props) {
             </Link>
           </div>
         )}
+
+        {/* Dispute queue — player-reported scores awaiting organiser review */}
+        <DisputeQueue matches={disputeMatches} tournamentSlug={slug} />
 
         {live.length > 0 && (
           <section className="mb-8">

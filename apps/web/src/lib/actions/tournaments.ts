@@ -184,3 +184,86 @@ export async function updateTournamentStatusAction(
   if (error) return { error: 'Failed to update status' };
   return { success: true };
 }
+
+// ── Clone a tournament ────────────────────────────────────────────────────────
+// Creates a new draft tournament with the same settings and categories.
+// Dates are cleared so the organiser fills them in fresh.
+export async function cloneTournamentAction(tournamentId: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: 'Not authenticated' };
+
+  const admin = createAdminClient();
+
+  const { data: src } = await admin
+    .from('tournaments')
+    .select('*, tournament_categories(*)')
+    .eq('id', tournamentId)
+    .single();
+  if (!src) return { error: 'Tournament not found' };
+
+  const { data: mgr } = await admin
+    .from('club_managers')
+    .select('role')
+    .eq('club_id', src.club_id)
+    .eq('player_id', user.id)
+    .maybeSingle();
+  if (!mgr) return { error: 'Permission denied' };
+
+  // Insert cloned tournament — triggers auto-generate display_code + slug
+  const { data: newT, error: tErr } = await admin
+    .from('tournaments')
+    .insert({
+      club_id: src.club_id,
+      name: `Copy of ${src.name}`,
+      description: src.description,
+      venue: src.venue,
+      start_date: src.start_date,
+      end_date: src.end_date,
+      status: 'draft',
+      court_count: src.court_count,
+      registration_deadline: null,
+      max_participants: src.max_participants,
+      social_post_triggers: src.social_post_triggers,
+      created_by: user.id,
+      display_code: '',
+      slug: '',
+    })
+    .select('id, slug')
+    .single();
+
+  if (tErr || !newT) return { error: 'Failed to clone tournament' };
+
+  // Clone each category (status reset to pending, winners cleared)
+  const categories = (src.tournament_categories ?? []) as Array<{
+    name: string; type: string; play_format: string; draw_format: string;
+    max_entries: number | null; min_age: number | null; max_age: number | null;
+    skill_levels: string[];
+  }>;
+
+  function toSlug(name: string) {
+    return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+  }
+
+  if (categories.length > 0) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (admin.from('tournament_categories') as any).insert(
+      categories.map((c) => ({
+        tournament_id: newT.id,
+        name: c.name,
+        slug: toSlug(c.name),
+        type: c.type,
+        play_format: c.play_format,
+        draw_format: c.draw_format,
+        status: 'pending',
+        max_entries: c.max_entries,
+        min_age: c.min_age,
+        max_age: c.max_age,
+        skill_levels: c.skill_levels,
+      }))
+    );
+  }
+
+  revalidatePath('/dashboard');
+  redirect(`/tournaments/${newT.slug}`);
+}

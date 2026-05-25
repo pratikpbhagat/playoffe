@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { AppNav } from '@/components/layout/AppNav';
 import { MatchScoreCard } from '@/components/scoring/MatchScoreCard';
+import { OverrideResultPanel } from '@/components/scoring/OverrideResultPanel';
 import { CopyLinkButton } from '@/components/ui/CopyLinkButton';
 
 export const metadata: Metadata = { title: 'Score match' };
@@ -147,6 +148,19 @@ export default async function MatchScoringPage({ params }: Props) {
             (match.player_reported_sets as { set_number: number; score_a: number; score_b: number }[] | null) ?? null
           }
         />
+
+        {/* Override panel — only for completed matches */}
+        {match.status === 'completed' && ea && eb && (
+          <OverrideResultPanel
+            matchId={matchId}
+            entryAId={ea.id}
+            entryAName={ea.players?.full_name ?? 'Player A'}
+            entryBId={eb.id}
+            entryBName={eb.players?.full_name ?? 'Player B'}
+            currentWinnerId={match.winner_entry_id ?? null}
+            currentSets={(match.sets as { set_number: number; score_a: number; score_b: number }[]) ?? []}
+          />
+        )}
       </main>
     </div>
   );
