@@ -109,7 +109,7 @@ export function DisplayScreen({ tournament, initialDisplayState }: Props) {
   const parseSets = (s: unknown): SetScore[] => Array.isArray(s) ? s as SetScore[] : [];
   const catName = (id: string) => categories.find((c) => c.id === id)?.name ?? '';
   const liveMatches = matches.filter((m) => m.status === 'in_progress');
-  const upcomingMatches = matches.filter((m) => m.status === 'scheduled').slice(0, 12);
+  const upcomingMatches = matches.filter((m) => m.status === 'scheduled');
   const completedMatches = matches.filter((m) => m.status === 'completed');
   const nextSlide: DisplaySlide = ROTATION_ORDER[(rotationIndex + 1) % ROTATION_ORDER.length] ?? 'live_scores';
 
@@ -171,6 +171,33 @@ function EmptySlide({ icon, title, subtitle }: { icon: string; title: string; su
   );
 }
 
+// ── Auto-paging hook ────────────────────────────────────────────────────────
+// Cycles through pages automatically; resets to page 0 whenever item count changes.
+function useAutoPage<T>(items: T[], pageSize: number, intervalMs = 5000) {
+  const [pageNum, setPageNum] = useState(0);
+  const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
+  useEffect(() => { setPageNum(0); }, [items.length]);
+  useEffect(() => {
+    if (totalPages <= 1) return;
+    const t = setInterval(() => setPageNum((p) => (p + 1) % totalPages), intervalMs);
+    return () => clearInterval(t);
+  }, [totalPages, intervalMs]);
+  const page = items.slice(pageNum * pageSize, (pageNum + 1) * pageSize);
+  return { page, pageNum, totalPages };
+}
+
+function PageIndicator({ pageNum, totalPages }: { pageNum: number; totalPages: number }) {
+  if (totalPages <= 1) return null;
+  return (
+    <div style={{ position: 'absolute', bottom: '1.5vh', right: '2.5vw', display: 'flex', alignItems: 'center', gap: '0.4vw' }}>
+      {Array.from({ length: totalPages }, (_, i) => (
+        <div key={i} style={{ width: i === pageNum ? '1.4vw' : '0.5vw', height: '0.35vh', borderRadius: '9999px', background: i === pageNum ? '#6366f1' : '#334155', transition: 'all 0.3s ease' }} />
+      ))}
+      <span style={{ fontSize: '0.9vw', color: '#475569', marginLeft: '0.5vw' }}>{pageNum + 1}/{totalPages}</span>
+    </div>
+  );
+}
+
 function LiveScoresSlide({ matches, entryLabel, parseSets, catName }: {
   matches: MatchRow[]; entryLabel: (id: string | null) => string;
   parseSets: (s: unknown) => SetScore[]; catName: (id: string) => string;
@@ -222,12 +249,13 @@ function UpcomingMatchesSlide({ matches, entryLabel, formatTime, catName }: {
   matches: MatchRow[]; entryLabel: (id: string | null) => string;
   formatTime: (s: string | null) => string; catName: (id: string) => string;
 }) {
+  const { page, pageNum, totalPages } = useAutoPage(matches, 8);
   if (matches.length === 0) return <EmptySlide icon="📅" title="No upcoming matches" subtitle="All matches may already be in progress or completed" />;
   return (
-    <div className="h-full px-[3vw] py-[2vh] overflow-hidden">
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2vh', height: '100%' }}>
-        {matches.map((m, i) => (
-          <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '2vw', background: i % 2 === 0 ? '#0f172a' : '#1e293b', border: '1px solid #1e293b', borderRadius: '0.8vw', padding: '1.5vh 2vw', flexShrink: 0 }}>
+    <div className="h-full px-[3vw] py-[2vh] overflow-hidden" style={{ position: 'relative' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2vh' }}>
+        {page.map((m, i) => (
+          <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '2vw', background: i % 2 === 0 ? '#0f172a' : '#1e293b', border: '1px solid #1e293b', borderRadius: '0.8vw', padding: '1.5vh 2vw' }}>
             <span style={{ fontSize: '1.6vw', fontWeight: 700, color: '#6366f1', minWidth: '8vw' }}>{formatTime(m.scheduled_time)}</span>
             {m.court != null && <span style={{ fontSize: '1.3vw', color: '#64748b', minWidth: '6vw' }}>Court {m.court}</span>}
             <span style={{ fontSize: '1.3vw', color: '#475569', minWidth: '10vw', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{catName(m.category_id)} · {m.round_name ?? 'R' + m.round}</span>
@@ -239,6 +267,7 @@ function UpcomingMatchesSlide({ matches, entryLabel, formatTime, catName }: {
           </div>
         ))}
       </div>
+      <PageIndicator pageNum={pageNum} totalPages={totalPages} />
     </div>
   );
 }
@@ -247,12 +276,20 @@ function FullScheduleSlide({ matches, entryLabel, formatTime, catName }: {
   matches: MatchRow[]; entryLabel: (id: string | null) => string;
   formatTime: (s: string | null) => string; catName: (id: string) => string;
 }) {
+  // Priority order: live first, then upcoming by time, then completed (most recent first)
+  const sorted = [
+    ...matches.filter((m) => m.status === 'in_progress'),
+    ...matches.filter((m) => m.status === 'scheduled'),
+    ...[...matches.filter((m) => m.status === 'completed')].reverse(),
+  ];
+  const { page, pageNum, totalPages } = useAutoPage(sorted, 12);
   const SC: Record<string, string> = { completed: '#22c55e', in_progress: '#6366f1', scheduled: '#334155' };
+  if (sorted.length === 0) return <EmptySlide icon="📋" title="No matches scheduled" subtitle="Matches will appear here once the draw is generated" />;
   return (
-    <div className="h-full px-[3vw] py-[2vh] overflow-hidden">
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8vh', height: '100%' }}>
-        {matches.slice(0, 18).map((m, i) => (
-          <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '1.5vw', background: i % 2 === 0 ? '#0f172a' : '#111827', borderRadius: '0.5vw', padding: '0.8vh 1.5vw', flexShrink: 0 }}>
+    <div className="h-full px-[3vw] py-[2vh] overflow-hidden" style={{ position: 'relative' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8vh' }}>
+        {page.map((m, i) => (
+          <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '1.5vw', background: m.status === 'in_progress' ? 'rgba(99,102,241,0.08)' : i % 2 === 0 ? '#0f172a' : '#111827', borderRadius: '0.5vw', padding: '0.8vh 1.5vw', border: m.status === 'in_progress' ? '1px solid rgba(99,102,241,0.3)' : '1px solid transparent' }}>
             <span style={{ width: '0.4vw', height: '3vh', borderRadius: '9999px', background: SC[m.status] ?? '#334155', flexShrink: 0 }} />
             <span style={{ fontSize: '1.2vw', color: '#64748b', minWidth: '7vw', fontVariantNumeric: 'tabular-nums' }}>{formatTime(m.scheduled_time)}</span>
             <span style={{ fontSize: '1.2vw', color: '#475569', minWidth: '5vw' }}>{m.court != null ? 'C' + m.court : '—'}</span>
@@ -260,10 +297,12 @@ function FullScheduleSlide({ matches, entryLabel, formatTime, catName }: {
             <span style={{ flex: 1, fontSize: '1.5vw', fontWeight: 500, color: '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {entryLabel(m.entry_a_id)} <span style={{ color: '#334155' }}>vs</span> {entryLabel(m.entry_b_id)}
             </span>
-            {m.status === 'completed' && m.winner_entry_id && <span style={{ fontSize: '1.1vw', color: '#22c55e', fontWeight: 700, flexShrink: 0 }}>Won: {entryLabel(m.winner_entry_id)}</span>}
+            {m.status === 'in_progress' && <span style={{ fontSize: '1vw', color: '#6366f1', fontWeight: 700, flexShrink: 0 }}>● LIVE</span>}
+            {m.status === 'completed' && m.winner_entry_id && <span style={{ fontSize: '1.1vw', color: '#22c55e', fontWeight: 700, flexShrink: 0 }}>✓ {entryLabel(m.winner_entry_id)}</span>}
           </div>
         ))}
       </div>
+      <PageIndicator pageNum={pageNum} totalPages={totalPages} />
     </div>
   );
 }
@@ -273,10 +312,10 @@ function GroupStandingsSlide({ matches, categories, entryLabel, categoryFilter }
   entryLabel: (id: string | null) => string; categoryFilter: string | null;
 }) {
   const rrCats = categories.filter((c) => c.draw_format === 'round_robin' || c.draw_format === 'group_stage_knockout');
-  const filtered = categoryFilter ? rrCats.filter((c) => c.id === categoryFilter) : rrCats.slice(0, 2);
+  const filtered = categoryFilter ? rrCats.filter((c) => c.id === categoryFilter) : rrCats;
   if (filtered.length === 0) return <EmptySlide icon="📊" title="No group standings" subtitle="Round-robin draws will appear here" />;
 
-  const buildStandings = (catId: string): StandingRow[] => {
+  const buildStandings = (catId: string): (StandingRow & { rank: number })[] => {
     const rowMap = new Map<string, StandingRow>();
     const ensure = (id: string) => { if (!rowMap.has(id)) rowMap.set(id, { entryId: id, played: 0, wins: 0, losses: 0, setsFor: 0, setsAgainst: 0, pointDiff: 0 }); return rowMap.get(id)!; };
     for (const m of matches.filter((m) => m.category_id === catId && m.status === 'completed')) {
@@ -289,34 +328,61 @@ function GroupStandingsSlide({ matches, categories, entryLabel, categoryFilter }
       a.played++; b.played++;
       if (m.winner_entry_id === m.entry_a_id) { a.wins++; b.losses++; } else { b.wins++; a.losses++; }
     }
-    return [...rowMap.values()].sort((a, b) => b.wins - a.wins || (b.setsFor - b.setsAgainst) - (a.setsFor - a.setsAgainst) || b.pointDiff - a.pointDiff);
+    return [...rowMap.values()]
+      .sort((a, b) => b.wins - a.wins || (b.setsFor - b.setsAgainst) - (a.setsFor - a.setsAgainst) || b.pointDiff - a.pointDiff)
+      .map((r, i) => ({ ...r, rank: i + 1 }));
   };
 
+  // Build a flat list of "column panels": each panel = one category's page of standings.
+  // We page through panels 2 at a time (2-column layout).
+  const PAGE_ROWS = 8;
+  const panels = filtered.flatMap((cat) => {
+    const standings = buildStandings(cat.id);
+    const chunks = Math.max(1, Math.ceil(standings.length / PAGE_ROWS));
+    return Array.from({ length: chunks }, (_, p) => ({
+      id: `${cat.id}-${p}`,
+      cat,
+      rows: standings.slice(p * PAGE_ROWS, (p + 1) * PAGE_ROWS),
+      chunkLabel: chunks > 1 ? `${p + 1}/${chunks}` : '',
+    }));
+  });
+
+  const { page: visible, pageNum, totalPages } = useAutoPage(panels, 2);
+
   return (
-    <div className="h-full px-[3vw] py-[2vh] overflow-hidden">
-      <div style={{ display: 'grid', gridTemplateColumns: filtered.length === 1 ? '1fr' : 'repeat(2, 1fr)', gap: '2vw', height: '100%' }}>
-        {filtered.map((cat) => {
-          const standings = buildStandings(cat.id);
-          return (
-            <div key={cat.id} style={{ display: 'flex', flexDirection: 'column', gap: '1.5vh' }}>
-              <h2 style={{ fontSize: '2vw', fontWeight: 700, color: '#e2e8f0' }}>{cat.name}</h2>
-              <div style={{ display: 'flex', gap: '1vw', fontSize: '1.1vw', color: '#475569', fontWeight: 600, padding: '0 1vw' }}>
-                <span style={{ flex: 1 }}>Player</span><span style={{ width: '3vw', textAlign: 'center' }}>P</span><span style={{ width: '3vw', textAlign: 'center' }}>W</span><span style={{ width: '3vw', textAlign: 'center' }}>L</span><span style={{ width: '4vw', textAlign: 'center' }}>Sets</span>
-              </div>
-              {standings.map((row, i) => (
-                <div key={row.entryId} style={{ display: 'flex', alignItems: 'center', gap: '1vw', padding: '1vh 1vw', background: i === 0 ? 'rgba(99,102,241,0.15)' : i % 2 === 0 ? '#0f172a' : '#1e293b', borderRadius: '0.5vw', border: i === 0 ? '1px solid #4f46e5' : '1px solid transparent' }}>
-                  <span style={{ fontSize: '1.2vw', color: '#475569', minWidth: '1.5vw' }}>{i + 1}</span>
-                  <span style={{ flex: 1, fontSize: '1.6vw', fontWeight: 600, color: i === 0 ? '#a5b4fc' : '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entryLabel(row.entryId)}</span>
-                  <span style={{ width: '3vw', textAlign: 'center', fontSize: '1.5vw', color: '#64748b' }}>{row.played}</span>
-                  <span style={{ width: '3vw', textAlign: 'center', fontSize: '1.5vw', fontWeight: 700, color: '#22c55e' }}>{row.wins}</span>
-                  <span style={{ width: '3vw', textAlign: 'center', fontSize: '1.5vw', color: '#ef4444' }}>{row.losses}</span>
-                  <span style={{ width: '4vw', textAlign: 'center', fontSize: '1.4vw', color: '#94a3b8', fontVariantNumeric: 'tabular-nums' }}>{row.setsFor}-{row.setsAgainst}</span>
-                </div>
-              ))}
+    <div className="h-full px-[3vw] py-[2vh] overflow-hidden" style={{ position: 'relative' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: visible.length === 1 ? '1fr' : 'repeat(2, 1fr)', gap: '2vw' }}>
+        {visible.map((panel) => (
+          <div key={panel.id} style={{ display: 'flex', flexDirection: 'column', gap: '1.2vh' }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.8vw', marginBottom: '0.3vh' }}>
+              <h2 style={{ fontSize: '1.8vw', fontWeight: 700, color: '#e2e8f0' }}>{panel.cat.name}</h2>
+              {panel.chunkLabel && <span style={{ fontSize: '1vw', color: '#475569' }}>({panel.chunkLabel})</span>}
             </div>
-          );
-        })}
+            <div style={{ display: 'flex', gap: '1vw', fontSize: '1.1vw', color: '#475569', fontWeight: 600, padding: '0 0.8vw' }}>
+              <span style={{ minWidth: '2vw' }}>#</span>
+              <span style={{ flex: 1 }}>Player</span>
+              <span style={{ width: '3vw', textAlign: 'center' }}>P</span>
+              <span style={{ width: '3vw', textAlign: 'center' }}>W</span>
+              <span style={{ width: '3vw', textAlign: 'center' }}>L</span>
+              <span style={{ width: '4.5vw', textAlign: 'center' }}>Sets</span>
+            </div>
+            {panel.rows.map((row) => {
+              const isFirst = row.rank === 1;
+              return (
+                <div key={row.entryId} style={{ display: 'flex', alignItems: 'center', gap: '1vw', padding: '0.9vh 0.8vw', background: isFirst ? 'rgba(99,102,241,0.15)' : row.rank % 2 === 0 ? '#0f172a' : '#1e293b', borderRadius: '0.5vw', border: isFirst ? '1px solid #4f46e5' : '1px solid transparent' }}>
+                  <span style={{ fontSize: '1.2vw', color: isFirst ? '#a5b4fc' : '#475569', minWidth: '2vw', fontWeight: isFirst ? 700 : 400 }}>{row.rank}</span>
+                  <span style={{ flex: 1, fontSize: '1.6vw', fontWeight: 600, color: isFirst ? '#a5b4fc' : '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entryLabel(row.entryId)}</span>
+                  <span style={{ width: '3vw', textAlign: 'center', fontSize: '1.4vw', color: '#64748b' }}>{row.played}</span>
+                  <span style={{ width: '3vw', textAlign: 'center', fontSize: '1.4vw', fontWeight: 700, color: '#22c55e' }}>{row.wins}</span>
+                  <span style={{ width: '3vw', textAlign: 'center', fontSize: '1.4vw', color: '#ef4444' }}>{row.losses}</span>
+                  <span style={{ width: '4.5vw', textAlign: 'center', fontSize: '1.3vw', color: '#94a3b8', fontVariantNumeric: 'tabular-nums' }}>{row.setsFor}-{row.setsAgainst}</span>
+                </div>
+              );
+            })}
+          </div>
+        ))}
       </div>
+      <PageIndicator pageNum={pageNum} totalPages={totalPages} />
     </div>
   );
 }
@@ -329,25 +395,41 @@ function LiveBracketSlide({ matches, categories, entryLabel, categoryFilter }: {
   const cat = categoryFilter ? (elimCats.find((c) => c.id === categoryFilter) ?? elimCats[0]) : elimCats[0];
   if (!cat) return <EmptySlide icon="🏆" title="No bracket available" subtitle="Elimination draws will appear here" />;
 
-  const cm = matches.filter((m) => m.category_id === cat.id && m.bracket_type !== 'losers').sort((a, b) => (a.bracket_position ?? 0) - (b.bracket_position ?? 0));
+  const cm = matches
+    .filter((m) => m.category_id === cat.id && m.bracket_type !== 'losers')
+    .sort((a, b) => (a.bracket_position ?? 0) - (b.bracket_position ?? 0));
   const rounds = [...new Set(cm.map((m) => m.round))].sort((a, b) => a - b);
 
+  // Find the earliest round that has live or upcoming matches — start display from there.
+  const activeRound = rounds.find((r) =>
+    cm.filter((m) => m.round === r).some((m) => m.status === 'in_progress' || m.status === 'scheduled'),
+  ) ?? rounds[0];
+  const activeIdx = activeRound != null ? rounds.indexOf(activeRound) : 0;
+  // Re-order so the active round comes first; completed earlier rounds wrap to the end.
+  const orderedRounds = [...rounds.slice(activeIdx), ...rounds.slice(0, activeIdx)];
+
+  const { page: visibleRounds, pageNum, totalPages } = useAutoPage(orderedRounds, 3, 6000);
+
   return (
-    <div className="h-full px-[2vw] py-[2vh] overflow-hidden">
+    <div className="h-full px-[2vw] py-[2vh] overflow-hidden" style={{ position: 'relative' }}>
       <h2 style={{ fontSize: '1.8vw', fontWeight: 700, color: '#e2e8f0', marginBottom: '1.5vh' }}>{cat.name} — Bracket</h2>
-      <div style={{ display: 'flex', gap: '2vw', height: 'calc(100% - 5vh)', overflowX: 'auto' }}>
-        {rounds.map((round) => {
+      <div style={{ display: 'flex', gap: '2vw', height: 'calc(100% - 5vh)' }}>
+        {visibleRounds.map((round) => {
           const rm = cm.filter((m) => m.round === round);
+          const hasLive = rm.some((m) => m.status === 'in_progress');
           return (
-            <div key={round} style={{ display: 'flex', flexDirection: 'column', gap: '1.5vh', minWidth: '20vw' }}>
-              <span style={{ fontSize: '1.2vw', fontWeight: 700, color: '#6366f1', textAlign: 'center', padding: '0.5vh', background: '#1e1b4b', borderRadius: '0.4vw' }}>{rm[0]?.round_name ?? 'Round ' + round}</span>
+            <div key={round} style={{ display: 'flex', flexDirection: 'column', gap: '1.5vh', flex: 1, minWidth: 0 }}>
+              <span style={{ fontSize: '1.2vw', fontWeight: 700, color: hasLive ? '#a5b4fc' : '#6366f1', textAlign: 'center', padding: '0.5vh', background: hasLive ? '#1e1b4b' : '#0f172a', borderRadius: '0.4vw', border: hasLive ? '1px solid #4f46e5' : '1px solid #1e293b' }}>
+                {rm[0]?.round_name ?? 'Round ' + round}
+                {hasLive && <span style={{ marginLeft: '0.5vw', color: '#ef4444' }}>●</span>}
+              </span>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1vh', flex: 1, justifyContent: 'space-evenly' }}>
                 {rm.map((m) => {
                   const aWon = m.winner_entry_id === m.entry_a_id;
                   const bWon = m.winner_entry_id === m.entry_b_id;
                   return (
                     <div key={m.id} style={{ background: '#0f172a', border: '1px solid ' + (m.status === 'in_progress' ? '#6366f1' : '#1e293b'), borderRadius: '0.6vw', overflow: 'hidden' }}>
-                      {[{ id: m.entry_a_id, won: aWon }, { id: m.entry_b_id, won: bWon }].map((p, i) => (
+                      {([{ id: m.entry_a_id, won: aWon }, { id: m.entry_b_id, won: bWon }] as const).map((p, i) => (
                         <div key={i} style={{ padding: '0.8vh 1vw', fontSize: '1.4vw', fontWeight: p.won ? 700 : 500, color: p.won ? '#ffffff' : m.winner_entry_id ? '#475569' : '#cbd5e1', background: p.won ? 'rgba(99,102,241,0.2)' : 'transparent', borderBottom: i === 0 ? '1px solid #1e293b' : 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {p.id ? entryLabel(p.id) : 'TBD'}{p.won ? ' ✓' : ''}
                         </div>
@@ -360,6 +442,7 @@ function LiveBracketSlide({ matches, categories, entryLabel, categoryFilter }: {
           );
         })}
       </div>
+      <PageIndicator pageNum={pageNum} totalPages={totalPages} />
     </div>
   );
 }
