@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { AppNav } from '@/components/layout/AppNav';
 import { ClubManagersPanel } from '@/components/clubs/ClubManagersPanel';
+import { DigestButton } from '@/components/clubs/DigestButton';
 import { getClubManagers } from '@/lib/actions/clubs';
 
 export const metadata: Metadata = { title: 'Club' };
@@ -73,12 +74,15 @@ export default async function ClubPage({ params }: Props) {
             </div>
           </div>
 
-          <Link
-            href={`/tournaments/new?club=${id}`}
-            className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 transition-colors"
-          >
-            + New tournament
-          </Link>
+          <div className="flex items-center gap-3 flex-wrap">
+            <DigestButton clubId={id} />
+            <Link
+              href={`/tournaments/new?club=${id}`}
+              className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 transition-colors"
+            >
+              + New tournament
+            </Link>
+          </div>
         </div>
 
         {club.description && (
