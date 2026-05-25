@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { NotificationBell } from './NotificationBell';
-import { AppLogo } from '@/components/ui/AppLogo';
 import type { Notification } from '@/lib/actions/notifications';
 
 export async function AppNav() {
@@ -31,11 +30,9 @@ export async function AppNav() {
     <nav className="border-b border-surface-border bg-surface-card px-6 py-3.5">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-6">
         {/* Brand */}
-        <AppLogo
-          href={player ? '/dashboard' : '/'}
-          iconSize={30}
-          wordmarkClassName="hidden sm:inline"
-        />
+        <Link href={player ? '/dashboard' : '/'} className="text-lg font-black text-white shrink-0">
+          PLAY<span className="text-brand-500">OFFE</span>
+        </Link>
 
         {/* Center nav */}
         <div className="hidden items-center gap-5 sm:flex">

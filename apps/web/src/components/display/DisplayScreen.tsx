@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import Image from 'next/image';
 import { createClient } from '@/lib/supabase/client';
 import type { DisplaySlide, DisplayState, Announcement } from '@pickleball/shared';
 
@@ -163,10 +162,7 @@ export function DisplayScreen({ tournament, initialDisplayState }: Props) {
           {rotationSlides.map((s) => <div key={s} style={{ width: effectiveSlide === s ? '2vw' : '0.8vw', height: '0.5vh', borderRadius: '9999px', background: effectiveSlide === s ? '#6366f1' : '#334155', transition: 'all 0.3s ease' }} />)}
         </div>
         {displayState.is_pinned ? <span style={{ fontSize: '1.1vw', color: '#6366f1' }}>Pinned</span> : <span style={{ fontSize: '1.1vw', color: '#475569' }}>Next: {SLIDE_LABELS[nextSlide]}</span>}
-        <span style={{ display: 'flex', alignItems: 'center', gap: '0.4vw', opacity: 0.35 }}>
-          <Image src="/logo.png" alt="PLAYOFFE" width={18} height={18} style={{ objectFit: 'contain' }} />
-          <span style={{ fontSize: '0.9vw', fontWeight: 700, color: '#94a3b8', letterSpacing: '0.05em' }}>PLAYOFFE</span>
-        </span>
+        <span style={{ fontSize: '1vw', color: '#334155' }}>PLAYOFFE</span>
       </div>
       {!isConnected && (
         <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.7)', zIndex: 50 }}>
@@ -526,10 +522,7 @@ function WrapUpSlide({ categories, entryLabel, tournamentName }: { categories: C
           ))}
         </div>
       ) : <p style={{ fontSize: '1.8vw', color: '#475569' }}>Results coming soon...</p>}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.6vw', marginTop: '4vh', opacity: 0.4 }}>
-        <Image src="/logo.png" alt="PLAYOFFE" width={22} height={22} style={{ objectFit: 'contain' }} />
-        <span style={{ fontSize: '1.2vw', color: '#475569', fontWeight: 700 }}>Thanks for playing · PLAYOFFE</span>
-      </div>
+      <p style={{ fontSize: '1.3vw', color: '#334155', marginTop: '4vh' }}>Thanks for playing · powered by PLAYOFFE</p>
     </div>
   );
 }
