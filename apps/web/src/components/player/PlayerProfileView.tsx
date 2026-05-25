@@ -51,22 +51,32 @@ export function PlayerProfileView({ player, matchHistory, isOwnProfile }: Props)
                 )}
               </div>
 
-              {isOwnProfile && (
-                <div className="mb-1 flex items-center gap-2">
-                  <Link
-                    href="/settings/profile"
-                    className="rounded-lg bg-brand-600/20 border border-brand-600/40 px-3 py-1.5 text-xs font-semibold text-brand-300 hover:bg-brand-600/30 transition-colors"
-                  >
-                    Edit profile
-                  </Link>
-                  <Link
-                    href="/dashboard"
-                    className="rounded-lg border border-surface-border px-3 py-1.5 text-xs text-slate-400 hover:bg-surface hover:text-white transition-colors"
-                  >
-                    ← Dashboard
-                  </Link>
-                </div>
-              )}
+              <div className="mb-1 flex items-center gap-2 flex-wrap">
+                {isOwnProfile && (
+                  <>
+                    <Link
+                      href="/settings/profile"
+                      className="rounded-lg bg-brand-600/20 border border-brand-600/40 px-3 py-1.5 text-xs font-semibold text-brand-300 hover:bg-brand-600/30 transition-colors"
+                    >
+                      Edit profile
+                    </Link>
+                    <Link
+                      href="/dashboard"
+                      className="rounded-lg border border-surface-border px-3 py-1.5 text-xs text-slate-400 hover:bg-surface hover:text-white transition-colors"
+                    >
+                      ← Dashboard
+                    </Link>
+                    <a
+                      href={`/api/players/${player.username}/schedule.ics`}
+                      download
+                      title="Subscribe to your upcoming match schedule"
+                      className="rounded-lg border border-surface-border px-3 py-1.5 text-xs text-slate-400 hover:bg-surface hover:text-white transition-colors"
+                    >
+                      🗓 My schedule
+                    </a>
+                  </>
+                )}
+              </div>
             </div>
 
             {/* Name + meta */}

@@ -207,16 +207,27 @@ export default async function PublicTournamentPage({ params }: Props) {
                 </div>
               </div>
 
-              {/* Display screen link */}
-              {(t.status === 'in_progress' || t.status === 'registration_open') && (
-                <Link
-                  href={`/display/${t.display_code}`}
-                  target="_blank"
-                  className="shrink-0 flex items-center gap-2 rounded-lg border border-surface-border px-3 py-2 text-xs text-slate-400 hover:bg-surface hover:text-white transition-colors"
-                >
-                  📺 Live display
-                </Link>
-              )}
+              {/* Action buttons */}
+              <div className="shrink-0 flex items-center gap-2 flex-wrap">
+                {(t.status === 'in_progress' || t.status === 'registration_open') && (
+                  <Link
+                    href={`/display/${t.display_code}`}
+                    target="_blank"
+                    className="flex items-center gap-2 rounded-lg border border-surface-border px-3 py-2 text-xs text-slate-400 hover:bg-surface hover:text-white transition-colors"
+                  >
+                    📺 Live display
+                  </Link>
+                )}
+                {(t.status === 'in_progress' || t.status === 'completed') && (
+                  <a
+                    href={`/api/tournaments/${slug}/schedule.ics`}
+                    download
+                    className="flex items-center gap-1.5 rounded-lg border border-surface-border px-3 py-2 text-xs text-slate-400 hover:bg-surface hover:text-white transition-colors"
+                  >
+                    🗓 Add to calendar
+                  </a>
+                )}
+              </div>
             </div>
 
             {/* Details */}
