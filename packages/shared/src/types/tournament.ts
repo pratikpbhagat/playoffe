@@ -73,6 +73,8 @@ export interface DisplayState {
   active_announcement_id: string | null;
   active_category_filter: string | null;
   is_paused: boolean;
+  /** Slides included in the auto-rotation cycle. Defaults to the 5 core slides. */
+  enabled_slides?: DisplaySlide[];
   last_updated_by: string | null;
   updated_at: string;
 }

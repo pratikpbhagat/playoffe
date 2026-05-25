@@ -7,6 +7,7 @@ import {
   updateDisplaySlideAction,
   updateDisplayPausedAction,
   updateRotationIntervalAction,
+  updateEnabledSlidesAction,
   sendAnnouncementAction,
   dismissAnnouncementAction,
 } from '@/lib/actions/display';
@@ -19,6 +20,7 @@ interface DisplayStateLocal {
   active_announcement_id: string | null;
   active_category_filter: string | null;
   is_paused: boolean;
+  enabled_slides?: DisplaySlide[];
 }
 
 interface AnnouncementRow {
@@ -49,13 +51,34 @@ const SLIDES: { value: DisplaySlide; label: string; icon: string }[] = [
 
 const INTERVAL_OPTIONS = [10, 15, 20, 30, 45, 60];
 
+const DEFAULT_ENABLED_SLIDES: DisplaySlide[] = [
+  'live_scores', 'upcoming_matches', 'group_standings', 'live_bracket', 'full_schedule',
+];
+
+// All slides that can be added to / removed from the auto-rotation.
+// 'announcement' is excluded — it activates automatically when sent.
+const ROTATABLE_SLIDES: { value: DisplaySlide; label: string; icon: string }[] = [
+  { value: 'live_scores',      label: 'Live Scores', icon: '🎯' },
+  { value: 'upcoming_matches', label: 'Upcoming',    icon: '📅' },
+  { value: 'group_standings',  label: 'Standings',   icon: '📊' },
+  { value: 'live_bracket',     label: 'Bracket',     icon: '🏆' },
+  { value: 'full_schedule',    label: 'Schedule',    icon: '📋' },
+  { value: 'category_podium',  label: 'Podium',      icon: '🥇' },
+  { value: 'wrap_up',          label: 'Wrap-Up',     icon: '🎉' },
+];
+
 export function DisplayControlPanel({
   tournamentId,
   tournamentSlug,
   initialDisplayState,
   initialAnnouncements,
 }: Props) {
-  const [ds, setDs] = useState(initialDisplayState);
+  const [ds, setDs] = useState({
+    ...initialDisplayState,
+    enabled_slides: (initialDisplayState.enabled_slides?.length ?? 0) > 0
+      ? initialDisplayState.enabled_slides!
+      : DEFAULT_ENABLED_SLIDES,
+  });
   const [announcements, setAnnouncements] = useState(initialAnnouncements);
   const [annMsg, setAnnMsg] = useState('');
   const [annUrgency, setAnnUrgency] = useState<'normal' | 'urgent'>('normal');
@@ -87,6 +110,17 @@ export function DisplayControlPanel({
     startTransition(async () => {
       const res = await updateRotationIntervalAction(tournamentId, secs);
       if (!res.error) setDs((prev) => ({ ...prev, rotation_interval_secs: secs }));
+    });
+  };
+
+  const handleToggleSlide = (slide: DisplaySlide) => {
+    const current = ds.enabled_slides;
+    const isOn = current.includes(slide);
+    if (isOn && current.length === 1) return; // must keep at least one
+    const next = isOn ? current.filter((s) => s !== slide) : [...current, slide];
+    startTransition(async () => {
+      const res = await updateEnabledSlidesAction(tournamentId, next);
+      if (!res.error) setDs((prev) => ({ ...prev, enabled_slides: next }));
     });
   };
 
@@ -240,6 +274,49 @@ export function DisplayControlPanel({
             </button>
           ))}
         </div>
+      </div>
+
+      {/* ── Rotation slides ── */}
+      <div className="rounded-xl bg-surface-card ring-1 ring-surface-border px-5 py-5">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-white">Rotation slides</h2>
+          <span className="text-xs text-slate-500">
+            {ds.enabled_slides.length} of {ROTATABLE_SLIDES.length} enabled
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          {ROTATABLE_SLIDES.map((slide) => {
+            const isOn = ds.enabled_slides.includes(slide.value);
+            const isLastOn = isOn && ds.enabled_slides.length === 1;
+            return (
+              <button
+                key={slide.value}
+                disabled={isPending || isLastOn}
+                onClick={() => handleToggleSlide(slide.value)}
+                title={isLastOn ? 'At least one slide must remain enabled' : undefined}
+                className={`flex items-center gap-3 rounded-xl px-3 py-3 text-left transition-all disabled:opacity-50 ${
+                  isOn
+                    ? 'bg-brand-600/15 ring-1 ring-brand-500/60 text-white'
+                    : 'bg-surface ring-1 ring-surface-border text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                {/* Checkbox indicator */}
+                <span
+                  className={`flex h-4 w-4 shrink-0 items-center justify-center rounded text-[10px] font-bold transition-colors ${
+                    isOn ? 'bg-brand-500 text-white' : 'bg-slate-700 text-slate-500'
+                  }`}
+                >
+                  {isOn ? '✓' : ''}
+                </span>
+                <span className="text-lg leading-none">{slide.icon}</span>
+                <span className="text-xs font-medium leading-tight">{slide.label}</span>
+              </button>
+            );
+          })}
+        </div>
+        <p className="mt-3 text-xs text-slate-600">
+          Checked slides cycle automatically · uncheck to skip a slide
+        </p>
       </div>
 
       {/* ── Announcement sender ── */}

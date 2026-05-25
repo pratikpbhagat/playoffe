@@ -105,6 +105,30 @@ export async function updateRotationIntervalAction(
   }
 }
 
+export async function updateEnabledSlidesAction(
+  tournamentId: string,
+  slides: DisplaySlide[],
+) {
+  try {
+    if (slides.length === 0) return { error: 'At least one slide must be enabled' };
+    const { user, admin, slug } = await assertTournamentManager(tournamentId);
+
+    await admin
+      .from('display_state')
+      .update({
+        enabled_slides: slides,
+        last_updated_by: user.id,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('tournament_id', tournamentId);
+
+    revalidatePath(`/tournaments/${slug}/display-control`);
+    return { success: true };
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+}
+
 export async function sendAnnouncementAction(
   tournamentId: string,
   message: string,

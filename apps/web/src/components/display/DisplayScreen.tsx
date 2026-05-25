@@ -35,7 +35,7 @@ const SLIDE_LABELS: Record<DisplaySlide, string> = {
   announcement: 'Announcement', wrap_up: 'Wrap-Up',
 };
 
-const ROTATION_ORDER: DisplaySlide[] = ['live_scores','upcoming_matches','group_standings','live_bracket','full_schedule'];
+const DEFAULT_ROTATION: DisplaySlide[] = ['live_scores','upcoming_matches','group_standings','live_bracket','full_schedule'];
 
 export function DisplayScreen({ tournament, initialDisplayState }: Props) {
   const supabase = createClient();
@@ -94,16 +94,31 @@ export function DisplayScreen({ tournament, initialDisplayState }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tournament.id]);
 
+  // Slides active in the rotation — falls back to the default 5 if the DB
+  // column hasn't been populated yet (e.g. before migration runs locally).
+  // Declared before the rotation effects so they can reference rotationSlides.length.
+  const rotationSlides: DisplaySlide[] =
+    Array.isArray(displayState.enabled_slides) && displayState.enabled_slides.length > 0
+      ? (displayState.enabled_slides as DisplaySlide[])
+      : DEFAULT_ROTATION;
+
+  // Reset to slide 0 whenever the enabled-slides list itself changes.
+  const enabledSlidesKey = rotationSlides.join(',');
+  useEffect(() => { setRotationIndex(0); }, [enabledSlidesKey]);
+
   useEffect(() => {
     if (rotationRef.current) clearInterval(rotationRef.current);
     if (!displayState.is_pinned && !displayState.is_paused) {
       const ms = (displayState.rotation_interval_secs ?? 20) * 1000;
-      rotationRef.current = setInterval(() => setRotationIndex((i) => (i + 1) % ROTATION_ORDER.length), ms);
+      const len = rotationSlides.length || 1;
+      rotationRef.current = setInterval(() => setRotationIndex((i) => (i + 1) % len), ms);
     }
     return () => { if (rotationRef.current) clearInterval(rotationRef.current); };
-  }, [displayState.is_pinned, displayState.is_paused, displayState.rotation_interval_secs]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [displayState.is_pinned, displayState.is_paused, displayState.rotation_interval_secs, rotationSlides.length, enabledSlidesKey]);
 
-  const effectiveSlide: DisplaySlide = displayState.is_pinned ? displayState.current_slide : (ROTATION_ORDER[rotationIndex] ?? 'live_scores');
+  const safeIndex = rotationSlides.length > 0 ? rotationIndex % rotationSlides.length : 0;
+  const effectiveSlide: DisplaySlide = displayState.is_pinned ? displayState.current_slide : (rotationSlides[safeIndex] ?? 'live_scores');
   const entryLabel = (id: string | null): string => { if (!id) return 'BYE'; const ep = entryPlayers.get(id); if (!ep) return '—'; return ep.partnerName ? ep.playerName + ' / ' + ep.partnerName : ep.playerName; };
   const formatTime = (s: string | null): string => { if (!s) return '—'; return new Date(s).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: true }); };
   const parseSets = (s: unknown): SetScore[] => Array.isArray(s) ? s as SetScore[] : [];
@@ -111,7 +126,7 @@ export function DisplayScreen({ tournament, initialDisplayState }: Props) {
   const liveMatches = matches.filter((m) => m.status === 'in_progress');
   const upcomingMatches = matches.filter((m) => m.status === 'scheduled');
   const completedMatches = matches.filter((m) => m.status === 'completed');
-  const nextSlide: DisplaySlide = ROTATION_ORDER[(rotationIndex + 1) % ROTATION_ORDER.length] ?? 'live_scores';
+  const nextSlide: DisplaySlide = rotationSlides[(safeIndex + 1) % rotationSlides.length] ?? 'live_scores';
 
   const renderSlide = () => {
     switch (effectiveSlide) {
@@ -144,7 +159,7 @@ export function DisplayScreen({ tournament, initialDisplayState }: Props) {
       <div className="absolute inset-x-0 bottom-0 flex items-center justify-between px-[3vw]"
         style={{ height: '5vh', background: '#0f172a', borderTop: '1px solid #1e293b' }}>
         <div className="flex items-center gap-[0.8vw]">
-          {ROTATION_ORDER.map((s) => <div key={s} style={{ width: effectiveSlide === s ? '2vw' : '0.8vw', height: '0.5vh', borderRadius: '9999px', background: effectiveSlide === s ? '#6366f1' : '#334155', transition: 'all 0.3s ease' }} />)}
+          {rotationSlides.map((s) => <div key={s} style={{ width: effectiveSlide === s ? '2vw' : '0.8vw', height: '0.5vh', borderRadius: '9999px', background: effectiveSlide === s ? '#6366f1' : '#334155', transition: 'all 0.3s ease' }} />)}
         </div>
         {displayState.is_pinned ? <span style={{ fontSize: '1.1vw', color: '#6366f1' }}>Pinned</span> : <span style={{ fontSize: '1.1vw', color: '#475569' }}>Next: {SLIDE_LABELS[nextSlide]}</span>}
         <span style={{ fontSize: '1vw', color: '#334155' }}>PLAYOFFE</span>
