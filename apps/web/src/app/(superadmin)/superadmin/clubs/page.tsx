@@ -28,7 +28,7 @@ export default async function SuperAdminClubsPage() {
           <div
             key={club.id}
             className={`flex items-center justify-between rounded-xl px-5 py-4 ring-1 transition-all ${
-              (club as any).is_suspended
+              club.is_suspended
                 ? 'bg-red-950/20 ring-red-900/50'
                 : 'bg-surface-card ring-surface-border'
             }`}
@@ -39,7 +39,7 @@ export default async function SuperAdminClubsPage() {
                 <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${TIER_STYLE[club.subscription_tier] ?? TIER_STYLE.free}`}>
                   {club.subscription_tier}
                 </span>
-                {(club as any).is_suspended && (
+                {club.is_suspended && (
                   <span className="rounded-full bg-red-500/20 px-2 py-0.5 text-[10px] font-semibold text-red-400 uppercase tracking-wide">
                     Suspended
                   </span>
@@ -54,7 +54,7 @@ export default async function SuperAdminClubsPage() {
               <SuspendClubButton
                 clubId={club.id}
                 clubName={club.name}
-                isSuspended={(club as any).is_suspended ?? false}
+                isSuspended={club.is_suspended ?? false}
               />
             </div>
           </div>

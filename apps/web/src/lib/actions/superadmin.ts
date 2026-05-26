@@ -80,10 +80,18 @@ export async function getPlatformStatsAction() {
 export async function getAllClubsAction() {
   const { admin } = await assertSuperAdmin();
 
-  const { data: clubs } = await admin
-    .from('clubs')
+  const { data: clubs } = await (admin.from('clubs') as any)
     .select('id, name, slug, subscription_tier, is_suspended, created_at')
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false }) as {
+      data: Array<{
+        id: string;
+        name: string;
+        slug: string;
+        subscription_tier: string;
+        is_suspended: boolean | null;
+        created_at: string;
+      }> | null;
+    };
 
   return clubs ?? [];
 }
@@ -165,7 +173,7 @@ export async function createAdminInviteAction(input: {
   });
 
   revalidatePath('/superadmin/invitations');
-  return { success: true, inviteUrl };
+  return { success: true as const, inviteUrl };
 }
 
 export async function revokeAdminInviteAction(inviteId: string) {
@@ -196,7 +204,7 @@ export async function getAdminInvitesAction() {
     .select('id, club_name, invitee_email, invitee_name, subscription_tier, expires_at, claimed_at, revoked_at, created_at')
     .order('created_at', { ascending: false });
 
-  return (data ?? []) as Array<{
+  return (data ?? []) as unknown as Array<{
     id: string;
     club_name: string;
     invitee_email: string;
@@ -266,7 +274,7 @@ export async function claimAdminInviteAction(input: {
       email: invite.invitee_email,
       full_name: fullName,
       username: usernameSlug,
-      role: 'admin',
+      gender: 'other' as const,
     });
   }
 
@@ -333,7 +341,7 @@ export async function claimAdminInviteAction(input: {
 export async function getFeatureFlagsAction() {
   const { admin } = await assertSuperAdmin();
   const { data } = await admin.from('feature_flags' as any).select('id, feature_module, is_enabled, updated_at').order('feature_module');
-  return (data ?? []) as Array<{ id: string; feature_module: string; is_enabled: boolean; updated_at: string }>;
+  return (data ?? []) as unknown as Array<{ id: string; feature_module: string; is_enabled: boolean; updated_at: string }>;
 }
 
 export async function updateFeatureFlagAction(flagId: string, isEnabled: boolean) {
@@ -379,7 +387,7 @@ export async function getRolePermissionsAction(clubId?: string) {
   }
 
   const { data } = await query;
-  return (data ?? []) as Array<{
+  return (data ?? []) as unknown as Array<{
     id: string;
     role: string;
     feature: string;
