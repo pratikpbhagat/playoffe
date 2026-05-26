@@ -6,6 +6,8 @@ import { AppNav } from '@/components/layout/AppNav';
 import { PublicCategoryCard } from '@/components/events/PublicCategoryCard';
 import { DeadlineCountdown } from '@/components/events/DeadlineCountdown';
 import { RegistrationQR } from '@/components/ui/RegistrationQR';
+import { AnnouncementBanner } from '@/components/events/AnnouncementBanner';
+import { getActiveAnnouncementsAction } from '@/lib/actions/announcements';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -171,6 +173,9 @@ export default async function PublicTournamentPage({ params }: Props) {
   const registrationOpen =
     t.status === 'registration_open' && !deadlinePassed;
 
+  // Active (non-archived) announcements for this tournament
+  const activeAnnouncements = await getActiveAnnouncementsAction(tournamentId);
+
   return (
     <div className="min-h-screen bg-surface">
       <AppNav />
@@ -242,6 +247,13 @@ export default async function PublicTournamentPage({ params }: Props) {
             )}
           </div>
         </div>
+
+        {/* Announcements */}
+        {activeAnnouncements.length > 0 && (
+          <div className="mt-6">
+            <AnnouncementBanner announcements={activeAnnouncements} />
+          </div>
+        )}
 
         {/* Categories */}
         <section className="mt-8">

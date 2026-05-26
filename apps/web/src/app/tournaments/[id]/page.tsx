@@ -255,6 +255,12 @@ export default async function TournamentPage({ params }: Props) {
           >
             <span>🏆</span> Results
           </Link>
+          <Link
+            href={`/tournaments/${slug}/announcements`}
+            className="flex items-center gap-2 rounded-lg border border-surface-border px-4 py-2 text-sm text-slate-300 hover:bg-surface-card transition-colors"
+          >
+            <span>📢</span> Announcements
+          </Link>
           <CloneTournamentButton tournamentId={t.id} />
         </div>
 
