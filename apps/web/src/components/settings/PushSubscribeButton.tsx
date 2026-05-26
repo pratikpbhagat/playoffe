@@ -61,6 +61,8 @@ export function PushSubscribeButton() {
           return;
         }
 
+        // Register the service worker (no-op if already registered)
+        await navigator.serviceWorker.register('/sw.js');
         const reg = await navigator.serviceWorker.ready;
         const keyBytes = urlBase64ToUint8Array(vapidKey);
         const sub = await reg.pushManager.subscribe({

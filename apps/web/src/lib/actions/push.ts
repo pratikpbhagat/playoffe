@@ -79,12 +79,9 @@ export async function sendPushToPlayer(
 
   if (!subs || subs.length === 0) return;
 
-  // Dynamically import web-push to avoid build errors if not installed.
-  // Install with: npm install web-push && npm install -D @types/web-push
-  // Generate keys with: npx web-push generate-vapid-keys
+  // Dynamically import web-push to keep the server action lightweight.
+  // Generate keys with: cd apps/web && node -e "const w=require('web-push');const k=w.generateVAPIDKeys();console.log(k)"
   try {
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-ignore — web-push is an optional peer dep; gracefully skip if not installed
     const webpush = await import('web-push');
     webpush.setVapidDetails(`mailto:${vapidEmail}`, vapidPublicKey, vapidPrivateKey);
 
