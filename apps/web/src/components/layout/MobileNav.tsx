@@ -8,6 +8,7 @@ interface MobileNavProps {
   isLoggedIn: boolean;
   username?: string;
   fullName?: string;
+  email?: string;
   isSuperAdmin?: boolean;
 }
 
@@ -32,7 +33,7 @@ const AUTH_LINKS: NavEntry[] = [
   { label: 'New tournament', href: '/tournaments/new', exact: true },
 ];
 
-export function MobileNav({ isLoggedIn, username, fullName, isSuperAdmin }: MobileNavProps) {
+export function MobileNav({ isLoggedIn, username, fullName, email, isSuperAdmin }: MobileNavProps) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
 
@@ -45,7 +46,8 @@ export function MobileNav({ isLoggedIn, username, fullName, isSuperAdmin }: Mobi
     return () => { document.body.style.overflow = ''; };
   }, [open]);
 
-  const links = isLoggedIn ? AUTH_LINKS : GUEST_LINKS;
+  // Super admins see no player links — only the Super Admin link added below
+  const links = isSuperAdmin ? [] : isLoggedIn ? AUTH_LINKS : GUEST_LINKS;
 
   function isActive(href: string, exact?: boolean) {
     return exact ? pathname === href : pathname.startsWith(href);
@@ -132,7 +134,22 @@ export function MobileNav({ isLoggedIn, username, fullName, isSuperAdmin }: Mobi
 
         {/* Bottom user section */}
         <div className="border-t border-surface-border px-5 py-4">
-          {isLoggedIn && username ? (
+          {isSuperAdmin ? (
+            /* Super admin: show email + sign out */
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-violet-900 text-sm font-bold text-violet-300">
+                  {email?.charAt(0).toUpperCase()}
+                </span>
+                <p className="text-xs text-slate-400 truncate">{email}</p>
+              </div>
+              <form action="/api/auth/signout" method="POST">
+                <button type="submit" className="text-xs text-slate-500 hover:text-white transition-colors shrink-0">
+                  Sign out
+                </button>
+              </form>
+            </div>
+          ) : isLoggedIn && username ? (
             <div className="flex items-center gap-3">
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-900 text-sm font-bold text-brand-300">
                 {fullName?.charAt(0).toUpperCase()}
