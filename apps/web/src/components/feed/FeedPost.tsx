@@ -50,8 +50,8 @@ export function FeedPostCard({
     setCommentBody('');
     startCommentTransition(async () => {
       const result = await addCommentAction(post.id, body);
-      if ('success' in result) {
-        // Optimistically shown; page will revalidate
+      if ('success' in result && result.comment) {
+        setComments((prev) => [...prev, result.comment]);
       }
     });
   }

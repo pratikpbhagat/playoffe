@@ -241,15 +241,33 @@ export async function addCommentAction(postId: string, body: string) {
   if (!trimmed) return { error: 'Comment cannot be empty' };
 
   const sc = supabase as unknown as ReturnType<typeof createAdminClient>;
-  const { error } = (await fromAny(sc, 'post_comments').insert({
-    post_id: postId,
-    player_id: user.id,
-    body: trimmed,
-  })) as { error: { message: string } | null };
+  const { data: inserted, error } = (await fromAny(sc, 'post_comments')
+    .insert({ post_id: postId, player_id: user.id, body: trimmed })
+    .select('id, post_id, player_id, body, created_at')
+    .single()) as { data: { id: string; post_id: string; player_id: string; body: string; created_at: string } | null; error: { message: string } | null };
 
-  if (error) return { error: error.message };
+  if (error || !inserted) return { error: error?.message ?? 'Insert failed' };
+
+  // Fetch player info for the returned comment
+  const { data: player } = await supabase
+    .from('players')
+    .select('full_name, username')
+    .eq('id', user.id)
+    .single();
+
   revalidatePath('/feed');
-  return { success: true as const };
+  return {
+    success: true as const,
+    comment: {
+      id: inserted.id,
+      post_id: inserted.post_id,
+      player_id: inserted.player_id,
+      body: inserted.body,
+      created_at: inserted.created_at,
+      player_name: player?.full_name ?? 'Unknown',
+      player_username: player?.username ?? 'unknown',
+    } satisfies FeedComment,
+  };
 }
 
 export async function deleteCommentAction(commentId: string) {

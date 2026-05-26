@@ -3,6 +3,8 @@
 import { revalidatePath } from 'next/cache';
 import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { sendPushToPlayer } from '@/lib/actions/push';
+import type { NotificationPrefs } from '@/lib/notification-types';
+import { DEFAULT_NOTIFICATION_PREFS } from '@/lib/notification-types';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -189,22 +191,6 @@ export async function createNotificationsForPlayers(
 }
 
 // ── Notification preferences ──────────────────────────────────────────────────
-
-export interface NotificationPrefs {
-  match_reminders: boolean;
-  score_results: boolean;
-  tournament_updates: boolean;
-  partner_requests: boolean;
-  new_followers: boolean;
-}
-
-export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
-  match_reminders: true,
-  score_results: true,
-  tournament_updates: true,
-  partner_requests: true,
-  new_followers: true,
-};
 
 export async function getNotificationPrefsAction(): Promise<NotificationPrefs> {
   const supabase = await createClient();

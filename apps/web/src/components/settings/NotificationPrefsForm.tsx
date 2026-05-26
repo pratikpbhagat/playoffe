@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react';
 import { saveNotificationPrefsAction } from '@/lib/actions/notifications';
-import type { NotificationPrefs } from '@/lib/actions/notifications';
+import type { NotificationPrefs } from '@/lib/notification-types';
 import { useToast } from '@/components/ui/ToastProvider';
 
 const PREF_LABELS: { key: keyof NotificationPrefs; label: string; description: string }[] = [
