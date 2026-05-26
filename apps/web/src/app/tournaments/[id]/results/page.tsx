@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { AppNav } from '@/components/layout/AppNav';
 import { CopyLinkButton } from '@/components/ui/CopyLinkButton';
+import { FinalizeCategoryButton } from '@/components/tournaments/FinalizeCategoryButton';
 
 export const metadata: Metadata = { title: 'Tournament Results' };
 
@@ -79,16 +80,27 @@ export default async function TournamentResultsPage({ params }: Props) {
     }
   }
 
-  // Match stats
+  // Match stats (include category_id for per-category completion check)
   const { data: matchStats } = await admin
     .from('matches')
-    .select('status')
-    .eq('tournament_id', t.id);
+    .select('status, category_id')
+    .eq('tournament_id', t.id)
+    .not('entry_a_id', 'is', null)
+    .not('entry_b_id', 'is', null);
 
   const totalMatches    = matchStats?.length ?? 0;
   const completedMatches = matchStats?.filter((m) => m.status === 'completed' || m.status === 'walkover').length ?? 0;
   const cats = categories ?? [];
   const completedCats   = cats.filter((c) => c.status === 'completed').length;
+
+  // Per-category: are all matches done?
+  const pendingByCat: Record<string, number> = {};
+  for (const m of matchStats ?? []) {
+    if (!pendingByCat[m.category_id]) pendingByCat[m.category_id] = 0;
+    if (m.status === 'scheduled' || m.status === 'in_progress') {
+      pendingByCat[m.category_id]++;
+    }
+  }
 
   const club = t.clubs as { name: string; logo_url: string | null } | null;
   const shareUrl = `${process.env.NEXT_PUBLIC_SITE_URL ?? ''}/events/${slug}`;
@@ -150,20 +162,30 @@ export default async function TournamentResultsPage({ params }: Props) {
               return (
                 <div key={cat.id} className="rounded-xl bg-surface-card ring-1 ring-surface-border overflow-hidden">
                   {/* Category header */}
-                  <div className="flex items-center justify-between px-6 py-4 border-b border-surface-border">
+                  <div className="flex items-center justify-between px-6 py-4 border-b border-surface-border gap-4 flex-wrap">
                     <div>
                       <h2 className="font-semibold text-white">{cat.name}</h2>
                       <p className="text-xs text-slate-500 mt-0.5 capitalize">
                         {cat.play_format.replace('_', ' ')} · {cat.draw_format.replace(/_/g, ' ')}
                       </p>
                     </div>
-                    <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${
-                      cat.status === 'completed'
-                        ? 'bg-accent-500/10 text-accent-400 ring-1 ring-accent-500/20'
-                        : 'bg-slate-700/50 text-slate-400'
-                    }`}>
-                      {cat.status === 'completed' ? 'Completed' : 'In progress'}
-                    </span>
+                    <div className="flex items-center gap-3 shrink-0">
+                      {/* Finalize button — shown when all matches done but results not yet recorded */}
+                      {!cat.winner_entry_id && (pendingByCat[cat.id] ?? 0) === 0 && (
+                        <FinalizeCategoryButton
+                          categoryId={cat.id}
+                          categoryName={cat.name}
+                          hasResults={!!cat.winner_entry_id}
+                        />
+                      )}
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                        cat.status === 'completed'
+                          ? 'bg-accent-500/10 text-accent-400 ring-1 ring-accent-500/20'
+                          : 'bg-slate-700/50 text-slate-400'
+                      }`}>
+                        {cat.status === 'completed' ? 'Completed' : 'In progress'}
+                      </span>
+                    </div>
                   </div>
 
                   {hasResults ? (

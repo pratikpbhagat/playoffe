@@ -764,6 +764,42 @@ export async function approvePlayerReportAction(matchId: string) {
   await advanceMatch(admin, match as any, reportedWinnerId, loserEntryId);
 
   revalidatePath(`/tournaments/${ctx.tournamentSlug}/scoring/${matchId}`);
+  revalidatePath(`/tournaments/${ctx.tournamentSlug}/scoring`);
+  revalidatePath(`/tournaments/${ctx.tournamentSlug}`);
   revalidatePath(`/tournaments/${ctx.tournamentSlug}/categories/${category?.slug ?? match.category_id}`);
   return { success: true, ratingChangeA: resultA.change, ratingChangeB: resultB.change };
+}
+
+// ── Reject a player self-report ───────────────────────────────────────────────
+// Clears player_reported_winner_id + player_reported_sets so the match
+// returns to its prior unscored state.  Organiser-only.
+export async function rejectPlayerReportAction(matchId: string) {
+  'use server';
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: 'Not authenticated' };
+
+  const ctx = await assertMatchManager(matchId, user.id);
+  if (!ctx) return { error: 'Permission denied' };
+
+  const { match } = ctx;
+  if (match.status === 'completed' || match.status === 'walkover') {
+    return { error: 'Match is already completed' };
+  }
+
+  const admin = createAdminClient();
+  const { error: updateErr } = await admin
+    .from('matches')
+    .update({
+      player_reported_winner_id: null,
+      player_reported_sets: null,
+    })
+    .eq('id', matchId);
+
+  if (updateErr) return { error: 'Failed to reject report' };
+
+  revalidatePath(`/tournaments/${ctx.tournamentSlug}/scoring/${matchId}`);
+  revalidatePath(`/tournaments/${ctx.tournamentSlug}/scoring`);
+  revalidatePath(`/tournaments/${ctx.tournamentSlug}`);
+  return { success: true };
 }

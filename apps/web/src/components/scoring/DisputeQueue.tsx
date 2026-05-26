@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react';
 import Link from 'next/link';
-import { approvePlayerReportAction } from '@/lib/actions/scoring';
+import { approvePlayerReportAction, rejectPlayerReportAction } from '@/lib/actions/scoring';
 
 interface DisputeMatch {
   id: string;
@@ -17,9 +17,10 @@ interface DisputeMatch {
 
 function DisputeRow({ m, tournamentSlug }: { m: DisputeMatch; tournamentSlug: string }) {
   const [isPending, startTransition] = useTransition();
-  const [approved, setApproved] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
+  const [action, setAction] = useState<'approve' | 'reject' | null>(null);
 
-  if (approved) return null;
+  if (dismissed) return null;
 
   return (
     <div className="flex items-center gap-4 px-5 py-4 flex-wrap">
@@ -37,15 +38,29 @@ function DisputeRow({ m, tournamentSlug }: { m: DisputeMatch; tournamentSlug: st
       <div className="flex items-center gap-2 shrink-0">
         <button
           disabled={isPending}
-          onClick={() =>
+          onClick={() => {
+            setAction('approve');
             startTransition(async () => {
               await approvePlayerReportAction(m.id);
-              setApproved(true);
-            })
-          }
+              setDismissed(true);
+            });
+          }}
           className="rounded-lg bg-accent-600/20 px-3 py-1.5 text-xs font-semibold text-accent-400 hover:bg-accent-600/30 transition-colors disabled:opacity-50"
         >
-          {isPending ? '…' : '✓ Approve'}
+          {isPending && action === 'approve' ? '…' : '✓ Approve'}
+        </button>
+        <button
+          disabled={isPending}
+          onClick={() => {
+            setAction('reject');
+            startTransition(async () => {
+              await rejectPlayerReportAction(m.id);
+              setDismissed(true);
+            });
+          }}
+          className="rounded-lg border border-red-900/50 px-3 py-1.5 text-xs text-red-400 hover:bg-red-950/40 hover:border-red-800/60 transition-colors disabled:opacity-50"
+        >
+          {isPending && action === 'reject' ? '…' : '✗ Reject'}
         </button>
         <Link
           href={`/tournaments/${tournamentSlug}/scoring/${m.id}`}

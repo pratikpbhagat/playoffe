@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { startMatchAction, submitResultAction, walkoverAction, overrideMatchResultAction, approvePlayerReportAction } from '@/lib/actions/scoring';
+import { startMatchAction, submitResultAction, walkoverAction, overrideMatchResultAction, approvePlayerReportAction, rejectPlayerReportAction } from '@/lib/actions/scoring';
 import { useRealtimeMatch } from '@/hooks/useRealtimeMatch';
 import { useConfirm } from '@/components/ui/ConfirmProvider';
 
@@ -84,8 +84,9 @@ export function MatchScoreCard({
   const [overriding, setOverriding] = useState(false);
   const [overrideError, setOverrideError] = useState<string | null>(null);
 
-  // Approve player report state
+  // Approve / reject player report state
   const [approvingReport, setApprovingReport] = useState(false);
+  const [rejectingReport, setRejectingReport] = useState(false);
   const [approveError, setApproveError] = useState<string | null>(null);
 
   // Realtime — react to another device completing this match
@@ -213,6 +214,18 @@ export function MatchScoreCard({
     setApprovingReport(false);
   }
 
+  async function handleRejectReport() {
+    setRejectingReport(true);
+    setApproveError(null);
+    const result = await rejectPlayerReportAction(matchId);
+    if (result.error) {
+      setApproveError(result.error);
+    } else {
+      router.refresh();
+    }
+    setRejectingReport(false);
+  }
+
   function updateOverrideSet(index: number, field: 'score_a' | 'score_b', value: number) {
     setOverrideSets((prev) =>
       prev.map((s, i) => (i === index ? { ...s, [field]: Math.max(0, value) } : s)),
@@ -297,13 +310,20 @@ export function MatchScoreCard({
             </p>
           )}
 
-          <div className="flex items-center gap-3 pt-1">
+          <div className="flex items-center gap-3 flex-wrap pt-1">
             <button
               onClick={handleApproveReport}
-              disabled={approvingReport}
+              disabled={approvingReport || rejectingReport}
               className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 transition-colors disabled:opacity-50"
             >
               {approvingReport ? 'Approving…' : '✓ Approve & submit'}
+            </button>
+            <button
+              onClick={handleRejectReport}
+              disabled={approvingReport || rejectingReport}
+              className="rounded-lg border border-red-900/50 px-4 py-2 text-sm font-semibold text-red-400 hover:bg-red-950/40 hover:border-red-800/60 transition-colors disabled:opacity-50"
+            >
+              {rejectingReport ? 'Rejecting…' : '✗ Reject report'}
             </button>
             <p className="text-xs text-slate-500">
               or enter the official score manually below
