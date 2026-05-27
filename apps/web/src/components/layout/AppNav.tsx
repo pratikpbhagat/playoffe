@@ -69,7 +69,7 @@ export async function AppNav() {
             <>
               <NavLink href="/dashboard" exact>Dashboard</NavLink>
               <NavLink href="/rankings">Rankings</NavLink>
-              <NavLink href="/tournaments" exact>Tournaments</NavLink>
+              <NavLink href="/tournaments" exact>My tournaments</NavLink>
             </>
           )}
 

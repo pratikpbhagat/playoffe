@@ -115,12 +115,20 @@ export default async function DashboardPage() {
             <div className="rounded-xl bg-surface-card p-6 ring-1 ring-surface-border">
               <div className="flex items-center justify-between">
                 <h2 className="text-base font-semibold text-white">My tournaments</h2>
-                <Link
-                  href="/tournaments"
-                  className="text-xs text-brand-400 hover:text-brand-300 transition-colors"
-                >
-                  View all →
-                </Link>
+                <div className="flex items-center gap-3">
+                  <Link
+                    href="/tournaments/new"
+                    className="text-xs text-brand-400 hover:text-brand-300 transition-colors"
+                  >
+                    + New
+                  </Link>
+                  <Link
+                    href="/tournaments"
+                    className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                  >
+                    View all →
+                  </Link>
+                </div>
               </div>
               {tournaments.length === 0 ? (
                 <p className="mt-4 text-sm text-slate-500">No tournaments yet.</p>

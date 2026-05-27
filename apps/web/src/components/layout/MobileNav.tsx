@@ -28,7 +28,7 @@ const GUEST_LINKS: NavEntry[] = [
 const ADMIN_LINKS: NavEntry[] = [
   { label: 'Dashboard',    href: '/dashboard',   exact: true },
   { label: 'Rankings',     href: '/rankings' },
-  { label: 'Tournaments',  href: '/tournaments', exact: true },
+  { label: 'My tournaments', href: '/tournaments', exact: true },
 ];
 
 /** Player mode: full player experience, no admin-only tools */
