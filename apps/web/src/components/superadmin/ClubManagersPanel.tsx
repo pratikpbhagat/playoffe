@@ -5,8 +5,11 @@ import {
   getClubManagersDetailAction,
   addClubManagerDirectAction,
   createManagerInviteAction,
+  getClubPendingInvitesAction,
+  revokeAdminInviteAction,
 } from '@/lib/actions/superadmin';
 import { PlayerSearchInput, type PlayerResult } from './PlayerSearchInput';
+import { useConfirm } from '@/components/ui/ConfirmProvider';
 
 interface Manager {
   id: string;
@@ -15,14 +18,23 @@ interface Manager {
   players: { id: string; full_name: string; username: string; email: string } | null;
 }
 
+interface PendingInvite {
+  id: string;
+  invitee_email: string;
+  invitee_name: string | null;
+  expires_at: string;
+}
+
 interface Props {
   clubId: string;
   clubName: string;
 }
 
 export function ClubManagersPanel({ clubId, clubName }: Props) {
+  const { confirm } = useConfirm();
   const [open, setOpen] = useState(false);
   const [managers, setManagers] = useState<Manager[] | null>(null);
+  const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>([]);
   const [loadingManagers, setLoadingManagers] = useState(false);
 
   // Search + direct-add state
@@ -39,17 +51,24 @@ export function ClubManagersPanel({ clubId, clubName }: Props) {
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
   const [sendingInvite, startInviteTransition] = useTransition();
 
-  async function loadManagers() {
+  // Revoke state
+  const [revokingId, setRevokingId] = useState<string | null>(null);
+
+  async function loadData() {
     setLoadingManagers(true);
-    const data = await getClubManagersDetailAction(clubId);
-    setManagers(data as Manager[]);
+    const [mgrs, invites] = await Promise.all([
+      getClubManagersDetailAction(clubId),
+      getClubPendingInvitesAction(clubId),
+    ]);
+    setManagers(mgrs as Manager[]);
+    setPendingInvites(invites);
     setLoadingManagers(false);
   }
 
   function handleToggle() {
     const next = !open;
     setOpen(next);
-    if (next && managers === null) loadManagers();
+    if (next && managers === null) loadData();
   }
 
   function handleSelectPlayer(player: PlayerResult) {
@@ -71,7 +90,7 @@ export function ClubManagersPanel({ clubId, clubName }: Props) {
         setAddResult(`✓ ${result.player.full_name} (@${result.player.username}) added as manager.`);
         setAddSuccess(true);
         setSelectedPlayer(null);
-        loadManagers();
+        loadData();
       }
     });
   }
@@ -93,8 +112,25 @@ export function ClubManagersPanel({ clubId, clubName }: Props) {
         setInviteUrl(result.inviteUrl);
         setInviteEmail('');
         setInviteName('');
+        // Refresh invites list to show the newly sent one
+        const fresh = await getClubPendingInvitesAction(clubId);
+        setPendingInvites(fresh);
       }
     });
+  }
+
+  async function handleRevoke(invite: PendingInvite) {
+    const ok = await confirm({
+      title: 'Revoke invite',
+      message: `The pending invite for ${invite.invitee_email} will be cancelled. Their link will stop working immediately.`,
+      confirmLabel: 'Revoke',
+      variant: 'danger',
+    });
+    if (!ok) return;
+    setRevokingId(invite.id);
+    await revokeAdminInviteAction(invite.id);
+    setPendingInvites((prev) => prev.filter((i) => i.id !== invite.id));
+    setRevokingId(null);
   }
 
   function copyInviteUrl() {
@@ -119,6 +155,11 @@ export function ClubManagersPanel({ clubId, clubName }: Props) {
             {managers.length}
           </span>
         )}
+        {pendingInvites.length > 0 && (
+          <span className="rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[10px] text-amber-400">
+            {pendingInvites.length} pending invite{pendingInvites.length !== 1 ? 's' : ''}
+          </span>
+        )}
       </button>
 
       {open && (
@@ -126,7 +167,7 @@ export function ClubManagersPanel({ clubId, clubName }: Props) {
           {/* Manager list */}
           <div>
             {loadingManagers && <p className="text-xs text-slate-500">Loading…</p>}
-            {managers !== null && managers.length === 0 && (
+            {managers !== null && managers.length === 0 && pendingInvites.length === 0 && (
               <p className="text-xs text-slate-500">No managers yet.</p>
             )}
             {managers !== null && managers.length > 0 && (
@@ -149,12 +190,43 @@ export function ClubManagersPanel({ clubId, clubName }: Props) {
             )}
           </div>
 
+          {/* Pending invites */}
+          {pendingInvites.length > 0 && (
+            <div>
+              <p className="mb-2 text-xs font-semibold text-amber-400 uppercase tracking-wide">
+                Pending invites
+              </p>
+              <div className="space-y-1.5">
+                {pendingInvites.map((invite) => (
+                  <div key={invite.id} className="flex items-center gap-3 rounded-lg border border-amber-700/30 bg-amber-950/20 px-3 py-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-slate-200 truncate">
+                        {invite.invitee_name
+                          ? <><span className="font-medium">{invite.invitee_name}</span> · {invite.invitee_email}</>
+                          : invite.invitee_email}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        Expires {new Date(invite.expires_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => handleRevoke(invite)}
+                      disabled={revokingId === invite.id}
+                      className="shrink-0 rounded-lg bg-red-500/10 px-3 py-1 text-xs font-semibold text-red-400 hover:bg-red-500/20 transition-colors disabled:opacity-50"
+                    >
+                      {revokingId === invite.id ? '…' : 'Revoke'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Add existing user — typeahead search */}
           <div>
             <p className="mb-2 text-xs font-semibold text-slate-400 uppercase tracking-wide">Add existing user</p>
 
             {selectedPlayer ? (
-              /* Confirmation row after selecting a player */
               <div className="flex items-center gap-2 rounded-lg border border-brand-600/30 bg-brand-600/10 px-3 py-2">
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-white truncate">

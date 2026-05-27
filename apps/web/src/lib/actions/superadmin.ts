@@ -283,7 +283,7 @@ export async function revokeAdminInviteAction(inviteId: string) {
     targetId: inviteId,
   });
 
-  revalidatePath('/superadmin/invitations');
+  revalidatePath('/superadmin/clubs');
   return { success: true };
 }
 
@@ -305,6 +305,28 @@ export async function getAdminInvitesAction() {
     claimed_at: string | null;
     revoked_at: string | null;
     created_at: string;
+  }>;
+}
+
+/**
+ * Returns all PENDING (not claimed, not revoked, not expired) invites for a specific club.
+ * Used by ClubManagersPanel to show outstanding invites with a revoke option.
+ */
+export async function getClubPendingInvitesAction(clubId: string) {
+  const { admin } = await assertSuperAdmin();
+  const { data } = await admin
+    .from('admin_invites' as any)
+    .select('id, invitee_email, invitee_name, expires_at')
+    .eq('club_id', clubId)
+    .is('claimed_at', null)
+    .is('revoked_at', null)
+    .gt('expires_at', new Date().toISOString())
+    .order('created_at', { ascending: false });
+  return (data ?? []) as unknown as Array<{
+    id: string;
+    invitee_email: string;
+    invitee_name: string | null;
+    expires_at: string;
   }>;
 }
 
