@@ -59,9 +59,12 @@ export function SuperAdminTournamentsClient({ clubs }: Props) {
       if ('error' in result) {
         setError(result.error ?? 'Unknown error');
       } else {
-        setSuccess(`Tournament "${result.tournament.name}" created successfully.`);
+        // Reset form state and close BEFORE setting success so the banner
+        // renders outside the collapsible area (where it's always visible).
         setName(''); setSlug(''); setStartDate(''); setEndDate(''); setVenue('');
-        setClubId(''); setStatus('draft'); setOpen(false);
+        setClubId(''); setStatus('draft');
+        setOpen(false);
+        setSuccess(`Tournament "${result.tournament.name}" created successfully.`);
         router.refresh();
       }
     });
@@ -70,20 +73,24 @@ export function SuperAdminTournamentsClient({ clubs }: Props) {
   return (
     <div className="rounded-xl bg-surface-card ring-1 ring-surface-border">
       <button
-        onClick={() => setOpen((p) => !p)}
+        onClick={() => { setOpen((p) => { if (!p) setSuccess(null); return !p; }); }}
         className="w-full flex items-center justify-between px-5 py-4 text-sm font-semibold text-slate-300 hover:text-white transition-colors"
       >
         <span>+ Create tournament</span>
         <span className={`transition-transform text-xs ${open ? 'rotate-180' : ''}`}>▼</span>
       </button>
 
+      {/* Success banner — shown collapsed, outside the form, so it's visible after form closes */}
+      {success && !open && (
+        <div className="border-t border-surface-border px-5 py-3 rounded-b-xl bg-green-950/60">
+          <p className="text-xs text-green-400">✓ {success}</p>
+        </div>
+      )}
+
       {open && (
         <form onSubmit={handleSubmit} className="border-t border-surface-border px-5 pb-6 pt-4 space-y-4">
           {error && (
             <div className="rounded-lg border border-red-800 bg-red-950 px-3 py-2 text-xs text-red-400">{error}</div>
-          )}
-          {success && (
-            <div className="rounded-lg border border-green-800 bg-green-950 px-3 py-2 text-xs text-green-400">{success}</div>
           )}
 
           {/* Club */}

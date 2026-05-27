@@ -10,9 +10,18 @@ interface Props {
   defaultName: string;
   clubName: string;
   inviteType?: 'new_club_owner' | 'existing_club_manager';
+  /** True when the invitee already has a Supabase auth account */
+  isExistingUser?: boolean;
 }
 
-export function AdminInviteClaimForm({ token, email, defaultName, clubName, inviteType = 'new_club_owner' }: Props) {
+export function AdminInviteClaimForm({
+  token,
+  email,
+  defaultName,
+  clubName,
+  inviteType = 'new_club_owner',
+  isExistingUser = false,
+}: Props) {
   const isManagerInvite = inviteType === 'existing_club_manager';
   const router = useRouter();
   const [fullName, setFullName] = useState(defaultName);
@@ -28,13 +37,23 @@ export function AdminInviteClaimForm({ token, email, defaultName, clubName, invi
     e.preventDefault();
     setError(null);
 
-    if (!fullName.trim()) { setError('Full name is required'); return; }
-    if (!username.trim()) { setError('Username is required'); return; }
-    if (password.length < 8) { setError('Password must be at least 8 characters'); return; }
-    if (password !== confirm) { setError("Passwords don't match"); return; }
+    // For existing users claiming a manager invite, we skip the new-account setup fields.
+    if (!isExistingUser) {
+      if (!fullName.trim()) { setError('Full name is required'); return; }
+      if (!username.trim()) { setError('Username is required'); return; }
+      if (password.length < 8) { setError('Password must be at least 8 characters'); return; }
+      if (password !== confirm) { setError("Passwords don't match"); return; }
+    }
 
     setLoading(true);
-    const result = await claimAdminInviteAction({ token, password, fullName, username });
+    // For existing users, the server action ignores password/fullName/username —
+    // it identifies the user by the invite's email address.
+    const result = await claimAdminInviteAction({
+      token,
+      password: isExistingUser ? '' : password,
+      fullName: isExistingUser ? '' : fullName,
+      username: isExistingUser ? '' : username,
+    });
 
     if (result.error) {
       setError(result.error);
@@ -42,8 +61,8 @@ export function AdminInviteClaimForm({ token, email, defaultName, clubName, invi
       return;
     }
 
-    // Redirect to login so Supabase can establish the session
-    router.push('/login?setup=complete');
+    // Redirect to login so the user can establish / refresh their session
+    router.push('/login?joined=1');
   }
 
   return (
@@ -70,68 +89,78 @@ export function AdminInviteClaimForm({ token, email, defaultName, clubName, invi
         </div>
       </div>
 
-      {/* Full name */}
-      <div>
-        <label className="mb-1.5 block text-sm font-medium text-slate-300">Your full name</label>
-        <input
-          type="text"
-          value={fullName}
-          onChange={(e) => setFullName(e.target.value)}
-          required
-          placeholder="Jane Smith"
-          className="block w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
-        />
-      </div>
-
-      {/* Username */}
-      <div>
-        <label className="mb-1.5 block text-sm font-medium text-slate-300">Username</label>
-        <div className="relative">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-500">@</span>
-          <input
-            type="text"
-            value={username}
-            onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
-            required
-            placeholder="jane_smith"
-            className="block w-full rounded-lg border border-surface-border bg-surface pl-7 pr-3 py-2 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
-          />
+      {/* For existing users claiming a manager invite — no account setup needed */}
+      {isExistingUser && isManagerInvite ? (
+        <div className="rounded-lg border border-brand-800/40 bg-brand-950/30 px-4 py-3 text-sm text-brand-300">
+          You already have a PLAYOFFE account. Click below to accept the invitation and join{' '}
+          <strong>{clubName}</strong> as a manager.
         </div>
-        <p className="mt-1 text-xs text-slate-500">Letters, numbers and underscores only</p>
-      </div>
+      ) : (
+        <>
+          {/* Full name */}
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-300">Your full name</label>
+            <input
+              type="text"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              required
+              placeholder="Jane Smith"
+              className="block w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
+            />
+          </div>
 
-      {/* Password */}
-      <div>
-        <label className="mb-1.5 block text-sm font-medium text-slate-300">Password</label>
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-          minLength={8}
-          placeholder="Min. 8 characters"
-          className="block w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
-        />
-      </div>
+          {/* Username */}
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-300">Username</label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-500">@</span>
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                required
+                placeholder="jane_smith"
+                className="block w-full rounded-lg border border-surface-border bg-surface pl-7 pr-3 py-2 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
+              />
+            </div>
+            <p className="mt-1 text-xs text-slate-500">Letters, numbers and underscores only</p>
+          </div>
 
-      <div>
-        <label className="mb-1.5 block text-sm font-medium text-slate-300">Confirm password</label>
-        <input
-          type="password"
-          value={confirm}
-          onChange={(e) => setConfirm(e.target.value)}
-          required
-          placeholder="Repeat your password"
-          className={`block w-full rounded-lg border px-3 py-2 text-sm text-white bg-surface outline-none transition placeholder:text-slate-600 focus:ring-2 focus:ring-brand-500/30 ${
-            confirm && confirm !== password
-              ? 'border-red-500 focus:border-red-500'
-              : 'border-surface-border focus:border-brand-500'
-          }`}
-        />
-        {confirm && confirm !== password && (
-          <p className="mt-1 text-xs text-red-400">Passwords don&apos;t match</p>
-        )}
-      </div>
+          {/* Password */}
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-300">Password</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              minLength={8}
+              placeholder="Min. 8 characters"
+              className="block w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-300">Confirm password</label>
+            <input
+              type="password"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              required
+              placeholder="Repeat your password"
+              className={`block w-full rounded-lg border px-3 py-2 text-sm text-white bg-surface outline-none transition placeholder:text-slate-600 focus:ring-2 focus:ring-brand-500/30 ${
+                confirm && confirm !== password
+                  ? 'border-red-500 focus:border-red-500'
+                  : 'border-surface-border focus:border-brand-500'
+              }`}
+            />
+            {confirm && confirm !== password && (
+              <p className="mt-1 text-xs text-red-400">Passwords don&apos;t match</p>
+            )}
+          </div>
+        </>
+      )}
 
       <button
         type="submit"

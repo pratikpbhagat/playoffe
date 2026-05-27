@@ -661,6 +661,15 @@ export async function addClubManagerDirectAction(clubId: string, email: string) 
 
   if (!player) return { error: 'No player found with that email address.' };
 
+  // Check that the player has an active auth.users account (they can actually log in)
+  const { data: authUserData } = await admin.auth.admin.getUserById(player.id);
+  if (!authUserData?.user) {
+    return {
+      error:
+        'This player does not have an active login account. Use the "Send invite" option to send them an invitation link instead.',
+    };
+  }
+
   // Check not already a manager (club_managers has composite PK — no id column)
   const { data: existing } = await admin
     .from('club_managers')
@@ -686,12 +695,11 @@ export async function addClubManagerDirectAction(clubId: string, email: string) 
     club_id: clubId,
   }, { onConflict: 'user_id,role,club_id' });
 
-  // Update JWT app_metadata.roles to include 'admin'
-  const { data: authData } = await admin.auth.admin.getUserById(player.id);
-  const currentRoles = (authData?.user?.app_metadata?.roles as string[] | undefined) ?? [];
+  // Update JWT app_metadata.roles to include 'admin' (reuse authUserData already fetched above)
+  const currentRoles = (authUserData.user.app_metadata?.roles as string[] | undefined) ?? [];
   if (!currentRoles.includes('admin')) {
     await admin.auth.admin.updateUserById(player.id, {
-      app_metadata: { ...authData?.user?.app_metadata, roles: [...currentRoles, 'admin'] },
+      app_metadata: { ...authUserData.user.app_metadata, roles: [...currentRoles, 'admin'] },
     });
   }
 

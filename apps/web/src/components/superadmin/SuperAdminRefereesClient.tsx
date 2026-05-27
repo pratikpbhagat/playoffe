@@ -42,12 +42,21 @@ export function SuperAdminRefereesClient({ groupedTournaments }: Props) {
   const [revoking, startRevoking] = useTransition();
   const [revokeError, setRevokeError] = useState<string | null>(null);
 
+  // Full reset — used when switching tournaments. Clears the PIN display too.
   async function loadPins(tournamentId: string) {
     setLoadingPins(true);
     setPins(null);
     setNewPin(null);
     setPinError(null);
     setRevokeError(null);
+    const data = await listRefereePinsAction(tournamentId);
+    setPins(data as Pin[]);
+    setLoadingPins(false);
+  }
+
+  // Lightweight refresh — only updates the list; does NOT clear the displayed PIN.
+  async function refreshPinList(tournamentId: string) {
+    setLoadingPins(true);
     const data = await listRefereePinsAction(tournamentId);
     setPins(data as Pin[]);
     setLoadingPins(false);
@@ -68,9 +77,9 @@ export function SuperAdminRefereesClient({ groupedTournaments }: Props) {
       if ('error' in result) {
         setPinError(result.error ?? 'Unknown error');
       } else {
-        setNewPin(result.pin);
         setLabel('');
-        loadPins(selectedId);
+        setNewPin(result.pin); // Show PIN before refreshing list
+        refreshPinList(selectedId); // Does NOT clear newPin
       }
     });
   }
@@ -82,7 +91,7 @@ export function SuperAdminRefereesClient({ groupedTournaments }: Props) {
       if ('error' in result && result.error) {
         setRevokeError(String(result.error));
       } else {
-        loadPins(selectedId);
+        refreshPinList(selectedId);
       }
     });
   }

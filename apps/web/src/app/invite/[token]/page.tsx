@@ -77,6 +77,14 @@ export default async function AdminInviteClaimPage({ params }: Props) {
   // ── Valid — show setup form ────────────────────────────────────────────────
   const isManagerInvite = invite.invite_type === 'existing_club_manager';
 
+  // For manager invites, check if the invitee already has an auth account.
+  // If yes, show a simplified "confirm" UI — no need to set up a new password.
+  let isExistingUser = false;
+  if (isManagerInvite) {
+    const { data: authList } = await admin.auth.admin.listUsers({ perPage: 1000 });
+    isExistingUser = (authList?.users ?? []).some((u) => u.email === invite.invitee_email);
+  }
+
   return (
     <Shell>
       <div className="w-full max-w-md">
@@ -104,6 +112,7 @@ export default async function AdminInviteClaimPage({ params }: Props) {
             defaultName={invite.invitee_name ?? ''}
             clubName={invite.club_name}
             inviteType={invite.invite_type as 'new_club_owner' | 'existing_club_manager'}
+            isExistingUser={isExistingUser}
           />
         </div>
 
