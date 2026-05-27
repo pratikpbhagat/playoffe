@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { createAdminClient } from '@/lib/supabase/server';
 import { AppNav } from '@/components/layout/AppNav';
+import { EventSearchInput } from '@/components/events/EventSearchInput';
 
 export const metadata: Metadata = {
   title: 'Find tournaments · PLAYOFFE',
@@ -161,13 +162,7 @@ export default async function EventsPage({
 
         {/* Search & filter bar */}
         <form method="GET" className="mb-8 flex flex-wrap gap-3">
-          <input
-            type="search"
-            name="q"
-            defaultValue={sp.q ?? ''}
-            placeholder="Search by name, venue or club…"
-            className="flex-1 min-w-56 rounded-lg border border-surface-border bg-surface-card px-4 py-2 text-sm text-slate-200 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
-          />
+          <EventSearchInput defaultValue={sp.q ?? ''} />
           <select
             name="format"
             defaultValue={filterFormat}
