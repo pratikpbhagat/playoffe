@@ -14,11 +14,12 @@ export default async function AdminInviteClaimPage({ params }: Props) {
   const admin = createAdminClient();
 
   const { data: invite } = await (admin.from('admin_invites' as any) as any)
-    .select('id, club_name, invitee_email, invitee_name, expires_at, claimed_at, revoked_at')
+    .select('id, club_name, invite_type, invitee_email, invitee_name, expires_at, claimed_at, revoked_at')
     .eq('token', token)
     .single() as { data: {
       id: string;
       club_name: string;
+      invite_type: string;
       invitee_email: string;
       invitee_name: string | null;
       expires_at: string;
@@ -42,12 +43,17 @@ export default async function AdminInviteClaimPage({ params }: Props) {
 
   // ── Already claimed ───────────────────────────────────────────────────────
   if (invite.claimed_at) {
+    const isManagerInvite = invite.invite_type === 'existing_club_manager';
     return (
       <Shell>
         <StatusCard
           icon="✅"
           title="Already set up"
-          body={`The club "${invite.club_name}" has already been created. Log in to access your dashboard.`}
+          body={
+            isManagerInvite
+              ? `You've already joined "${invite.club_name}" as a manager. Log in to access your dashboard.`
+              : `The club "${invite.club_name}" has already been created. Log in to access your dashboard.`
+          }
           cta={{ href: '/login', label: 'Log in' }}
         />
       </Shell>
@@ -69,6 +75,8 @@ export default async function AdminInviteClaimPage({ params }: Props) {
   }
 
   // ── Valid — show setup form ────────────────────────────────────────────────
+  const isManagerInvite = invite.invite_type === 'existing_club_manager';
+
   return (
     <Shell>
       <div className="w-full max-w-md">
@@ -76,13 +84,15 @@ export default async function AdminInviteClaimPage({ params }: Props) {
           <h1 className="text-3xl font-black text-white">
             PLAY<span className="text-brand-600">OFFE</span>
           </h1>
-          <p className="mt-2 text-sm text-slate-400">Club organiser setup</p>
+          <p className="mt-2 text-sm text-slate-400">
+            {isManagerInvite ? 'Club manager setup' : 'Club organiser setup'}
+          </p>
         </div>
 
         <div className="rounded-xl bg-surface-card px-8 py-8 ring-1 ring-surface-border">
           <div className="mb-6 rounded-lg bg-brand-600/10 border border-brand-600/30 px-4 py-3">
             <p className="text-xs font-semibold text-brand-400 uppercase tracking-wide mb-1">
-              You've been invited to manage
+              {isManagerInvite ? 'Join as club manager' : "You've been invited to manage"}
             </p>
             <p className="text-lg font-bold text-white">{invite.club_name}</p>
             <p className="text-xs text-slate-400 mt-1">as {invite.invitee_email}</p>
@@ -93,6 +103,7 @@ export default async function AdminInviteClaimPage({ params }: Props) {
             email={invite.invitee_email}
             defaultName={invite.invitee_name ?? ''}
             clubName={invite.club_name}
+            inviteType={invite.invite_type as 'new_club_owner' | 'existing_club_manager'}
           />
         </div>
 

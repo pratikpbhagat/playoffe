@@ -219,7 +219,9 @@ export async function getAdminInvitesAction() {
 
 /**
  * Called from the /invite/[token] claim page (no auth required — caller is the invitee).
- * Validates the token, creates a Supabase auth user, club, and user_roles row.
+ * Validates the token, creates a Supabase auth user, and either:
+ *   - creates a new club + adds user as owner (invite_type = 'new_club_owner'), or
+ *   - adds the user as manager to an existing club (invite_type = 'existing_club_manager').
  */
 export async function claimAdminInviteAction(input: {
   token: string;
@@ -233,10 +235,11 @@ export async function claimAdminInviteAction(input: {
   // 1. Validate the invite token
   const { data: invite } = await admin
     .from('admin_invites' as any)
-    .select('id, club_name, invitee_email, invitee_name, subscription_tier, expires_at, claimed_at, revoked_at')
+    .select('id, club_name, club_id, invite_type, invitee_email, invitee_name, subscription_tier, expires_at, claimed_at, revoked_at')
     .eq('token', token)
     .single() as { data: {
-      id: string; club_name: string; invitee_email: string; invitee_name: string | null;
+      id: string; club_name: string; club_id: string | null; invite_type: string;
+      invitee_email: string; invitee_name: string | null;
       subscription_tier: string; expires_at: string; claimed_at: string | null; revoked_at: string | null;
     } | null };
 
@@ -277,6 +280,47 @@ export async function claimAdminInviteAction(input: {
       gender: 'other' as const,
     });
   }
+
+  // ── Branch: existing_club_manager — join an existing club ────────────────────
+  if (invite.invite_type === 'existing_club_manager' && invite.club_id) {
+    // Add as manager to the existing club
+    const { error: mgrErr } = await admin.from('club_managers').insert({
+      club_id: invite.club_id,
+      player_id: authUserId,
+      role: 'manager',
+    });
+    if (mgrErr) return { error: 'Failed to add you as manager. You may already be a manager of this club.' };
+
+    // Insert user_roles row
+    await admin.from('user_roles' as any).insert({
+      user_id: authUserId,
+      role: 'admin',
+      club_id: invite.club_id,
+    });
+
+    // Update JWT app_metadata roles
+    const currentRoles = existingUser?.app_metadata?.roles as string[] ?? [];
+    if (!currentRoles.includes('admin')) {
+      await admin.auth.admin.updateUserById(authUserId, {
+        app_metadata: { ...existingUser?.app_metadata, roles: [...currentRoles, 'admin'] },
+      });
+    }
+
+    // Mark claimed
+    await admin.from('admin_invites' as any).update({ claimed_at: new Date().toISOString() }).eq('id', invite.id);
+
+    await admin.from('audit_log' as any).insert({
+      action_type: 'manager_invite_claimed',
+      actor_id: authUserId,
+      target_type: 'admin_invite',
+      target_id: invite.id,
+      new_value: { club_id: invite.club_id, club_name: invite.club_name },
+    });
+
+    return { success: true };
+  }
+
+  // ── Branch: new_club_owner — create a new club ───────────────────────────────
 
   // 3. Create the club
   const clubSlug = invite.club_name
@@ -524,6 +568,267 @@ export async function activatePlayerProfileAction() {
   });
 
   revalidatePath('/settings/account');
+  return { success: true };
+}
+
+// ── Tournament management (superadmin) ───────────────────────────────────────
+
+export async function createTournamentAsSuperAdminAction(input: {
+  clubId: string;
+  name: string;
+  slug: string;
+  startDate: string;
+  endDate: string;
+  venue?: string;
+  status?: 'draft' | 'registration_open' | 'in_progress' | 'completed';
+}) {
+  const { user, admin } = await assertSuperAdmin();
+  const { clubId, name, slug, startDate, endDate, venue, status = 'draft' } = input;
+
+  const { data: tournament, error } = await (admin.from('tournaments') as any).insert({
+    club_id: clubId,
+    name: name.trim(),
+    slug: slug.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/--+/g, '-').replace(/^-|-$/g, ''),
+    start_date: startDate,
+    end_date: endDate,
+    venue: venue?.trim() ?? null,
+    status,
+    created_by: user.id,
+    display_code: '', // DB trigger generates the actual code
+  }).select('id, name, slug').single() as { data: { id: string; name: string; slug: string } | null; error: { message: string } | null };
+
+  if (error || !tournament) return { error: error?.message ?? 'Failed to create tournament' };
+
+  await writeAuditLog({
+    admin,
+    actorId: user.id,
+    actionType: 'tournament_created_by_superadmin',
+    targetType: 'tournament',
+    targetId: tournament.id,
+    newValue: { name: tournament.name, club_id: clubId },
+  });
+
+  revalidatePath('/superadmin/tournaments');
+  return { success: true as const, tournament };
+}
+
+export async function getAllTournamentsForSuperAdminAction() {
+  const { admin } = await assertSuperAdmin();
+
+  const { data } = await admin
+    .from('tournaments')
+    .select('id, name, slug, status, start_date, end_date, venue, clubs(id, name)')
+    .order('start_date', { ascending: false }) as {
+      data: Array<{
+        id: string; name: string; slug: string; status: string;
+        start_date: string; end_date: string; venue: string | null;
+        clubs: { id: string; name: string } | null;
+      }> | null;
+    };
+
+  return data ?? [];
+}
+
+// ── Club manager management (superadmin) ─────────────────────────────────────
+
+export async function getClubManagersDetailAction(clubId: string) {
+  const { admin } = await assertSuperAdmin();
+
+  const { data } = await admin
+    .from('club_managers')
+    .select('role, player_id, players(id, full_name, username, email)')
+    .eq('club_id', clubId)
+    .order('role') as {
+      data: Array<{
+        role: string; player_id: string;
+        players: { id: string; full_name: string; username: string; email: string } | null;
+      }> | null;
+    };
+
+  // Use player_id as the unique key (club_managers has composite PK)
+  return (data ?? []).map((m) => ({ ...m, id: m.player_id }));
+}
+
+export async function addClubManagerDirectAction(clubId: string, email: string) {
+  const { user, admin } = await assertSuperAdmin();
+
+  // Find existing player by email
+  const { data: player } = await admin
+    .from('players')
+    .select('id, full_name, username')
+    .eq('email', email.trim().toLowerCase())
+    .maybeSingle() as { data: { id: string; full_name: string; username: string } | null };
+
+  if (!player) return { error: 'No player found with that email address.' };
+
+  // Check not already a manager (club_managers has composite PK — no id column)
+  const { data: existing } = await admin
+    .from('club_managers')
+    .select('role')
+    .eq('club_id', clubId)
+    .eq('player_id', player.id)
+    .maybeSingle() as { data: { role: string } | null };
+
+  if (existing) return { error: `This player is already a ${existing.role} of this club.` };
+
+  // Insert club_managers row
+  const { error: mgrErr } = await admin.from('club_managers').insert({
+    club_id: clubId,
+    player_id: player.id,
+    role: 'manager',
+  });
+  if (mgrErr) return { error: 'Failed to add manager.' };
+
+  // Insert user_roles row (idempotent)
+  await admin.from('user_roles' as any).upsert({
+    user_id: player.id,
+    role: 'admin',
+    club_id: clubId,
+  }, { onConflict: 'user_id,role,club_id' });
+
+  // Update JWT app_metadata.roles to include 'admin'
+  const { data: authData } = await admin.auth.admin.getUserById(player.id);
+  const currentRoles = (authData?.user?.app_metadata?.roles as string[] | undefined) ?? [];
+  if (!currentRoles.includes('admin')) {
+    await admin.auth.admin.updateUserById(player.id, {
+      app_metadata: { ...authData?.user?.app_metadata, roles: [...currentRoles, 'admin'] },
+    });
+  }
+
+  await writeAuditLog({
+    admin,
+    actorId: user.id,
+    actionType: 'club_manager_added_direct',
+    targetType: 'club',
+    targetId: clubId,
+    newValue: { player_id: player.id, email, role: 'manager' },
+  });
+
+  revalidatePath('/superadmin/clubs');
+  return { success: true as const, player };
+}
+
+export async function createManagerInviteAction(input: {
+  clubId: string;
+  clubName: string;
+  inviteeEmail: string;
+  inviteeName?: string;
+  expiryDays?: number;
+}) {
+  const { user, admin } = await assertSuperAdmin();
+  const { clubId, clubName, inviteeEmail, inviteeName, expiryDays = 7 } = input;
+
+  const token = crypto.randomBytes(32).toString('hex');
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + expiryDays);
+
+  const { error } = await admin.from('admin_invites' as any).insert({
+    club_name: clubName,
+    club_id: clubId,
+    invite_type: 'existing_club_manager',
+    invitee_email: inviteeEmail,
+    invitee_name: inviteeName ?? null,
+    subscription_tier: 'free', // not used for manager invites but column is not null
+    token,
+    expires_at: expiresAt.toISOString(),
+    created_by: user.id,
+  });
+
+  if (error) return { error: 'Failed to create invite.' };
+
+  const inviteUrl = `${APP_URL}/invite/${token}`;
+
+  // Send email (reuse existing template — will say "manage [club_name]")
+  const payload = buildAdminInviteEmail({
+    clubName,
+    inviteeName: inviteeName ?? 'there',
+    inviteUrl,
+    expiresAt: expiresAt.toISOString(),
+    appUrl: APP_URL,
+  });
+  await sendEmail({ to: inviteeEmail, ...payload });
+
+  await writeAuditLog({
+    admin,
+    actorId: user.id,
+    actionType: 'manager_invite_created',
+    targetType: 'club',
+    targetId: clubId,
+    newValue: { inviteeEmail, clubName, expiresAt },
+  });
+
+  revalidatePath('/superadmin/clubs');
+  return { success: true as const, inviteUrl };
+}
+
+// ── Referee PIN management (superadmin) ──────────────────────────────────────
+
+export async function listRefereePinsAction(tournamentId: string) {
+  const { admin } = await assertSuperAdmin();
+
+  const { data } = await admin
+    .from('tournament_referee_pins')
+    .select('id, label, expires_at, is_revoked, created_at')
+    .eq('tournament_id', tournamentId)
+    .order('created_at', { ascending: false }) as {
+      data: Array<{
+        id: string; label: string; expires_at: string;
+        is_revoked: boolean; created_at: string;
+      }> | null;
+    };
+
+  return data ?? [];
+}
+
+export async function createRefereePinAsSuperAdminAction(tournamentId: string, label: string) {
+  const { user, admin } = await assertSuperAdmin();
+
+  const pin = String(Math.floor(100000 + Math.random() * 900000));
+  const pinHash = crypto.createHash('sha256').update(pin.trim()).digest('hex');
+
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + 7);
+
+  const { error } = await admin.from('tournament_referee_pins').insert({
+    tournament_id: tournamentId,
+    pin_hash: pinHash,
+    label: label.trim() || 'Referee',
+    created_by: user.id,
+    expires_at: expiresAt.toISOString(),
+  });
+
+  if (error) return { error: 'Failed to create PIN.' };
+
+  await writeAuditLog({
+    admin,
+    actorId: user.id,
+    actionType: 'referee_pin_created_by_superadmin',
+    targetType: 'tournament',
+    targetId: tournamentId,
+    newValue: { label, expires_at: expiresAt.toISOString() },
+  });
+
+  revalidatePath('/superadmin/referees');
+  return { success: true as const, pin };
+}
+
+export async function revokePinAsSuperAdminAction(pinId: string) {
+  const { user, admin } = await assertSuperAdmin();
+
+  await admin
+    .from('tournament_referee_pins')
+    .update({ is_revoked: true })
+    .eq('id', pinId);
+
+  await writeAuditLog({
+    admin,
+    actorId: user.id,
+    actionType: 'referee_pin_revoked_by_superadmin',
+    targetType: 'tournament_referee_pin',
+    targetId: pinId,
+  });
+
+  revalidatePath('/superadmin/referees');
   return { success: true };
 }
 

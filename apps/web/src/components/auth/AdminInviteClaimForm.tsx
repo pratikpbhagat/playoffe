@@ -9,9 +9,11 @@ interface Props {
   email: string;
   defaultName: string;
   clubName: string;
+  inviteType?: 'new_club_owner' | 'existing_club_manager';
 }
 
-export function AdminInviteClaimForm({ token, email, defaultName, clubName }: Props) {
+export function AdminInviteClaimForm({ token, email, defaultName, clubName, inviteType = 'new_club_owner' }: Props) {
+  const isManagerInvite = inviteType === 'existing_club_manager';
   const router = useRouter();
   const [fullName, setFullName] = useState(defaultName);
   const [username, setUsername] = useState(
@@ -136,7 +138,9 @@ export function AdminInviteClaimForm({ token, email, defaultName, clubName }: Pr
         disabled={loading}
         className="w-full rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {loading ? 'Setting up your club…' : 'Set up my club →'}
+        {loading
+          ? (isManagerInvite ? 'Joining club…' : 'Setting up your club…')
+          : (isManagerInvite ? 'Join as manager →' : 'Set up my club →')}
       </button>
     </form>
   );
