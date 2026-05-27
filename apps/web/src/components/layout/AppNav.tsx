@@ -64,12 +64,12 @@ export async function AppNav() {
 
         {/* Center nav */}
         <div className="hidden items-center gap-5 sm:flex">
-          {/* Admin mode: Dashboard, Rankings, New Tournament */}
+          {/* Admin mode: Dashboard, Rankings, My Tournaments */}
           {!superAdmin && player && activeMode === 'admin' && (
             <>
               <NavLink href="/dashboard" exact>Dashboard</NavLink>
               <NavLink href="/rankings">Rankings</NavLink>
-              <NavLink href="/tournaments/new" exact>New tournament</NavLink>
+              <NavLink href="/tournaments" exact>Tournaments</NavLink>
             </>
           )}
 

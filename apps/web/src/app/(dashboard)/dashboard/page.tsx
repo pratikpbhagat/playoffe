@@ -66,18 +66,11 @@ export default async function DashboardPage() {
               <h2 className="text-base font-semibold text-white">Quick actions</h2>
               <div className="mt-4 space-y-3">
                 <Link
-                  href="/tournaments/new"
+                  href="/tournaments"
                   className="flex items-center gap-3 rounded-lg border border-surface-border p-3 hover:bg-surface transition-colors"
                 >
                   <span className="text-xl">🏆</span>
-                  <span className="text-sm font-medium text-slate-300">New tournament</span>
-                </Link>
-                <Link
-                  href="/clubs/new"
-                  className="flex items-center gap-3 rounded-lg border border-surface-border p-3 hover:bg-surface transition-colors"
-                >
-                  <span className="text-xl">🏟️</span>
-                  <span className="text-sm font-medium text-slate-300">Create a club</span>
+                  <span className="text-sm font-medium text-slate-300">My tournaments</span>
                 </Link>
                 <Link
                   href={player ? `/p/${player.username}` : '#'}
@@ -93,20 +86,9 @@ export default async function DashboardPage() {
             <div className="rounded-xl bg-surface-card p-6 ring-1 ring-surface-border">
               <div className="flex items-center justify-between">
                 <h2 className="text-base font-semibold text-white">My clubs</h2>
-                <Link
-                  href="/clubs/new"
-                  className="text-xs text-brand-400 hover:text-brand-300 transition-colors"
-                >
-                  + New
-                </Link>
               </div>
               {clubs.length === 0 ? (
-                <p className="mt-4 text-sm text-slate-500">
-                  No clubs yet.{' '}
-                  <Link href="/clubs/new" className="text-brand-400 hover:text-brand-300">
-                    Create one →
-                  </Link>
-                </p>
+                <p className="mt-4 text-sm text-slate-500">No clubs assigned yet.</p>
               ) : (
                 <ul className="mt-4 space-y-2">
                   {clubs.map((c) => (
@@ -134,19 +116,14 @@ export default async function DashboardPage() {
               <div className="flex items-center justify-between">
                 <h2 className="text-base font-semibold text-white">My tournaments</h2>
                 <Link
-                  href="/tournaments/new"
+                  href="/tournaments"
                   className="text-xs text-brand-400 hover:text-brand-300 transition-colors"
                 >
-                  + New
+                  View all →
                 </Link>
               </div>
               {tournaments.length === 0 ? (
-                <p className="mt-4 text-sm text-slate-500">
-                  No tournaments yet.{' '}
-                  <Link href="/tournaments/new" className="text-brand-400 hover:text-brand-300">
-                    Create one →
-                  </Link>
-                </p>
+                <p className="mt-4 text-sm text-slate-500">No tournaments yet.</p>
               ) : (
                 <ul className="mt-4 space-y-2">
                   {tournaments.map((t) => {
