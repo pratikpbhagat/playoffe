@@ -210,6 +210,21 @@ export async function updateSeedAction(
   return { success: true };
 }
 
+// ── Search players (typeahead for add-player input) ───────────────────────
+export async function searchPlayersForCategoryAction(query: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user || query.trim().length < 2) return [];
+
+  const admin = createAdminClient();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data } = await (admin as any).rpc('search_players_for_assignment', {
+    p_query: query.trim(),
+    p_limit: 8,
+  });
+  return (data ?? []) as Array<{ id: string; full_name: string; username: string; email: string }>;
+}
+
 // ── Add an existing PLAYOFFE player by email ───────────────────────────────
 export async function addPlayerByEmailAction(
   tournamentId: string,
