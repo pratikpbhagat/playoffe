@@ -75,6 +75,94 @@ export async function getPlatformStatsAction() {
   };
 }
 
+// ── User management ──────────────────────────────────────────────────────────
+
+export async function getAllUsersForSuperAdminAction() {
+  const { admin } = await assertSuperAdmin();
+
+  // Fetch all auth users — service role bypasses auth restrictions
+  const { data: authList } = await admin.auth.admin.listUsers({ perPage: 1000 });
+  const users = (authList?.users ?? []).filter(
+    (u) => u.app_metadata?.role !== 'super_admin',
+  );
+
+  // Fetch all player profiles for a joined view
+  const { data: players } = await admin
+    .from('players')
+    .select('id, username, full_name, is_provisional');
+
+  const playerMap = new Map((players ?? []).map((p) => [p.id, p]));
+
+  return users.map((u) => {
+    const player = playerMap.get(u.id);
+    return {
+      id: u.id,
+      email: u.email ?? '',
+      created_at: u.created_at,
+      last_sign_in_at: (u.last_sign_in_at as string | null | undefined) ?? null,
+      roles: (u.app_metadata?.roles as string[] | undefined) ?? [],
+      username: player?.username ?? null,
+      full_name: player?.full_name ?? null,
+      is_provisional: player?.is_provisional ?? false,
+    };
+  });
+}
+
+export type UserRow = Awaited<ReturnType<typeof getAllUsersForSuperAdminAction>>[number];
+
+/**
+ * Generates a Supabase password-recovery link for the given user and returns
+ * it so the super admin can copy / share it directly.
+ */
+export async function generatePasswordResetLinkAction(userId: string) {
+  const { user: actor, admin } = await assertSuperAdmin();
+
+  const { data: { user }, error: fetchErr } = await admin.auth.admin.getUserById(userId);
+  if (fetchErr || !user?.email) return { error: 'User not found' };
+
+  const { data, error } = await admin.auth.admin.generateLink({
+    type: 'recovery',
+    email: user.email,
+  });
+
+  if (error || !data?.properties?.action_link) {
+    return { error: 'Failed to generate reset link. Try again.' };
+  }
+
+  await writeAuditLog({
+    admin,
+    actorId: actor.id,
+    actionType: 'user_reset_link_generated',
+    targetType: 'user',
+    targetId: userId,
+    metadata: { email: user.email },
+  });
+
+  return { success: true as const, resetLink: data.properties.action_link };
+}
+
+/**
+ * Directly sets a new password for a user. Super admin only.
+ */
+export async function setUserPasswordAction(userId: string, newPassword: string) {
+  const { user: actor, admin } = await assertSuperAdmin();
+
+  if (newPassword.length < 8) return { error: 'Password must be at least 8 characters' };
+
+  const { error } = await admin.auth.admin.updateUserById(userId, { password: newPassword });
+  if (error) return { error: error.message };
+
+  await writeAuditLog({
+    admin,
+    actorId: actor.id,
+    actionType: 'user_password_set_by_admin',
+    targetType: 'user',
+    targetId: userId,
+  });
+
+  return { success: true as const };
+}
+
 // ── Club management ───────────────────────────────────────────────────────────
 
 export async function getAllClubsAction() {

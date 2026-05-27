@@ -8,6 +8,7 @@ const TABS = [
   { label: 'Clubs',         href: '/superadmin/clubs' },
   { label: 'Tournaments',   href: '/superadmin/tournaments' },
   { label: 'Referees',      href: '/superadmin/referees' },
+  { label: 'Users',         href: '/superadmin/users' },
   { label: 'Permissions',   href: '/superadmin/rbac' },
   { label: 'Feature Flags', href: '/superadmin/flags' },
   { label: 'Audit Log',     href: '/superadmin/audit' },
