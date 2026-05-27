@@ -70,6 +70,8 @@ export function PublicCategoryCard({
   const doubles = isDoubles(category.play_format);
   const isFull = category.max_entries !== null && entryCount >= category.max_entries;
   const categoryAcceptsEntries = category.status === 'registration';
+  // Participants and entry counts are only revealed after the draw is published
+  const drawPublished = category.status === 'draw_generated' || category.status === 'in_progress' || category.status === 'completed';
   const canAct = registrationOpen && categoryAcceptsEntries && !localStatus;
   const canRegister = canAct && !isFull && !doubles;
   const canWaitlist = canAct && isFull && !doubles;
@@ -129,26 +131,28 @@ export function PublicCategoryCard({
             {playFormatLabel} · {drawFormatLabel}
           </p>
 
-          {/* Entry count / capacity bar */}
-          <div className="mt-2 flex items-center gap-3">
-            <div className="flex items-center gap-1.5">
-              {category.max_entries && (
-                <div className="w-20 h-1.5 rounded-full bg-surface overflow-hidden">
-                  <div
-                    className={`h-full rounded-full ${isFull ? 'bg-slate-500' : 'bg-brand-600'}`}
-                    style={{ width: `${Math.min(100, (entryCount / category.max_entries) * 100)}%` }}
-                  />
-                </div>
-              )}
-              <span className="text-xs text-slate-400">
-                {entryCount}
-                {category.max_entries ? ` / ${category.max_entries}` : doubles ? ' teams' : ' entries'}
-              </span>
-              {isFull && (
-                <span className="rounded-full bg-slate-700/60 px-2 py-0.5 text-[10px] text-slate-400">Full</span>
-              )}
+          {/* Entry count / capacity bar — hidden until draw is published */}
+          {drawPublished && (
+            <div className="mt-2 flex items-center gap-3">
+              <div className="flex items-center gap-1.5">
+                {category.max_entries && (
+                  <div className="w-20 h-1.5 rounded-full bg-surface overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${isFull ? 'bg-slate-500' : 'bg-brand-600'}`}
+                      style={{ width: `${Math.min(100, (entryCount / category.max_entries) * 100)}%` }}
+                    />
+                  </div>
+                )}
+                <span className="text-xs text-slate-400">
+                  {entryCount}
+                  {category.max_entries ? ` / ${category.max_entries}` : doubles ? ' teams' : ' entries'}
+                </span>
+                {isFull && (
+                  <span className="rounded-full bg-slate-700/60 px-2 py-0.5 text-[10px] text-slate-400">Full</span>
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Match progress for standings-type formats */}
           {matchProgress !== null && matchProgress.total > 0 && (
