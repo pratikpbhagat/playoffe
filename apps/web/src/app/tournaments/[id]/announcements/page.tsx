@@ -1,7 +1,8 @@
 import type { Metadata } from 'next';
 import { notFound, redirect } from 'next/navigation';
 import Link from 'next/link';
-import { createClient, createAdminClient } from '@/lib/supabase/server';
+import { cookies } from 'next/headers';
+import { createClient, createAdminClient, getUserRoles } from '@/lib/supabase/server';
 import { AppNav } from '@/components/layout/AppNav';
 import { AnnouncementsPanel } from '@/components/tournaments/AnnouncementsPanel';
 import { getAnnouncementsAction } from '@/lib/actions/announcements';
@@ -38,6 +39,17 @@ export default async function TournamentAnnouncementsPage({ params }: Props) {
     .eq('player_id', user.id)
     .maybeSingle();
   if (!mgr) notFound();
+
+  // Mode guard
+  const roles = getUserRoles(user);
+  const isAdminRole = roles.includes('admin');
+  const isPlayerRole = roles.includes('player') || roles.length === 0;
+  const hasBothRoles = isAdminRole && isPlayerRole;
+  const rawMode = (await cookies()).get('active_mode')?.value;
+  const activeMode: 'admin' | 'player' = hasBothRoles
+    ? (rawMode === 'player' ? 'player' : 'admin')
+    : isAdminRole ? 'admin' : 'player';
+  if (activeMode === 'player') redirect(`/events/${slug}`);
 
   const announcements = await getAnnouncementsAction(t.id);
 

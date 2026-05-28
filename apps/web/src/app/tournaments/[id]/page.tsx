@@ -1,7 +1,8 @@
 import type { Metadata } from 'next';
 import { notFound, redirect } from 'next/navigation';
 import Link from 'next/link';
-import { createClient, createAdminClient } from '@/lib/supabase/server';
+import { cookies } from 'next/headers';
+import { createClient, createAdminClient, getUserRoles } from '@/lib/supabase/server';
 import { AppNav } from '@/components/layout/AppNav';
 import { TournamentStatusControl } from '@/components/tournaments/TournamentStatusControl';
 import { AddCategoryInline } from '@/components/tournaments/AddCategoryInline';
@@ -74,6 +75,25 @@ export default async function TournamentPage({ params }: Props) {
     .maybeSingle();
 
   if (!mgr) notFound();
+
+  // ── Mode guard ────────────────────────────────────────────────────────────
+  // This page is admin-only. If a dual-role user is currently in player mode,
+  // send them to the public event page instead of showing admin controls.
+  const roles = getUserRoles(user);
+  const isAdminRole  = roles.includes('admin');
+  const isPlayerRole = roles.includes('player') || roles.length === 0;
+  const hasBothRoles = isAdminRole && isPlayerRole;
+
+  const rawMode = (await cookies()).get('active_mode')?.value;
+  const activeMode: 'admin' | 'player' = hasBothRoles
+    ? (rawMode === 'player' ? 'player' : 'admin')
+    : isAdminRole ? 'admin'
+    : 'player';
+
+  if (activeMode === 'player') {
+    // Redirect to the public-facing event page (shows registration, draw, etc.)
+    redirect(`/events/${slug}`);
+  }
 
   // Entry count per category (active only)
   const { data: entryCounts } = await admin
