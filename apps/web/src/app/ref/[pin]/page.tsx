@@ -43,6 +43,7 @@ export default async function RefereeCourtPage({ params }: Props) {
   }
 
   const pinLabel = (pinValidation as { label?: string | null }).label?.trim() || 'Referee';
+  const tournamentName = pinValidation.tournament.name;
 
   const cookieStore = await cookies();
   // Use a PIN-specific cookie so multiple referee tabs in the same browser
@@ -50,9 +51,9 @@ export default async function RefereeCourtPage({ params }: Props) {
   // independent. The cookie name encodes the PIN so there is no cross-tab bleed.
   const refereeName = cookieStore.get(`ref_${pin}`)?.value;
 
-  // No session yet — show the check-in screen with the PIN label
+  // No session yet — show the check-in screen with the PIN label and tournament name
   if (!refereeName) {
-    return <RefereeNameForm pin={pin} pinLabel={pinLabel} />;
+    return <RefereeNameForm pin={pin} pinLabel={pinLabel} tournamentName={tournamentName} />;
   }
 
   // Fetch matches assigned to this referee (filtered by their identity = PIN label)

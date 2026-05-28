@@ -8,9 +8,12 @@ interface Props {
   pin: string;
   /** The PIN label set by the admin — this becomes the referee's identity. */
   pinLabel: string;
+  /** Tournament this PIN was created for — shown so the referee can verify
+   *  they have the correct PIN before checking in. */
+  tournamentName: string;
 }
 
-export function RefereeNameForm({ pin, pinLabel }: Props) {
+export function RefereeNameForm({ pin, pinLabel, tournamentName }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -37,6 +40,8 @@ export function RefereeNameForm({ pin, pinLabel }: Props) {
             <span className="text-2xl">🎾</span>
           </div>
           <h1 className="text-xl font-bold text-white mb-1">Referee check-in</h1>
+          {/* Tournament name — helps the referee verify they have the right PIN */}
+          <p className="text-xs text-slate-500 mb-3">{tournamentName}</p>
           <p className="text-sm text-slate-500">You&apos;re signing in as:</p>
           <p className="mt-2 text-lg font-semibold text-brand-300 bg-brand-900/30 rounded-xl px-4 py-2">
             {pinLabel}
