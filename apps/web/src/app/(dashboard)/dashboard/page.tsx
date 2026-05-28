@@ -46,7 +46,7 @@ export default async function DashboardPage() {
   // ══════════════════════════════════════════════════════════════════════════
   if (activeMode === 'admin') {
     const [tournaments, clubs] = await Promise.all([
-      getMyTournaments(),
+      getMyTournaments(5),   // show only the 5 most recent on the tile; "View all →" links to /tournaments
       getMyClubs(),
     ]);
 
@@ -134,17 +134,18 @@ export default async function DashboardPage() {
                 <p className="mt-4 text-sm text-slate-500">No tournaments yet.</p>
               ) : (
                 <ul className="mt-4 space-y-2">
-                  {tournaments.map((t) => {
+                  {(tournaments as unknown as Array<typeof tournaments[number] & { slug: string; clubs: { id: string; name: string } | null }>).map((t) => {
                     const badge = STATUS_BADGE[t.status] ?? STATUS_BADGE.draft;
                     return (
                       <li key={t.id}>
                         <Link
-                          href={`/tournaments/${(t as unknown as { slug: string }).slug}`}
+                          href={`/tournaments/${t.slug}`}
                           className="flex items-center justify-between rounded-lg p-2 hover:bg-surface transition-colors"
                         >
                           <div className="min-w-0">
                             <p className="truncate text-sm text-slate-300">{t.name}</p>
                             <p className="text-xs text-slate-500">
+                              {t.clubs?.name && <>{t.clubs.name} · </>}
                               {new Date(t.start_date).toLocaleDateString('en-AU', {
                                 day: 'numeric',
                                 month: 'short',

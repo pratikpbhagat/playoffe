@@ -103,7 +103,12 @@ export async function updateTournamentAction(
   redirect(`/tournaments/${tournament.slug}`);
 }
 
-export async function getMyTournaments() {
+/**
+ * Returns tournaments for all clubs the current user manages.
+ * @param limit  Max rows to return. Omit (or pass undefined) for no limit (use on full listing pages).
+ *               Pass a small number (e.g. 5) for dashboard tiles.
+ */
+export async function getMyTournaments(limit?: number) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -112,21 +117,27 @@ export async function getMyTournaments() {
 
   const admin = createAdminClient();
 
+  // 1. Clubs this user manages (owner or manager)
   const { data: managed } = await admin
     .from('club_managers')
     .select('club_id')
     .eq('player_id', user.id);
 
-  const clubIds = (managed ?? []).map((m) => m.club_id);
+  const clubIds = (managed ?? []).map((m) => m.club_id as string);
   if (clubIds.length === 0) return [];
 
-  const { data } = await admin
+  // 2. All tournaments belonging to those clubs
+  let query = admin
     .from('tournaments')
-    .select('id, name, slug, status, start_date, end_date, display_code, clubs(name)')
+    .select('id, name, slug, status, start_date, end_date, display_code, clubs(id, name)')
     .in('club_id', clubIds)
-    .order('start_date', { ascending: false })
-    .limit(20);
+    .order('start_date', { ascending: false });
 
+  if (limit !== undefined) {
+    query = query.limit(limit);
+  }
+
+  const { data } = await query;
   return data ?? [];
 }
 

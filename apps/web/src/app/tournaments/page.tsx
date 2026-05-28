@@ -17,7 +17,11 @@ export default async function MyTournamentsPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
+  // No limit — show every tournament from clubs the user manages
   const tournaments = await getMyTournaments();
+
+  type TRow = typeof tournaments[number] & { slug: string; clubs: { id: string; name: string } | null };
+  const rows = tournaments as unknown as TRow[];
 
   return (
     <div className="min-h-screen bg-surface">
@@ -28,7 +32,7 @@ export default async function MyTournamentsPage() {
           <div>
             <h1 className="text-2xl font-bold text-white">My Tournaments</h1>
             <p className="mt-1 text-sm text-slate-500">
-              Tournaments across the clubs you manage.
+              All tournaments across the clubs you manage.
             </p>
           </div>
           <Link
@@ -39,29 +43,35 @@ export default async function MyTournamentsPage() {
           </Link>
         </div>
 
-        {tournaments.length === 0 ? (
+        {rows.length === 0 ? (
           <div className="rounded-xl bg-surface-card p-12 text-center ring-1 ring-surface-border">
-            <p className="text-slate-400">No tournaments yet.</p>
-            <p className="mt-1 text-sm text-slate-600">
-              Tournaments you create will appear here once a club manager role is assigned to you.
+            <p className="text-4xl mb-3">🏆</p>
+            <p className="text-base font-medium text-white">No tournaments yet</p>
+            <p className="mt-1 text-sm text-slate-500">
+              Create your first tournament to get started.
             </p>
+            <Link
+              href="/tournaments/new"
+              className="mt-4 inline-block rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 transition-colors"
+            >
+              + New Tournament
+            </Link>
           </div>
         ) : (
           <div className="space-y-2">
-            {tournaments.map((t) => {
+            {rows.map((t) => {
               const badge = STATUS_BADGE[t.status] ?? STATUS_BADGE.draft;
-              const club = t.clubs as { name: string } | null;
               return (
                 <Link
                   key={t.id}
-                  href={`/tournaments/${(t as unknown as { slug: string }).slug}`}
+                  href={`/tournaments/${t.slug}`}
                   className="flex items-center justify-between rounded-xl bg-surface-card px-5 py-4 ring-1 ring-surface-border hover:ring-brand-700/50 transition-all"
                 >
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-white truncate">{t.name}</p>
                     <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-500">
-                      {club && <span>{club.name}</span>}
-                      {club && <span>·</span>}
+                      {t.clubs && <span>{t.clubs.name}</span>}
+                      {t.clubs && <span>·</span>}
                       <span>
                         {new Date(t.start_date).toLocaleDateString('en-AU', {
                           day: 'numeric',
