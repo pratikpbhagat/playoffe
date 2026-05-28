@@ -298,6 +298,7 @@ export async function getRefereeMatchesAction(pin: string, refereeName?: string)
 
   if (matchesError) {
     console.error('[getRefereeMatchesAction] query error:', matchesError);
+    return { success: false as const, error: `Failed to load matches: ${matchesError.message}` };
   }
 
   type EntryRaw = {
@@ -627,6 +628,10 @@ export async function startRefereeSessionAction(pin: string, _displayName?: stri
     maxAge: 60 * 60 * 24 * 7,
     path: '/',
   });
+
+  // Invalidate the cached ref page so the subsequent router.refresh() always
+  // renders a fresh server component that can read the newly-set cookie.
+  revalidatePath(`/ref/${pin}`);
 
   return { success: true };
 }

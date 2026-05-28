@@ -4,6 +4,11 @@ import { RefereeScoringView } from '@/components/scoring/RefereeScoringView';
 import { RefereeNameForm } from '@/components/scoring/RefereeNameForm';
 import type { Metadata } from 'next';
 
+// Never cache this page — it reads the ref_${pin} session cookie which changes
+// immediately after the referee clicks "Start scoring". Without force-dynamic
+// Next.js may serve a stale cached version that predates the cookie being set.
+export const dynamic = 'force-dynamic';
+
 interface Props {
   params: Promise<{ pin: string }>;
 }
