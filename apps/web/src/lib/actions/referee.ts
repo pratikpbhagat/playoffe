@@ -83,10 +83,10 @@ export async function deleteRefereeAction(pinId: string) {
 
   const admin = createAdminClient();
 
-  // Fetch pin to verify tournament + manager access
+  // Fetch pin to verify tournament + manager access, and get the referee's label
   const { data: pin } = await admin
     .from('tournament_referee_pins')
-    .select('tournament_id')
+    .select('tournament_id, label')
     .eq('id', pinId)
     .maybeSingle();
 
@@ -112,6 +112,17 @@ export async function deleteRefereeAction(pinId: string) {
   // Revoke PIN + deactivate all sessions tied to it
   await admin.from('tournament_referee_pins').update({ is_revoked: true }).eq('id', pinId);
   await (admin.from('referee_sessions' as any).update({ is_active: false }).eq('pin_id', pinId));
+
+  // Clear this referee's assignment from any scheduled/in-progress matches so the
+  // individual match scoring page immediately reflects that no referee is assigned.
+  // Completed/walkover matches retain their attribution record.
+  const refName = (pin.label ?? '').trim() || 'Referee';
+  await admin
+    .from('matches')
+    .update({ assigned_referee_name: null })
+    .eq('tournament_id', pin.tournament_id)
+    .eq('assigned_referee_name', refName)
+    .in('status', ['scheduled', 'in_progress']);
 
   revalidatePath('/');
   return { success: true };

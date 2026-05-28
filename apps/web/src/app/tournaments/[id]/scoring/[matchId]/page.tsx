@@ -5,6 +5,7 @@ import { cookies } from 'next/headers';
 import { createClient, createAdminClient, getUserRoles } from '@/lib/supabase/server';
 import { AppNav } from '@/components/layout/AppNav';
 import { MatchScoreCard } from '@/components/scoring/MatchScoreCard';
+import { MatchAssignmentBadges } from '@/components/scoring/MatchAssignmentBadges';
 import { OverrideResultPanel } from '@/components/scoring/OverrideResultPanel';
 import { CopyLinkButton } from '@/components/ui/CopyLinkButton';
 
@@ -128,27 +129,12 @@ export default async function MatchScoringPage({ params }: Props) {
             <span className="mx-3 text-slate-600 font-normal">vs</span>
             {teamName(eb)}
           </h1>
-          {/* Court / referee assignment info */}
-          {(match.court || (match as any).assigned_referee_name) && (
-            <div className="mt-2 flex items-center gap-3 flex-wrap">
-              {match.court && (
-                <span className="rounded-full bg-surface-card px-3 py-1 text-xs font-medium text-slate-400 ring-1 ring-surface-border">
-                  Court {match.court}
-                </span>
-              )}
-              {(match as any).assigned_referee_name && (
-                <span className="rounded-full bg-surface-card px-3 py-1 text-xs font-medium text-slate-400 ring-1 ring-surface-border">
-                  Referee: {(match as any).assigned_referee_name}
-                </span>
-              )}
-              <Link
-                href={`/tournaments/${slug}/scoring`}
-                className="text-[11px] text-slate-600 hover:text-slate-400 transition-colors"
-              >
-                Re-assign →
-              </Link>
-            </div>
-          )}
+          {/* Court / referee assignment info — updates live via Realtime */}
+          <MatchAssignmentBadges
+            matchId={matchId}
+            initialCourt={match.court}
+            initialRefereeName={(match as any).assigned_referee_name ?? null}
+          />
         </div>
 
         {/* Player self-report link — only for unscored matches */}
