@@ -257,48 +257,66 @@ export async function validateRefereePinAction(pin: string) {
 }
 
 // ── Fetch matches assigned to this referee (by valid PIN + referee name) ───────
-// Returns only scheduled + in_progress non-paused matches for this referee.
-// Completed, walkover, and paused-for-reassignment matches are excluded so the
-// referee sees a clean active queue ordered by assignment time.
+// Returns:
+//   matches         — active (scheduled + in_progress, non-paused) matches
+//   completedMatches — up to 20 recently completed/walkover matches (newest first)
 export async function getRefereeMatchesAction(pin: string, refereeName?: string) {
   const validated = await validateRefereePinAction(pin);
   if (!validated.success || !validated.tournament) return { error: validated.error ?? 'Invalid PIN' };
 
   const admin = createAdminClient();
 
-  let query = admin
+  const SELECT = `
+    id, round, round_name, group_name, court, status, sets, winner_entry_id,
+    assigned_referee_name, paused_for_reassignment, restart_requested, restart_requested_reason,
+    assigned_at, completed_at,
+    ea:tournament_entries!entry_a_id(id, seed, players!player_id(full_name, username), partner:players!partner_id(full_name)),
+    eb:tournament_entries!entry_b_id(id, seed, players!player_id(full_name, username), partner:players!partner_id(full_name))
+  `;
+
+  // Build active and completed queries in parallel
+  let activeQ = admin
     .from('matches')
-    .select(`
-      id, round, round_name, group_name, court, status, sets, winner_entry_id,
-      assigned_referee_name, paused_for_reassignment, restart_requested, restart_requested_reason,
-      assigned_at,
-      ea:tournament_entries!entry_a_id(id, seed, players!player_id(full_name, username), partner:players!partner_id(full_name)),
-      eb:tournament_entries!entry_b_id(id, seed, players!player_id(full_name, username), partner:players!partner_id(full_name))
-    `)
+    .select(SELECT)
     .eq('tournament_id', validated.tournament.id)
-    // Only show active non-paused matches — completed, walkover, and
-    // paused-for-reassignment matches are handled by admin, not referee.
     .in('status', ['scheduled', 'in_progress'])
     .eq('paused_for_reassignment', false)
     .not('entry_a_id', 'is', null)
     .not('entry_b_id', 'is', null);
 
-  // Filter to only this referee's assigned matches
+  let completedQ = admin
+    .from('matches')
+    .select(SELECT)
+    .eq('tournament_id', validated.tournament.id)
+    .in('status', ['completed', 'walkover'])
+    .not('entry_a_id', 'is', null)
+    .not('entry_b_id', 'is', null);
+
   if (refereeName) {
-    query = query.eq('assigned_referee_name', refereeName);
+    activeQ    = activeQ.eq('assigned_referee_name', refereeName);
+    completedQ = completedQ.eq('assigned_referee_name', refereeName);
   }
 
-  const { data: matches, error: matchesError } = await query
-    // in_progress before scheduled (i < s alphabetically)
-    .order('status', { ascending: true })
-    // Within each status group: oldest assignment first = highest priority
-    .order('assigned_at', { ascending: true, nullsFirst: false })
-    // Tiebreaker: court number
-    .order('court', { ascending: true, nullsFirst: false });
+  const [
+    { data: activeRaw,    error: activeError    },
+    { data: completedRaw, error: completedError },
+  ] = await Promise.all([
+    activeQ
+      .order('status',      { ascending: true })           // in_progress before scheduled
+      .order('assigned_at', { ascending: true, nullsFirst: false })
+      .order('court',       { ascending: true, nullsFirst: false }),
+    completedQ
+      .order('completed_at', { ascending: false, nullsFirst: false })
+      .limit(20),
+  ]);
 
-  if (matchesError) {
-    console.error('[getRefereeMatchesAction] query error:', matchesError);
-    return { success: false as const, error: `Failed to load matches: ${matchesError.message}` };
+  if (activeError) {
+    console.error('[getRefereeMatchesAction] active query error:', activeError);
+    return { success: false as const, error: `Failed to load matches: ${activeError.message}` };
+  }
+  if (completedError) {
+    // Non-fatal: log and continue with empty completed list
+    console.error('[getRefereeMatchesAction] completed query error:', completedError);
   }
 
   type EntryRaw = {
@@ -308,12 +326,12 @@ export async function getRefereeMatchesAction(pin: string, refereeName?: string)
     partner: { full_name: string } | null;
   } | null;
 
-  const formatted = (matches ?? []).map((m) => {
+  function formatMatch(m: Record<string, unknown>) {
     const ea = m.ea as EntryRaw;
     const eb = m.eb as EntryRaw;
     return {
-      id: m.id,
-      round: m.round,
+      id: m.id as string,
+      round: m.round as number,
       round_name: m.round_name as string | null,
       group_name: m.group_name as string | null,
       court: m.court as number | null,
@@ -325,6 +343,7 @@ export async function getRefereeMatchesAction(pin: string, refereeName?: string)
       restart_requested: (m.restart_requested as boolean) ?? false,
       restart_requested_reason: m.restart_requested_reason as string | null,
       assigned_at: m.assigned_at as string | null,
+      completed_at: m.completed_at as string | null,
       entry_a: ea ? {
         id: ea.id,
         seed: ea.seed,
@@ -338,9 +357,14 @@ export async function getRefereeMatchesAction(pin: string, refereeName?: string)
         partner_name: eb.partner?.full_name ?? null,
       } : null,
     };
-  });
+  }
 
-  return { success: true, matches: formatted, tournament: validated.tournament };
+  return {
+    success: true,
+    matches: (activeRaw ?? []).map(formatMatch),
+    completedMatches: (completedRaw ?? []).map(formatMatch),
+    tournament: validated.tournament,
+  };
 }
 
 // ── Referee requests re-assignment (PIN-authenticated) ─────────────────────────

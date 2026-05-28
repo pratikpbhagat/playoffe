@@ -108,6 +108,7 @@ export default async function RefereeCourtPage({ params }: Props) {
       <main className="mx-auto max-w-2xl px-4 py-6">
         <RefereeScoringView
           matches={result.matches ?? []}
+          completedMatches={result.completedMatches ?? []}
           pin={pin}
           refereeName={refereeName}
           tournamentId={result.tournament.id}

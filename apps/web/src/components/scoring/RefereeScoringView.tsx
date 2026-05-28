@@ -8,6 +8,7 @@ import {
   pauseMatchAsRefereeAction,
   startMatchAsRefereeAction,
   saveScoreAsRefereeAction,
+  requestMatchRestartAction,
 } from '@/lib/actions/referee';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -32,6 +33,8 @@ interface Match {
   paused_for_reassignment: boolean;
   restart_requested: boolean;
   restart_requested_reason: string | null;
+  assigned_at: string | null;
+  completed_at: string | null;
   entry_a: Entry | null;
   entry_b: Entry | null;
 }
@@ -40,6 +43,7 @@ type AutoSaveStatus = 'idle' | 'pending' | 'saving' | 'saved' | 'error';
 
 interface Props {
   matches: Match[];
+  completedMatches?: Match[];
   pin: string;
   refereeName: string;
   tournamentId: string;
@@ -68,7 +72,7 @@ function determineWinnerId(
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function RefereeScoringView({ matches, pin, refereeName, tournamentId, tournamentSlug: _slug }: Props) {
+export function RefereeScoringView({ matches, completedMatches = [], pin, refereeName, tournamentId, tournamentSlug: _slug }: Props) {
   const router = useRouter();
   const [isRefreshing, startRefreshTransition] = useTransition();
 
@@ -487,6 +491,120 @@ export function RefereeScoringView({ matches, pin, refereeName, tournamentId, to
     );
   }
 
+  // ── Completed match card ──────────────────────────────────────────────────
+  function CompletedMatchCard({ match }: { match: Match }) {
+    const context = match.group_name ?? match.round_name ?? `Round ${match.round}`;
+    const isWalkover = match.status === 'walkover';
+
+    // Identify winner/loser entries for display
+    const winnerEntry =
+      match.winner_entry_id === match.entry_a?.id ? match.entry_a
+      : match.winner_entry_id === match.entry_b?.id ? match.entry_b
+      : null;
+    const loserEntry =
+      match.winner_entry_id === match.entry_a?.id ? match.entry_b
+      : match.winner_entry_id === match.entry_b?.id ? match.entry_a
+      : null;
+
+    // Score string e.g. "11–7  11–4"
+    const scoreStr =
+      match.sets.length > 0
+        ? match.sets
+            .map((s) => {
+              // Always show winner's score first — determine side
+              const aIsWinner = match.winner_entry_id === match.entry_a?.id;
+              return aIsWinner ? `${s.score_a}–${s.score_b}` : `${s.score_b}–${s.score_a}`;
+            })
+            .join('  ')
+        : null;
+
+    const [requestingRestart, setRequestingRestart] = useState(false);
+    const [restartDone, setRestartDone] = useState(match.restart_requested);
+    const [restartError, setRestartError] = useState<string | null>(null);
+
+    async function handleRequestRestart() {
+      setRequestingRestart(true);
+      setRestartError(null);
+      const result = await requestMatchRestartAction(match.id, pin);
+      if (result?.error) {
+        setRestartError(result.error);
+      } else {
+        setRestartDone(true);
+      }
+      setRequestingRestart(false);
+    }
+
+    return (
+      <div className="rounded-xl ring-1 ring-surface-border bg-surface-card overflow-hidden">
+        {/* Completed banner */}
+        <div className="flex items-center gap-2 border-b border-surface-border/40 bg-accent-950/10 px-5 py-1.5">
+          <span className="text-[11px] font-semibold text-accent-400">
+            {isWalkover ? 'Walkover' : '✓ Completed'}
+          </span>
+          {match.court && (
+            <span className="ml-auto text-[11px] text-slate-600">Court {match.court}</span>
+          )}
+        </div>
+
+        <div className="px-5 py-4 space-y-3">
+          {/* Context */}
+          <p className="text-xs text-slate-500">{context}</p>
+
+          {/* Winner / Loser rows */}
+          {winnerEntry ? (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-white truncate">{entryLabel(winnerEntry)}</p>
+                <div className="flex items-center gap-2 shrink-0">
+                  {scoreStr && (
+                    <span className="font-mono text-sm font-bold text-accent-400">{scoreStr}</span>
+                  )}
+                  <span className="rounded-full bg-accent-500/20 px-2 py-0.5 text-[10px] font-semibold text-accent-400">
+                    WON
+                  </span>
+                </div>
+              </div>
+              {loserEntry && (
+                <p className="text-sm text-slate-500 truncate">{entryLabel(loserEntry)}</p>
+              )}
+            </div>
+          ) : (
+            // No winner set (shouldn't normally happen for completed matches)
+            <div className="space-y-0.5">
+              <p className="text-sm font-semibold text-white truncate">{entryLabel(match.entry_a)}</p>
+              <p className="text-xs text-slate-500">vs</p>
+              <p className="text-sm font-semibold text-white truncate">{entryLabel(match.entry_b)}</p>
+            </div>
+          )}
+
+          {/* Accidental-end restart button */}
+          {!isWalkover && (
+            <div className="pt-1 border-t border-surface-border/50">
+              {restartDone ? (
+                <p className="text-xs text-amber-400">
+                  ⏳ Restart requested — waiting for admin approval
+                </p>
+              ) : (
+                <div className="space-y-1">
+                  <button
+                    onClick={handleRequestRestart}
+                    disabled={requestingRestart}
+                    className="text-xs text-amber-500 hover:text-amber-400 transition-colors disabled:opacity-50"
+                  >
+                    {requestingRestart ? 'Requesting…' : '↩ Accidentally ended? Request restart'}
+                  </button>
+                  {restartError && (
+                    <p className="text-[11px] text-red-400">{restartError}</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   // ── Match card ────────────────────────────────────────────────────────────
   function MatchCard({ match }: { match: Match }) {
     const isOpen = activeMatchId === match.id;
@@ -567,8 +685,8 @@ export function RefereeScoringView({ matches, pin, refereeName, tournamentId, to
     );
   }
 
-  // ── Empty state ───────────────────────────────────────────────────────────
-  if (matches.length === 0) {
+  // ── Empty state — only when there are no active AND no completed matches ──
+  if (matches.length === 0 && completedMatches.length === 0) {
     return (
       <div className="rounded-xl bg-surface-card p-10 text-center ring-1 ring-surface-border">
         <p className="text-2xl mb-2">🎾</p>
@@ -628,6 +746,20 @@ export function RefereeScoringView({ matches, pin, refereeName, tournamentId, to
             The admin will assign a court and match to you shortly.
           </p>
         </div>
+      )}
+
+      {/* ── Completed — matches this referee has scored ───────────────────── */}
+      {completedMatches.length > 0 && (
+        <section>
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-slate-600">
+            Completed — {completedMatches.length} match{completedMatches.length !== 1 ? 'es' : ''}
+          </h2>
+          <div className="space-y-3">
+            {completedMatches.map((m) => (
+              <CompletedMatchCard key={m.id} match={m} />
+            ))}
+          </div>
+        </section>
       )}
     </div>
   );
