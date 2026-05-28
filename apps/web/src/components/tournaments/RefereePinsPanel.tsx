@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { createBrowserClient } from '@supabase/ssr';
+import { createClient } from '@/lib/supabase/client';
 import { createRefereePinAction, revokePinAction, regeneratePinAction, deleteRefereeAction } from '@/lib/actions/referee';
 import { useConfirm } from '@/components/ui/ConfirmProvider';
 
@@ -51,10 +51,7 @@ export function RefereePinsPanel({ tournamentId, pins, initialSessions }: Props)
   useEffect(() => {
     if (!tournamentId) return;
 
-    const supabase = createBrowserClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    );
+    const supabase = createClient();
 
     const channel = supabase
       .channel(`referee-sessions-${tournamentId}`)
