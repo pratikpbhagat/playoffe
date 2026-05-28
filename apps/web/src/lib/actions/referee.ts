@@ -237,8 +237,12 @@ export async function validateRefereePinAction(pin: string) {
 
   const tournament = data.tournaments as { id: string; name: string; slug: string; status: string } | null;
   if (!tournament) return { error: 'Tournament not found' };
-  if (!['in_progress', 'draw_generated'].includes(tournament.status)) {
-    return { error: 'Tournament is not currently in progress' };
+  // Allow access for any active tournament state — the admin controls access
+  // via PIN revocation/expiry. Blocking by status caused 404s when the admin
+  // assigned matches to referees before officially marking the tournament as
+  // in_progress (e.g. while still in draw_generated or registration_open).
+  if (tournament.status === 'cancelled') {
+    return { error: 'This tournament has been cancelled.' };
   }
 
   // Reset rate limit on success

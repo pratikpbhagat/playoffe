@@ -1,4 +1,3 @@
-import { notFound } from 'next/navigation';
 import { cookies } from 'next/headers';
 import { validateRefereePinAction, getRefereeMatchesAction } from '@/lib/actions/referee';
 import { RefereeScoringView } from '@/components/scoring/RefereeScoringView';
@@ -18,7 +17,29 @@ export default async function RefereeCourtPage({ params }: Props) {
   // and confirm the tournament exists before rendering anything.
   const pinValidation = await validateRefereePinAction(pin);
   if (!pinValidation.success || !pinValidation.tournament) {
-    notFound();
+    // Show a human-readable error rather than a generic 404.
+    // Common causes: wrong PIN, expired PIN, revoked PIN, cancelled tournament.
+    const errorMsg = (pinValidation as { error?: string }).error ?? 'Invalid or expired PIN.';
+    return (
+      <div className="min-h-screen bg-surface flex items-center justify-center px-4">
+        <div className="w-full max-w-sm text-center space-y-4">
+          <p className="text-2xl font-black tracking-tight text-white">
+            PLAY<span className="text-brand-400">OFFE</span>
+          </p>
+          <div className="rounded-2xl bg-surface-card ring-1 ring-surface-border p-8 space-y-3">
+            <p className="text-4xl">🔒</p>
+            <h1 className="text-base font-bold text-white">PIN not accepted</h1>
+            <p className="text-sm text-slate-400">{errorMsg}</p>
+            <a
+              href="/ref"
+              className="mt-4 inline-block rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 transition-colors"
+            >
+              Try again
+            </a>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   const pinLabel = (pinValidation as { label?: string | null }).label?.trim() || 'Referee';
@@ -38,7 +59,28 @@ export default async function RefereeCourtPage({ params }: Props) {
   const result = await getRefereeMatchesAction(pin, refereeName);
 
   if (!result.success || !result.tournament) {
-    notFound();
+    return (
+      <div className="min-h-screen bg-surface flex items-center justify-center px-4">
+        <div className="w-full max-w-sm text-center space-y-4">
+          <p className="text-2xl font-black tracking-tight text-white">
+            PLAY<span className="text-brand-400">OFFE</span>
+          </p>
+          <div className="rounded-2xl bg-surface-card ring-1 ring-surface-border p-8 space-y-3">
+            <p className="text-4xl">⚠️</p>
+            <h1 className="text-base font-bold text-white">Could not load matches</h1>
+            <p className="text-sm text-slate-400">
+              {(result as { error?: string }).error ?? 'Something went wrong. Please try again.'}
+            </p>
+            <a
+              href="/ref"
+              className="mt-4 inline-block rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 transition-colors"
+            >
+              Back to PIN entry
+            </a>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
