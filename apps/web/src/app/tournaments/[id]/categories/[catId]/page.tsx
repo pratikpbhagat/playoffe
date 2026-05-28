@@ -120,6 +120,34 @@ export default async function CategoryPage({ params }: Props) {
   const categoryStatus = (category as { status: string }).status;
   const drawFormat = (category as { draw_format: string }).draw_format;
 
+  // ── Group-wise entries ────────────────────────────────────────────────────
+  // When the draw format is group_stage_knockout and the draw has been
+  // generated, build a map of group_name → entries so we can show entries
+  // organised by group rather than as a flat list.
+  const isDrawn =
+    categoryStatus === 'draw_generated' ||
+    categoryStatus === 'in_progress' ||
+    categoryStatus === 'completed';
+
+  type GroupedSection = { groupName: string; entries: EntryRow[] };
+  let groupedSections: GroupedSection[] | null = null;
+
+  if (isDrawn && drawFormat === 'group_stage_knockout') {
+    const groupMap = new Map<string, Set<string>>();
+    for (const m of matches) {
+      if (!m.group_name) continue;
+      if (!groupMap.has(m.group_name)) groupMap.set(m.group_name, new Set());
+      if (m.entry_a?.id) groupMap.get(m.group_name)!.add(m.entry_a.id);
+      if (m.entry_b?.id) groupMap.get(m.group_name)!.add(m.entry_b.id);
+    }
+    if (groupMap.size > 0) {
+      groupedSections = [...groupMap.keys()].sort().map((groupName) => ({
+        groupName,
+        entries: typedEntries.filter((e) => groupMap.get(groupName)!.has(e.id)),
+      }));
+    }
+  }
+
   return (
     <div className="min-h-screen bg-surface">
       <AppNav />
@@ -163,6 +191,18 @@ export default async function CategoryPage({ params }: Props) {
                 {maxEntries ? `/ ${maxEntries} entries` : 'entries'}
               </p>
             </div>
+
+            {/* Schedule link — appears once the draw has been generated */}
+            {isDrawn && (
+              <Link
+                href={`/tournaments/${tournamentSlug}/schedule`}
+                className="flex flex-col items-center justify-center rounded-xl bg-surface-card px-4 py-3 ring-1 ring-surface-border hover:ring-brand-500/40 transition-all text-center"
+              >
+                <span className="text-lg leading-none">📅</span>
+                <span className="mt-1 text-[11px] text-slate-400">Schedule</span>
+              </Link>
+            )}
+
             <CategoryEditInline
               categoryId={categoryId}
               currentName={category.name}
@@ -174,12 +214,30 @@ export default async function CategoryPage({ params }: Props) {
           </div>
         </div>
 
-        {/* Entry list */}
+        {/* Entry list — flat, or grouped by pool when format is group_stage_knockout */}
         <section className="mb-8">
           <h2 className="mb-3 text-sm font-semibold text-slate-400 uppercase tracking-wide">
             Entries
           </h2>
-          <EntryList entries={typedEntries} tournamentId={tournament.id} />
+          {groupedSections ? (
+            <div className="space-y-6">
+              {groupedSections.map(({ groupName, entries: grpEntries }) => (
+                <div key={groupName}>
+                  <div className="mb-2 flex items-center gap-2">
+                    <span className="rounded-full bg-brand-900/40 px-3 py-0.5 text-xs font-semibold text-brand-300 ring-1 ring-brand-700/40">
+                      {groupName}
+                    </span>
+                    <span className="text-xs text-slate-600">
+                      {grpEntries.length} player{grpEntries.length !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  <EntryList entries={grpEntries} tournamentId={tournament.id} />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EntryList entries={typedEntries} tournamentId={tournament.id} />
+          )}
         </section>
 
         {/* Add / import players */}

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
+import Link from 'next/link';
 import { batchScheduleMatchesAction } from '@/lib/actions/scheduling';
 
 export interface MatchForScheduling {
@@ -228,6 +229,9 @@ export function ScheduleEditor({ tournamentSlug, courtCount, startDate, matches 
                   <th className="px-4 py-2.5 text-xs font-medium text-slate-500 w-20 text-center">
                     Status
                   </th>
+                  <th className="px-4 py-2.5 text-xs font-medium text-slate-500 w-16 text-right">
+                    Score
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-surface-border">
@@ -295,6 +299,16 @@ export function ScheduleEditor({ tournamentSlug, courtCount, startDate, matches 
                         ) : (
                           <span className="text-xs text-slate-700">—</span>
                         )}
+                      </td>
+
+                      {/* Per-match scoring hub link */}
+                      <td className="px-4 py-3 text-right">
+                        <Link
+                          href={`/tournaments/${tournamentSlug}/scoring/${m.id}`}
+                          className="text-xs font-medium text-brand-400 hover:text-brand-300 transition-colors whitespace-nowrap"
+                        >
+                          Score →
+                        </Link>
                       </td>
                     </tr>
                   );
