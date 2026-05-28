@@ -53,7 +53,7 @@ export default async function MatchScoringPage({ params }: Props) {
     .from('matches')
     .select(`
       id, round, round_name, group_name, status, court, sets,
-      assigned_referee_name,
+      assigned_referee_name, paused_for_reassignment,
       started_at, completed_at, winner_entry_id,
       player_reported_winner_id, player_reported_sets,
       ea:tournament_entries!entry_a_id(
@@ -193,6 +193,7 @@ export default async function MatchScoringPage({ params }: Props) {
           playerReportedSets={
             (match.player_reported_sets as { set_number: number; score_a: number; score_b: number }[] | null) ?? null
           }
+          pausedForReassignment={(match as any).paused_for_reassignment ?? false}
         />
 
         {/* Override panel — only for completed matches */}

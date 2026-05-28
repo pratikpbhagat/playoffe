@@ -1,4 +1,4 @@
-export type Json =
+﻿export type Json =
   | string
   | number
   | boolean
@@ -616,6 +616,7 @@ export type Database = {
       }
       matches: {
         Row: {
+          assigned_at: string | null
           assigned_referee_name: string | null
           bracket_position: number | null
           bracket_type: string | null
@@ -629,8 +630,11 @@ export type Database = {
           id: string
           loser_slot: string | null
           loser_to_match_id: string | null
+          paused_for_reassignment: boolean
           player_reported_sets: Json | null
           player_reported_winner_id: string | null
+          restart_requested: boolean
+          restart_requested_reason: string | null
           round: number
           round_name: string | null
           scheduled_time: string | null
@@ -645,6 +649,7 @@ export type Database = {
           winner_to_match_id: string | null
         }
         Insert: {
+          assigned_at?: string | null
           assigned_referee_name?: string | null
           bracket_position?: number | null
           bracket_type?: string | null
@@ -658,8 +663,11 @@ export type Database = {
           id?: string
           loser_slot?: string | null
           loser_to_match_id?: string | null
+          paused_for_reassignment?: boolean
           player_reported_sets?: Json | null
           player_reported_winner_id?: string | null
+          restart_requested?: boolean
+          restart_requested_reason?: string | null
           round: number
           round_name?: string | null
           scheduled_time?: string | null
@@ -674,6 +682,7 @@ export type Database = {
           winner_to_match_id?: string | null
         }
         Update: {
+          assigned_at?: string | null
           assigned_referee_name?: string | null
           bracket_position?: number | null
           bracket_type?: string | null
@@ -687,8 +696,11 @@ export type Database = {
           id?: string
           loser_slot?: string | null
           loser_to_match_id?: string | null
+          paused_for_reassignment?: boolean
           player_reported_sets?: Json | null
           player_reported_winner_id?: string | null
+          restart_requested?: boolean
+          restart_requested_reason?: string | null
           round?: number
           round_name?: string | null
           scheduled_time?: string | null

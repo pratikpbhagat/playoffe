@@ -1,8 +1,16 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useCallback, useEffect, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { scoreMatchAsRefereeAction } from '@/lib/actions/referee';
+import { createClient } from '@/lib/supabase/client';
+import {
+  scoreMatchAsRefereeAction,
+  pauseMatchAsRefereeAction,
+  startMatchAsRefereeAction,
+  saveScoreAsRefereeAction,
+} from '@/lib/actions/referee';
+
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface Entry {
   id: string;
@@ -20,225 +28,593 @@ interface Match {
   status: string;
   sets: { score_a: number; score_b: number }[];
   winner_entry_id: string | null;
+  assigned_referee_name: string | null;
+  paused_for_reassignment: boolean;
+  restart_requested: boolean;
+  restart_requested_reason: string | null;
   entry_a: Entry | null;
   entry_b: Entry | null;
 }
 
+type AutoSaveStatus = 'idle' | 'pending' | 'saving' | 'saved' | 'error';
+
 interface Props {
   matches: Match[];
   pin: string;
+  refereeName: string;
+  tournamentId: string;
   tournamentSlug: string;
 }
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function entryLabel(e: Entry | null) {
   if (!e) return 'TBD';
   return e.partner_name ? `${e.player_name} / ${e.partner_name}` : e.player_name;
 }
 
-export function RefereeScoringView({ matches, pin, tournamentSlug: _slug }: Props) {
-  const router = useRouter();
-  const [activeMatch, setActiveMatch] = useState<string | null>(null);
-  const [sets, setSets] = useState<{ score_a: number; score_b: number }[]>([{ score_a: 0, score_b: 0 }]);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState<Set<string>>(new Set());
+function determineWinnerId(
+  sets: { score_a: number; score_b: number }[],
+  entryAId: string | null | undefined,
+  entryBId: string | null | undefined,
+): string | null {
+  if (!sets.length) return null;
+  const aWins = sets.filter((s) => s.score_a > s.score_b).length;
+  const bWins = sets.filter((s) => s.score_b > s.score_a).length;
+  if (aWins > bWins) return entryAId ?? null;
+  if (bWins > aWins) return entryBId ?? null;
+  return null;
+}
 
-  function openMatch(matchId: string, existingSets: { score_a: number; score_b: number }[]) {
-    setActiveMatch(matchId);
-    setSets(existingSets.length > 0 ? existingSets : [{ score_a: 0, score_b: 0 }]);
+// ── Component ─────────────────────────────────────────────────────────────────
+
+export function RefereeScoringView({ matches, pin, refereeName, tournamentId, tournamentSlug: _slug }: Props) {
+  const router = useRouter();
+  const [isRefreshing, startRefreshTransition] = useTransition();
+
+  // Manual refresh — always reliable regardless of realtime connectivity
+  function handleManualRefresh() {
+    startRefreshTransition(() => {
+      router.refresh();
+    });
+  }
+
+  // ── Realtime: best-effort auto-refresh when admin assigns a match ──────────
+  // Uses postgres_changes filtered by tournament_id. This works when the anon
+  // client can reach Supabase Realtime; the manual refresh button is the
+  // reliable fallback if the event is missed.
+  //
+  // We track visible match IDs so we don't refresh on score auto-saves (those
+  // matches are already showing — refreshing would reset the scoring panel).
+  const visibleMatchIds = useRef<Set<string>>(new Set(matches.map((m) => m.id)));
+
+  // Keep the set current after each router.refresh() re-render
+  useEffect(() => {
+    visibleMatchIds.current = new Set(matches.map((m) => m.id));
+  }, [matches]);
+
+  // Keep a stable router ref so the subscription effect doesn't re-run on re-renders
+  const routerRef = useRef(router);
+  useEffect(() => { routerRef.current = router; });
+
+  useEffect(() => {
+    const supabase = createClient();
+
+    const channel = supabase
+      .channel(`referee-view:${tournamentId}:${refereeName}`)
+      .on(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        'postgres_changes' as any,
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'matches',
+          filter: `tournament_id=eq.${tournamentId}`,
+        },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (payload: any) => {
+          const n = payload.new;
+          if (!n?.id) return;
+
+          const newPaused: boolean = n.paused_for_reassignment ?? false;
+          const newReferee: string | null = n.assigned_referee_name ?? null;
+          const newStatus: string = n.status ?? '';
+
+          const shouldBeVisible =
+            newReferee === refereeName &&
+            !newPaused &&
+            (newStatus === 'scheduled' || newStatus === 'in_progress');
+
+          if (shouldBeVisible && !visibleMatchIds.current.has(n.id)) {
+            routerRef.current.refresh();
+          }
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  // Only re-subscribe if the tournament or referee changes (not on every render)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tournamentId, refereeName]);
+
+  // ── Which match is open for scoring ───────────────────────────────────────
+  const [activeMatchId, setActiveMatchId] = useState<string | null>(null);
+  const [editingSets, setEditingSets] = useState<{ score_a: number; score_b: number }[]>([
+    { score_a: 0, score_b: 0 },
+  ]);
+  const [manualWinnerId, setManualWinnerId] = useState<string | null>(null);
+
+  // ── Per-match score cache: persists the last saved score so closed tiles
+  //    and paused cards still show it (keyed by matchId)
+  const [savedScores, setSavedScores] = useState<Map<string, { score_a: number; score_b: number }[]>>(
+    () => new Map(matches.map((m) => [m.id, m.sets.length > 0 ? m.sets : []])),
+  );
+
+  // ── Auto-save ─────────────────────────────────────────────────────────────
+  const autoSaveTimer = useRef<ReturnType<typeof setTimeout>>();
+  const [autoSaveStatus, setAutoSaveStatus] = useState<AutoSaveStatus>('idle');
+  const pendingSets = useRef<{ score_a: number; score_b: number }[]>([]);
+
+  // ── Per-action loading ────────────────────────────────────────────────────
+  const [startingMatch, setStartingMatch] = useState<string | null>(null);
+  const [pausingMatch, setPausingMatch] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  // ── Local optimistic overrides ────────────────────────────────────────────
+  const [locallyPaused, setLocallyPaused] = useState<Set<string>>(
+    new Set(matches.filter((m) => m.paused_for_reassignment).map((m) => m.id)),
+  );
+  const [locallyStarted, setLocallyStarted] = useState<Set<string>>(new Set());
+
+  // ── Error ─────────────────────────────────────────────────────────────────
+  const [error, setError] = useState<string | null>(null);
+
+  // ── Section derivation ────────────────────────────────────────────────────
+  // Server already returns only scheduled + in_progress, non-paused matches.
+  // Client-side optimistic sets keep the UI consistent while actions are in flight.
+  const activeMatches = matches.filter((m) => {
+    // Matches the referee explicitly paused this session vanish immediately
+    if (locallyPaused.has(m.id)) return false;
+    const effectiveStatus = locallyStarted.has(m.id) ? 'in_progress' : m.status;
+    return effectiveStatus === 'scheduled' || effectiveStatus === 'in_progress';
+  });
+
+  // in_progress matches bubble to the top (server already orders them first,
+  // but local starts need to be accounted for too)
+  const inProgressMatches = activeMatches.filter((m) =>
+    locallyStarted.has(m.id) || m.status === 'in_progress',
+  );
+  const scheduledMatches = activeMatches.filter(
+    (m) => !locallyStarted.has(m.id) && m.status === 'scheduled',
+  );
+
+  // ── Score entry helpers ───────────────────────────────────────────────────
+
+  function openMatch(matchId: string, serverSets: { score_a: number; score_b: number }[]) {
+    // savedScores may be more up-to-date than the server prop if this session
+    // has already auto-saved some scores for this match
+    const bestSets = savedScores.get(matchId) ?? serverSets;
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    setAutoSaveStatus('idle');
+    setManualWinnerId(null);
+    setActiveMatchId(matchId);
+    setEditingSets(bestSets.length > 0 ? bestSets : [{ score_a: 0, score_b: 0 }]);
+    setError(null);
+  }
+
+  function closeMatch() {
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    // Persist the current editing state into the local cache so the closed
+    // tile continues to show the most recently typed score
+    if (activeMatchId) {
+      setSavedScores((prev) => new Map([...prev, [activeMatchId, editingSets]]));
+    }
+    setAutoSaveStatus('idle');
+    setActiveMatchId(null);
     setError(null);
   }
 
   function addSet() {
-    setSets((s) => [...s, { score_a: 0, score_b: 0 }]);
+    setEditingSets((s) => [...s, { score_a: 0, score_b: 0 }]);
   }
+
   function removeSet(i: number) {
-    setSets((s) => s.filter((_, idx) => idx !== i));
+    setEditingSets((s) => s.filter((_, idx) => idx !== i));
   }
+
+  const triggerAutoSave = useCallback(
+    (matchId: string, newSets: { score_a: number; score_b: number }[]) => {
+      pendingSets.current = newSets;
+      if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+      setAutoSaveStatus('pending');
+      autoSaveTimer.current = setTimeout(async () => {
+        setAutoSaveStatus('saving');
+        const result = await saveScoreAsRefereeAction(matchId, pin, pendingSets.current);
+        if (result?.error) {
+          setAutoSaveStatus('error');
+        } else {
+          setAutoSaveStatus('saved');
+          // Cache the saved score so the closed tile + paused card reflect it
+          setSavedScores((prev) => new Map([...prev, [matchId, pendingSets.current]]));
+          setTimeout(() => setAutoSaveStatus('idle'), 2000);
+        }
+      }, 1500);
+    },
+    [pin],
+  );
+
   function updateSet(i: number, field: 'score_a' | 'score_b', val: number) {
-    setSets((s) => s.map((set, idx) => idx === i ? { ...set, [field]: Math.max(0, val) } : set));
+    const newSets = editingSets.map((s, idx) =>
+      idx === i ? { ...s, [field]: Math.max(0, val) } : s,
+    );
+    setEditingSets(newSets);
+    setManualWinnerId(null);
+    // Auto-save only for in_progress matches
+    if (activeMatchId) {
+      const match = matches.find((m) => m.id === activeMatchId);
+      const effectiveStatus = locallyStarted.has(activeMatchId) ? 'in_progress' : match?.status;
+      if (effectiveStatus === 'in_progress') {
+        triggerAutoSave(activeMatchId, newSets);
+      }
+    }
   }
 
-  function determineWinner(match: Match): string | null {
-    if (sets.length === 0) return null;
-    const aWins = sets.filter((s) => s.score_a > s.score_b).length;
-    const bWins = sets.filter((s) => s.score_b > s.score_a).length;
-    if (aWins > bWins) return match.entry_a?.id ?? null;
-    if (bWins > aWins) return match.entry_b?.id ?? null;
-    return null;
-  }
+  // ── Actions ───────────────────────────────────────────────────────────────
 
-  async function handleSubmit(match: Match) {
-    const winnerId = determineWinner(match);
-    if (!winnerId) { setError('Result is tied — check your scores.'); return; }
-    setSubmitting(true);
-    const result = await scoreMatchAsRefereeAction(match.id, pin, sets, winnerId);
-    if (result.error) {
+  async function handleStart(matchId: string) {
+    setStartingMatch(matchId);
+    setError(null);
+    const result = await startMatchAsRefereeAction(matchId, pin);
+    if (result?.error) {
       setError(result.error);
     } else {
-      setDone((d) => new Set([...d, match.id]));
-      setActiveMatch(null);
+      setLocallyStarted((prev) => new Set([...prev, matchId]));
+      // Open the scoring panel immediately
+      const match = matches.find((m) => m.id === matchId);
+      openMatch(matchId, match?.sets ?? []);
+      router.refresh();
+    }
+    setStartingMatch(null);
+  }
+
+  async function handleRequestReassignment(matchId: string) {
+    setPausingMatch(matchId);
+    setError(null);
+    // Cancel pending auto-save before pausing
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    const result = await pauseMatchAsRefereeAction(matchId, pin);
+    if (result?.error) {
+      setError(result.error);
+    } else {
+      setLocallyPaused((prev) => new Set([...prev, matchId]));
+      // Remove from the visibility tracker so the realtime handler can detect
+      // when admin re-assigns this match (alreadyVisible will be false → refresh)
+      visibleMatchIds.current.delete(matchId);
+      if (activeMatchId === matchId) closeMatch();
+    }
+    setPausingMatch(null);
+  }
+
+  async function handleEndMatch(match: Match) {
+    const autoWinnerId = determineWinnerId(editingSets, match.entry_a?.id, match.entry_b?.id);
+    const winnerId = manualWinnerId ?? autoWinnerId;
+    if (!winnerId) {
+      setError('Select a winner before ending the match.');
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    // Cancel auto-save — we're about to submit the final result
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    const result = await scoreMatchAsRefereeAction(match.id, pin, editingSets, winnerId);
+    if (result?.error) {
+      setError(result.error);
+    } else {
+      closeMatch();
       router.refresh();
     }
     setSubmitting(false);
   }
 
-  // Group by court
-  const byCourt = new Map<string, Match[]>();
-  for (const m of matches) {
-    const key = m.court != null ? `Court ${m.court}` : 'Unassigned';
-    if (!byCourt.has(key)) byCourt.set(key, []);
-    byCourt.get(key)!.push(m);
+  // ── Auto-save status pill ─────────────────────────────────────────────────
+  function AutoSavePill() {
+    if (autoSaveStatus === 'idle') return null;
+    const label =
+      autoSaveStatus === 'pending' ? '…'
+      : autoSaveStatus === 'saving' ? 'Saving…'
+      : autoSaveStatus === 'saved' ? '✓ Saved'
+      : '⚠ Save failed';
+    const cls =
+      autoSaveStatus === 'saved' ? 'text-accent-400'
+      : autoSaveStatus === 'error' ? 'text-red-400'
+      : 'text-slate-500';
+    return <span className={`text-[11px] font-medium ${cls}`}>{label}</span>;
   }
 
+  // ── Score-entry panel (shared across active matches) ──────────────────────
+  function ScorePanel({ match }: { match: Match }) {
+    const autoWinnerId = determineWinnerId(editingSets, match.entry_a?.id, match.entry_b?.id);
+    const effectiveWinnerId = manualWinnerId ?? autoWinnerId;
+    const isInProgress =
+      locallyStarted.has(match.id) || match.status === 'in_progress';
+
+    return (
+      <div className="border-t border-surface-border px-5 pb-5 pt-4 space-y-4">
+        {/* Set rows */}
+        <div className="space-y-3">
+          {editingSets.map((set, i) => (
+            <div key={i} className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-slate-500">Set {i + 1}</p>
+                {editingSets.length > 1 && (
+                  <button
+                    onClick={() => removeSet(i)}
+                    className="text-[10px] text-slate-600 hover:text-red-400 transition-colors"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="flex-1">
+                  <p className="text-[10px] text-slate-600 mb-1 truncate">{entryLabel(match.entry_a)}</p>
+                  <input
+                    type="number"
+                    min={0}
+                    max={99}
+                    value={set.score_a}
+                    onChange={(e) => updateSet(i, 'score_a', parseInt(e.target.value) || 0)}
+                    className="w-full rounded-lg border border-slate-700 bg-surface px-3 py-3 text-center text-lg font-bold text-white focus:border-brand-500 focus:outline-none"
+                  />
+                </div>
+                <span className="text-slate-600 font-bold text-sm">–</span>
+                <div className="flex-1">
+                  <p className="text-[10px] text-slate-600 mb-1 truncate">{entryLabel(match.entry_b)}</p>
+                  <input
+                    type="number"
+                    min={0}
+                    max={99}
+                    value={set.score_b}
+                    onChange={(e) => updateSet(i, 'score_b', parseInt(e.target.value) || 0)}
+                    className="w-full rounded-lg border border-slate-700 bg-surface px-3 py-3 text-center text-lg font-bold text-white focus:border-brand-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Add set */}
+        <button
+          onClick={addSet}
+          className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+        >
+          + Add set
+        </button>
+
+        {/* Winner selector */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-medium text-slate-400">Winner</p>
+            {isInProgress && <AutoSavePill />}
+          </div>
+          <div className="flex gap-2">
+            {[match.entry_a, match.entry_b].map((entry) => {
+              if (!entry) return null;
+              const isSelected = effectiveWinnerId === entry.id;
+              return (
+                <button
+                  key={entry.id}
+                  onClick={() => setManualWinnerId(entry.id)}
+                  className={`flex-1 rounded-xl py-2.5 text-sm font-semibold transition-colors ${
+                    isSelected
+                      ? 'bg-brand-600 text-white ring-2 ring-brand-500'
+                      : 'bg-surface text-slate-400 hover:text-white ring-1 ring-surface-border'
+                  }`}
+                >
+                  {entryLabel(entry)}
+                  {isSelected && ' ✓'}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {error && <p className="text-sm text-red-400">{error}</p>}
+
+        {/* Action buttons */}
+        <div className="flex gap-3 pt-1">
+          {isInProgress ? (
+            <button
+              onClick={() => handleEndMatch(match)}
+              disabled={submitting || !effectiveWinnerId}
+              className="flex-1 rounded-xl bg-brand-600 py-3 text-sm font-semibold text-white hover:bg-brand-700 transition-colors disabled:opacity-40"
+            >
+              {submitting ? 'Saving…' : '■ End match'}
+            </button>
+          ) : (
+            <button
+              onClick={() => handleStart(match.id)}
+              disabled={startingMatch === match.id}
+              className="flex-1 rounded-xl bg-accent-600 py-3 text-sm font-semibold text-white hover:bg-accent-700 transition-colors disabled:opacity-40"
+            >
+              {startingMatch === match.id ? 'Starting…' : '▶ Start match'}
+            </button>
+          )}
+          <button
+            onClick={closeMatch}
+            className="rounded-xl border border-surface-border px-4 py-3 text-sm text-slate-400 hover:text-slate-300 transition-colors"
+          >
+            Close
+          </button>
+        </div>
+
+        {/* Re-assignment button */}
+        <div className="border-t border-surface-border/60 pt-3 space-y-1.5">
+          <button
+            onClick={() => handleRequestReassignment(match.id)}
+            disabled={pausingMatch === match.id || submitting || startingMatch === match.id}
+            className="w-full rounded-xl border border-amber-800/50 py-2.5 text-sm font-medium text-amber-500 hover:bg-amber-950/30 hover:border-amber-700/60 transition-colors disabled:opacity-50"
+          >
+            {pausingMatch === match.id
+              ? 'Requesting…'
+              : isInProgress
+              ? '⏸ Pause & request re-assignment'
+              : '↩ Request re-assignment'}
+          </button>
+          <p className="text-center text-[11px] text-slate-600">
+            {isInProgress
+              ? 'Pauses scoring and sends back to admin for a new court or referee'
+              : 'Returns this match to admin for re-assignment before you start'}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Match card ────────────────────────────────────────────────────────────
+  function MatchCard({ match }: { match: Match }) {
+    const isOpen = activeMatchId === match.id;
+    const context = match.group_name ?? match.round_name ?? `Round ${match.round}`;
+    const effectiveStatus = locallyStarted.has(match.id) ? 'in_progress' : match.status;
+    const isStarted = effectiveStatus === 'in_progress';
+
+    // savedScores is more up-to-date than match.sets (which is server-fetched at page load)
+    const displaySets = savedScores.get(match.id) ?? match.sets;
+    const liveScore =
+      isStarted && displaySets.length > 0
+        ? displaySets.map((s) => `${s.score_a}–${s.score_b}`).join('  ')
+        : null;
+
+    return (
+      <div
+        className={`rounded-xl ring-1 transition-all overflow-hidden bg-surface-card ${
+          isOpen ? 'ring-brand-500/60' : 'ring-surface-border'
+        }`}
+      >
+        {/* Status strip — shown when in progress and panel is closed */}
+        {isStarted && !isOpen && (
+          <div className="flex items-center gap-2 border-b border-surface-border/40 bg-accent-950/20 px-5 py-1.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-accent-400 animate-pulse shrink-0" />
+            <span className="text-[11px] font-semibold text-accent-400">In progress</span>
+            {liveScore
+              ? <span className="ml-auto text-sm font-mono font-bold text-accent-300">{liveScore}</span>
+              : <span className="ml-auto text-[11px] text-slate-600">no score yet</span>
+            }
+          </div>
+        )}
+
+        {/* Header — clickable to open/close scoring panel */}
+        <button
+          className="w-full text-left px-5 py-4"
+          onClick={() => (isOpen ? closeMatch() : openMatch(match.id, match.sets))}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-xs text-slate-500 mb-1">
+                {context}
+                {match.court ? ` · Court ${match.court}` : ''}
+              </p>
+              <div className="space-y-0.5">
+                <p className="text-sm font-semibold text-white truncate">{entryLabel(match.entry_a)}</p>
+                <p className="text-xs text-slate-500">vs</p>
+                <p className="text-sm font-semibold text-white truncate">{entryLabel(match.entry_b)}</p>
+              </div>
+            </div>
+            <div className="shrink-0 text-right">
+              {!isStarted && (
+                <span className="block text-[11px] font-medium text-slate-600 mb-0.5">Not started</span>
+              )}
+              <span className={`text-xs ${isOpen ? 'text-brand-400' : 'text-slate-600'}`}>
+                {isOpen ? 'Close ↑' : isStarted ? 'Score →' : 'Open →'}
+              </span>
+            </div>
+          </div>
+        </button>
+
+        {/* Score entry panel */}
+        {isOpen && <ScorePanel match={match} />}
+      </div>
+    );
+  }
+
+  // ── Shared refresh button ─────────────────────────────────────────────────
+  function RefreshButton({ className }: { className?: string }) {
+    return (
+      <button
+        onClick={handleManualRefresh}
+        disabled={isRefreshing}
+        className={className ?? 'flex items-center gap-1.5 rounded-lg border border-surface-border px-3.5 py-2 text-xs font-medium text-slate-400 hover:border-slate-500 hover:text-slate-200 transition-colors disabled:opacity-50'}
+      >
+        <span className={isRefreshing ? 'animate-spin inline-block' : 'inline-block'}>↻</span>
+        {isRefreshing ? 'Refreshing…' : 'Refresh matches'}
+      </button>
+    );
+  }
+
+  // ── Empty state ───────────────────────────────────────────────────────────
   if (matches.length === 0) {
     return (
       <div className="rounded-xl bg-surface-card p-10 text-center ring-1 ring-surface-border">
-        <p className="text-2xl mb-2">✅</p>
-        <p className="text-sm font-medium text-white">No active matches</p>
-        <p className="mt-1 text-xs text-slate-500">All scheduled matches are complete or not yet started.</p>
+        <p className="text-2xl mb-2">🎾</p>
+        <p className="text-sm font-medium text-white">No matches assigned to you yet</p>
+        <p className="mt-1 text-xs text-slate-500">
+          Ask the tournament admin to assign you to a match on the scoring hub.
+        </p>
+        <div className="mt-5 flex justify-center">
+          <RefreshButton />
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {[...byCourt.entries()].map(([courtLabel, courtMatches]) => (
-        <section key={courtLabel}>
-          <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-slate-500">{courtLabel}</h2>
+    <div className="space-y-8">
+      {/* ── Refresh row — always visible so admin re-assignments appear instantly */}
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-slate-600">
+          {activeMatches.length} match{activeMatches.length !== 1 ? 'es' : ''} assigned to you
+        </p>
+        <RefreshButton />
+      </div>
+
+      {/* ── In Progress — started, being scored ─────────────────────────── */}
+      {inProgressMatches.length > 0 && (
+        <section>
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-accent-400">
+            In Progress — {inProgressMatches.length} match{inProgressMatches.length !== 1 ? 'es' : ''}
+          </h2>
           <div className="space-y-3">
-            {courtMatches.map((m) => {
-              const isOpen = activeMatch === m.id;
-              const isDone = done.has(m.id);
-              const context = m.group_name ? `${m.group_name}` : m.round_name ?? `Round ${m.round}`;
-
-              return (
-                <div
-                  key={m.id}
-                  className={`rounded-xl bg-surface-card ring-1 transition-all ${
-                    isDone ? 'ring-accent-500/40' : isOpen ? 'ring-brand-500/60' : 'ring-surface-border'
-                  }`}
-                >
-                  {/* Match header */}
-                  <button
-                    className="w-full text-left px-5 py-4"
-                    onClick={() => {
-                      if (isDone) return;
-                      isOpen ? setActiveMatch(null) : openMatch(m.id, m.sets);
-                    }}
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs text-slate-500 mb-1">{context}</p>
-                        <div className="space-y-0.5">
-                          <p className={`text-sm font-semibold truncate ${isDone ? 'text-slate-400' : 'text-white'}`}>
-                            {entryLabel(m.entry_a)}
-                          </p>
-                          <p className="text-xs text-slate-500">vs</p>
-                          <p className={`text-sm font-semibold truncate ${isDone ? 'text-slate-400' : 'text-white'}`}>
-                            {entryLabel(m.entry_b)}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="shrink-0 text-right">
-                        {isDone ? (
-                          <span className="text-accent-400 text-sm">✓ Done</span>
-                        ) : (
-                          <span className={`text-xs ${isOpen ? 'text-brand-400' : 'text-slate-600'}`}>
-                            {isOpen ? 'Close ↑' : 'Score →'}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </button>
-
-                  {/* Score entry panel */}
-                  {isOpen && !isDone && (
-                    <div className="border-t border-surface-border px-5 pb-5 pt-4 space-y-4">
-                      {/* Set rows */}
-                      {sets.map((set, i) => (
-                        <div key={i} className="space-y-2">
-                          <p className="text-xs text-slate-500">Set {i + 1}</p>
-                          <div className="flex items-center gap-3">
-                            <div className="flex-1">
-                              <p className="text-[10px] text-slate-600 mb-1 truncate">{entryLabel(m.entry_a)}</p>
-                              <input
-                                type="number"
-                                min={0}
-                                max={99}
-                                value={set.score_a}
-                                onChange={(e) => updateSet(i, 'score_a', parseInt(e.target.value) || 0)}
-                                className="w-full rounded-lg border border-slate-700 bg-surface px-3 py-3 text-center text-lg font-bold text-white focus:border-brand-500 focus:outline-none"
-                              />
-                            </div>
-                            <span className="text-slate-600 font-bold text-sm pt-5">–</span>
-                            <div className="flex-1">
-                              <p className="text-[10px] text-slate-600 mb-1 truncate">{entryLabel(m.entry_b)}</p>
-                              <input
-                                type="number"
-                                min={0}
-                                max={99}
-                                value={set.score_b}
-                                onChange={(e) => updateSet(i, 'score_b', parseInt(e.target.value) || 0)}
-                                className="w-full rounded-lg border border-slate-700 bg-surface px-3 py-3 text-center text-lg font-bold text-white focus:border-brand-500 focus:outline-none"
-                              />
-                            </div>
-                            {sets.length > 1 && (
-                              <button
-                                onClick={() => removeSet(i)}
-                                className="pt-5 text-slate-600 hover:text-red-400 transition-colors text-xs"
-                              >
-                                ✕
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-
-                      {/* Add set */}
-                      <button
-                        onClick={addSet}
-                        className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
-                      >
-                        + Add set
-                      </button>
-
-                      {/* Winner indicator */}
-                      {(() => {
-                        const wId = determineWinner(m);
-                        const winner = wId === m.entry_a?.id ? m.entry_a : wId === m.entry_b?.id ? m.entry_b : null;
-                        return winner ? (
-                          <p className="text-xs text-accent-400">
-                            🏆 Winner: <strong>{entryLabel(winner)}</strong>
-                          </p>
-                        ) : null;
-                      })()}
-
-                      {error && <p className="text-sm text-red-400">{error}</p>}
-
-                      <div className="flex gap-3 pt-1">
-                        <button
-                          onClick={() => handleSubmit(m)}
-                          disabled={submitting || !determineWinner(m)}
-                          className="flex-1 rounded-xl bg-brand-600 py-3 text-sm font-semibold text-white hover:bg-brand-700 transition-colors disabled:opacity-40"
-                        >
-                          {submitting ? 'Saving…' : 'Submit result'}
-                        </button>
-                        <button
-                          onClick={() => setActiveMatch(null)}
-                          className="rounded-xl border border-surface-border px-4 py-3 text-sm text-slate-400 hover:text-slate-300 transition-colors"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+            {inProgressMatches.map((m) => (
+              <MatchCard key={m.id} match={m} />
+            ))}
           </div>
         </section>
-      ))}
+      )}
+
+      {/* ── Scheduled — assigned but not yet started ─────────────────────── */}
+      {scheduledMatches.length > 0 && (
+        <section>
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-slate-400">
+            Scheduled — {scheduledMatches.length} match{scheduledMatches.length !== 1 ? 'es' : ''}
+          </h2>
+          <div className="space-y-3">
+            {scheduledMatches.map((m) => (
+              <MatchCard key={m.id} match={m} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {activeMatches.length === 0 && (
+        <div className="rounded-xl bg-surface-card p-8 text-center ring-1 ring-surface-border">
+          <p className="text-sm text-slate-500">No active matches right now</p>
+          <p className="mt-1 text-xs text-slate-600">
+            The admin will assign a court and match to you shortly.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

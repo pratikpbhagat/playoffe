@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createBrowserClient } from '@supabase/ssr';
-import { createRefereePinAction, revokePinAction } from '@/lib/actions/referee';
+import { createRefereePinAction, revokePinAction, regeneratePinAction } from '@/lib/actions/referee';
 import { useConfirm } from '@/components/ui/ConfirmProvider';
 
 interface Pin {
@@ -30,8 +30,21 @@ export function RefereePinsPanel({ tournamentId, pins, initialSessions }: Props)
   const [label, setLabel] = useState('');
   const [creating, setCreating] = useState(false);
   const [newPin, setNewPin] = useState<string | null>(null);
+  const [newPinLabel, setNewPinLabel] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
   const [sessions, setSessions] = useState(initialSessions ?? []);
+
+  // Sync when the parent re-renders after router.refresh() (server state wins).
+  // We deduplicate by referee_name so regenerating a PIN doesn't leave a stale
+  // duplicate: the new session has the same name but a different id.
+  const prevInitialRef = useRef(initialSessions);
+  useEffect(() => {
+    if (prevInitialRef.current !== initialSessions) {
+      prevInitialRef.current = initialSessions;
+      setSessions(initialSessions ?? []);
+    }
+  }, [initialSessions]);
 
   useEffect(() => {
     if (!tournamentId) return;
@@ -55,9 +68,15 @@ export function RefereePinsPanel({ tournamentId, pins, initialSessions }: Props)
           if (payload.eventType === 'INSERT') {
             setSessions((prev) => [payload.new as any, ...prev]);
           } else if (payload.eventType === 'UPDATE') {
-            setSessions((prev) =>
-              prev.map((s) => s.id === (payload.new as any).id ? (payload.new as any) : s),
-            );
+            const updated = payload.new as any;
+            // Remove the session if it was deactivated (e.g. after PIN regeneration)
+            if (updated.is_active === false) {
+              setSessions((prev) => prev.filter((s) => s.id !== updated.id));
+            } else {
+              setSessions((prev) =>
+                prev.map((s) => s.id === updated.id ? updated : s),
+              );
+            }
           } else if (payload.eventType === 'DELETE') {
             setSessions((prev) => prev.filter((s) => s.id !== (payload.old as any).id));
           }
@@ -72,15 +91,34 @@ export function RefereePinsPanel({ tournamentId, pins, initialSessions }: Props)
     setCreating(true);
     setError(null);
     setNewPin(null);
-    const result = await createRefereePinAction(tournamentId, label || 'Referee');
+    setNewPinLabel(null);
+    const pinLabel = label || 'Referee';
+    const result = await createRefereePinAction(tournamentId, pinLabel);
     if (result.error) {
       setError(result.error);
     } else {
       setNewPin(result.pin ?? null);
+      setNewPinLabel(pinLabel);
       setLabel('');
       router.refresh();
     }
     setCreating(false);
+  }
+
+  async function handleRegenerate(pinId: string, pinLabel: string | null) {
+    setRegeneratingId(pinId);
+    setError(null);
+    setNewPin(null);
+    setNewPinLabel(null);
+    const result = await regeneratePinAction(pinId);
+    if (result.error) {
+      setError(result.error);
+    } else {
+      setNewPin(result.pin ?? null);
+      setNewPinLabel(pinLabel ?? 'Referee');
+      router.refresh();
+    }
+    setRegeneratingId(null);
   }
 
   async function handleRevoke(pinId: string) {
@@ -106,7 +144,9 @@ export function RefereePinsPanel({ tournamentId, pins, initialSessions }: Props)
       {/* New PIN display */}
       {newPin && (
         <div className="border-b border-surface-border bg-brand-900/30 px-5 py-4">
-          <p className="text-xs font-semibold text-brand-300 mb-2">New PIN created — share this with the referee:</p>
+          <p className="text-xs font-semibold text-brand-300 mb-2">
+            {newPinLabel ? `New PIN for "${newPinLabel}" — share this with the referee:` : 'New PIN created — share this with the referee:'}
+          </p>
           <div className="flex items-center gap-3">
             <p className="text-3xl font-mono font-bold tracking-[0.3em] text-white">{newPin}</p>
             <button
@@ -117,7 +157,7 @@ export function RefereePinsPanel({ tournamentId, pins, initialSessions }: Props)
             </button>
           </div>
           <p className="mt-2 text-xs text-slate-500">This PIN will not be shown again. It expires in 7 days.</p>
-          <button onClick={() => setNewPin(null)} className="mt-2 text-xs text-slate-600 hover:text-slate-400">
+          <button onClick={() => { setNewPin(null); setNewPinLabel(null); }} className="mt-2 text-xs text-slate-600 hover:text-slate-400">
             Dismiss
           </button>
         </div>
@@ -127,19 +167,29 @@ export function RefereePinsPanel({ tournamentId, pins, initialSessions }: Props)
       {activePins.length > 0 && (
         <div className="divide-y divide-surface-border">
           {activePins.map((pin) => (
-            <div key={pin.id} className="flex items-center justify-between px-5 py-3">
-              <div>
+            <div key={pin.id} className="flex items-center justify-between gap-3 px-5 py-3">
+              <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-white">{pin.label ?? 'Referee'}</p>
                 <p className="text-xs text-slate-500">
                   Expires {new Date(pin.expires_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })}
                 </p>
               </div>
-              <button
-                onClick={() => handleRevoke(pin.id)}
-                className="text-xs text-slate-600 hover:text-red-400 transition-colors"
-              >
-                Revoke
-              </button>
+              <div className="flex items-center gap-3 shrink-0">
+                <button
+                  onClick={() => handleRegenerate(pin.id, pin.label)}
+                  disabled={regeneratingId === pin.id}
+                  className="text-xs text-brand-400 hover:text-brand-300 transition-colors disabled:opacity-50"
+                  title="Revoke this PIN and generate a new one with the same label"
+                >
+                  {regeneratingId === pin.id ? 'Generating…' : '↻ Regenerate'}
+                </button>
+                <button
+                  onClick={() => handleRevoke(pin.id)}
+                  className="text-xs text-slate-600 hover:text-red-400 transition-colors"
+                >
+                  Revoke
+                </button>
+              </div>
             </div>
           ))}
         </div>

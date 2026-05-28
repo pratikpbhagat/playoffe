@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { startMatchAction, submitResultAction, walkoverAction, overrideMatchResultAction, approvePlayerReportAction, rejectPlayerReportAction } from '@/lib/actions/scoring';
+import { startMatchAction, submitResultAction, walkoverAction, overrideMatchResultAction, approvePlayerReportAction, rejectPlayerReportAction, pauseMatchForReassignmentAction } from '@/lib/actions/scoring';
 import { useRealtimeMatch } from '@/hooks/useRealtimeMatch';
 import { useConfirm } from '@/components/ui/ConfirmProvider';
 
@@ -34,6 +34,8 @@ interface Props {
   // Player self-report (optional)
   playerReportedWinnerId?: string | null;
   playerReportedSets?: SetScore[] | null;
+  // Pause / re-assignment
+  pausedForReassignment?: boolean;
 }
 
 function determineSetsWinner(sets: SetScore[]): { aWins: number; bWins: number } {
@@ -58,6 +60,7 @@ export function MatchScoreCard({
   entryB,
   playerReportedWinnerId,
   playerReportedSets,
+  pausedForReassignment = false,
 }: Props) {
   const router = useRouter();
   const { confirm } = useConfirm();
@@ -74,6 +77,11 @@ export function MatchScoreCard({
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [externallyUpdated, setExternallyUpdated] = useState(false);
+
+  // Pause / re-assignment state
+  const [isPausing, setIsPausing] = useState(false);
+  const [pauseError, setPauseError] = useState<string | null>(null);
+  const [pauseRequested, setPauseRequested] = useState(pausedForReassignment);
 
   // Override state — used when organiser corrects a completed result
   const [showOverride, setShowOverride] = useState(false);
@@ -140,6 +148,19 @@ export function MatchScoreCard({
       router.refresh();
     }
     setLoading(false);
+  }
+
+  async function handlePause() {
+    setIsPausing(true);
+    setPauseError(null);
+    const result = await pauseMatchForReassignmentAction(matchId);
+    if (result?.error) {
+      setPauseError(result.error);
+    } else {
+      setPauseRequested(true);
+      router.refresh();
+    }
+    setIsPausing(false);
   }
 
   async function handleSubmit() {
@@ -354,10 +375,28 @@ export function MatchScoreCard({
       )}
 
       {/* Status banner */}
-      {status === 'in_progress' && !externallyUpdated && (
+      {status === 'in_progress' && !externallyUpdated && !pauseRequested && (
         <div className="flex items-center gap-2 rounded-lg bg-accent-500/10 px-4 py-2 ring-1 ring-accent-500/30">
           <span className="h-2 w-2 rounded-full bg-accent-400 animate-pulse" />
           <span className="text-sm font-medium text-accent-400">Match in progress · Court {court}</span>
+        </div>
+      )}
+
+      {/* Paused-for-reassignment banner */}
+      {status === 'in_progress' && pauseRequested && !externallyUpdated && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-700/40 bg-amber-950/20 px-4 py-2.5">
+          <div className="flex items-center gap-2">
+            <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
+            <span className="text-sm font-medium text-amber-400">
+              ⏸ Referee requested re-assignment
+            </span>
+          </div>
+          <a
+            href={`/tournaments/${tournamentSlug}/scoring`}
+            className="shrink-0 text-xs text-amber-500 hover:text-amber-300 transition-colors"
+          >
+            Re-assign on hub →
+          </a>
         </div>
       )}
       {isCompleted && !externallyUpdated && (
@@ -649,6 +688,20 @@ export function MatchScoreCard({
               );
             })}
           </div>
+
+          {/* Pause for re-assignment — only while in_progress and not yet paused */}
+          {status === 'in_progress' && !pauseRequested && (
+            <button
+              onClick={handlePause}
+              disabled={isPausing || loading}
+              className="w-full rounded-lg border border-amber-800/50 px-5 py-2.5 text-sm font-medium text-amber-500 hover:bg-amber-950/30 hover:border-amber-700/60 transition-colors disabled:opacity-50"
+            >
+              {isPausing ? 'Pausing…' : '⏸ Pause for re-assignment'}
+            </button>
+          )}
+          {pauseError && (
+            <p className="w-full text-xs text-red-400">{pauseError}</p>
+          )}
         </div>
       )}
 

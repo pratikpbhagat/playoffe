@@ -91,6 +91,7 @@ async function assertMatchManager(matchId: string, userId: string) {
 }
 
 // ── Assign court / referee to a scheduled match (without starting it) ─────────
+// Also clears paused_for_reassignment so a live match returns to normal Live Now.
 export async function assignMatchDetailsAction(
   matchId: string,
   court: number | null,
@@ -105,16 +106,46 @@ export async function assignMatchDetailsAction(
 
   const admin = createAdminClient();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const patch: Record<string, any> = {};
+  const patch: Record<string, any> = {
+    // Always clear the paused flag when admin saves an assignment
+    paused_for_reassignment: false,
+    // Stamp assignment time so the referee page can order by when admin assigned
+    assigned_at: new Date().toISOString(),
+  };
   if (court !== null) patch.court = court;
   if (refereeName !== null) patch.assigned_referee_name = refereeName || null;
-
-  if (Object.keys(patch).length === 0) return { success: true };
 
   const { error } = await admin.from('matches').update(patch).eq('id', matchId);
   if (error) return { error: 'Failed to update match' };
 
   revalidatePath(`/tournaments/${ctx.tournamentSlug}/scoring`);
+  return { success: true };
+}
+
+// ── Pause a live match so the admin can re-assign court / referee ──────────────
+// Admin-initiated version (uses user session auth).
+export async function pauseMatchForReassignmentAction(matchId: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: 'Not authenticated' };
+
+  const ctx = await assertMatchManager(matchId, user.id);
+  if (!ctx) return { error: 'Permission denied' };
+
+  if (ctx.match.status !== 'in_progress') {
+    return { error: 'Match is not in progress' };
+  }
+
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from('matches')
+    .update({ paused_for_reassignment: true })
+    .eq('id', matchId);
+
+  if (error) return { error: 'Failed to pause match' };
+
+  revalidatePath(`/tournaments/${ctx.tournamentSlug}/scoring`);
+  revalidatePath(`/tournaments/${ctx.tournamentSlug}/scoring/${matchId}`);
   return { success: true };
 }
 
@@ -674,6 +705,46 @@ export async function overrideMatchResultAction(
 
   revalidatePath(`/tournaments/${ctx.tournamentSlug}/scoring/${matchId}`);
   revalidatePath(`/tournaments/${ctx.tournamentSlug}/categories/${category?.slug ?? match.category_id}`);
+  return { success: true };
+}
+
+// ── Approve a referee's restart request ───────────────────────────────────────
+// Resets the match to 'scheduled', clears court/referee so it re-enters the
+// upcoming queue. Bracket slot is NOT reversed here — that happens when the
+// new result is submitted.
+export async function approveMatchRestartAction(matchId: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: 'Not authenticated' };
+
+  const ctx = await assertMatchManager(matchId, user.id);
+  if (!ctx) return { error: 'Permission denied' };
+
+  if (ctx.match.status !== 'completed' && ctx.match.status !== 'walkover') {
+    return { error: 'Can only restart a completed or walkover match' };
+  }
+
+  const admin = createAdminClient();
+
+  const { error } = await admin.from('matches').update({
+    status: 'scheduled',
+    winner_entry_id: null,
+    sets: [],
+    completed_at: null,
+    started_at: null,
+    court: null,
+    assigned_referee_name: null,
+    paused_for_reassignment: false,
+    restart_requested: false,
+    restart_requested_reason: null,
+    submitted_by_name: null,
+    submitted_via: null,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any).eq('id', matchId);
+
+  if (error) return { error: 'Failed to approve restart: ' + error.message };
+
+  revalidatePath(`/tournaments/${ctx.tournamentSlug}/scoring`);
   return { success: true };
 }
 
