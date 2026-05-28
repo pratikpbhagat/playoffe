@@ -238,7 +238,7 @@ export function RefereePinsPanel({ tournamentId, pins, initialSessions }: Props)
                   <p className="text-sm font-semibold text-white">{session.referee_name}</p>
                   {session.last_active_at && (
                     <p className="text-xs text-slate-500">
-                      Last active {new Date(session.last_active_at).toLocaleTimeString()}
+                      Last active {new Date(session.last_active_at).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: true })}
                     </p>
                   )}
                 </div>

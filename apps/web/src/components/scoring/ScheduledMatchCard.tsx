@@ -51,6 +51,21 @@ function teamName(entry: MatchEntry | null, playFormat: string): string {
   return entry.players.full_name;
 }
 
+/**
+ * Locale-independent 12-hour time formatter.
+ * toLocaleTimeString() produces "09:00 am" on Node.js (server) and "09:00 AM"
+ * in Chrome (client), causing React hydration mismatches. This helper always
+ * returns "HH:MM AM/PM" regardless of the runtime locale.
+ */
+function fmt12h(iso: string): string {
+  const d = new Date(iso);
+  const h = d.getHours();
+  const m = String(d.getMinutes()).padStart(2, '0');
+  const period = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  return `${String(h12).padStart(2, '0')}:${m} ${period}`;
+}
+
 export function ScheduledMatchCard({
   matchId,
   tournamentSlug,
@@ -157,7 +172,7 @@ export function ScheduledMatchCard({
         <div className="w-14 shrink-0 text-center space-y-1 pt-0.5">
           {scheduledTime && !pausedForReassignment && (
             <p className="text-xs font-mono text-slate-400">
-              {new Date(scheduledTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              {fmt12h(scheduledTime)}
             </p>
           )}
           {court && (
