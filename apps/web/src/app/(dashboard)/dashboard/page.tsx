@@ -318,23 +318,53 @@ export default async function DashboardPage() {
           </div>
         )}
 
-        <div className="mt-10 grid gap-6 lg:grid-cols-3">
-          {/* Partner invites — shown prominently when present */}
-          {partnerInvites.length > 0 && (
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        {/* Partner invites — full-width banner above the tile grid */}
+        {partnerInvites.length > 0 && (
+          <div className="mt-8">
+            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
             <PartnerInvitesBanner invites={partnerInvites as any} />
-          )}
+          </div>
+        )}
 
-          {/* My registrations */}
+        <div className="mt-8 grid gap-6 lg:grid-cols-3">
+          {/* Quick actions — always first column, mirrors Admin layout */}
+          <div className="rounded-xl bg-surface-card p-6 ring-1 ring-surface-border">
+            <h2 className="text-base font-semibold text-white">Quick actions</h2>
+            <div className="mt-4 space-y-3">
+              <Link
+                href="/events"
+                className="flex items-center gap-3 rounded-lg border border-surface-border p-3 hover:bg-surface transition-colors"
+              >
+                <span className="text-xl">🎾</span>
+                <span className="text-sm font-medium text-slate-300">Browse events</span>
+              </Link>
+              <Link
+                href="/partners"
+                className="flex items-center gap-3 rounded-lg border border-surface-border p-3 hover:bg-surface transition-colors"
+              >
+                <span className="text-xl">🤝</span>
+                <span className="text-sm font-medium text-slate-300">Find a partner</span>
+              </Link>
+              <Link
+                href={player ? `/p/${player.username}` : '#'}
+                className="flex items-center gap-3 rounded-lg border border-surface-border p-3 hover:bg-surface transition-colors"
+              >
+                <span className="text-xl">👤</span>
+                <span className="text-sm font-medium text-slate-300">View my profile</span>
+              </Link>
+            </div>
+          </div>
+
+          {/* My registrations — spans the remaining 2 columns */}
           {myEntries.length > 0 && (() => {
             const ENTRY_STATUS_BADGE: Record<string, { label: string; className: string }> = {
-              active:      { label: 'Registered',      className: 'bg-accent-500/20 text-accent-400' },
-              pending:     { label: 'Pending approval', className: 'bg-amber-900/40 text-amber-300' },
-              waitlisted:  { label: 'Waitlisted',       className: 'bg-slate-700/50 text-slate-300' },
-              provisional: { label: 'Invited',          className: 'bg-brand-900/40 text-brand-300' },
+              active:      { label: 'Registered',       className: 'bg-accent-500/20 text-accent-400' },
+              pending:     { label: 'Pending approval',  className: 'bg-amber-900/40 text-amber-300' },
+              waitlisted:  { label: 'Waitlisted',        className: 'bg-slate-700/50 text-slate-300' },
+              provisional: { label: 'Invited',           className: 'bg-brand-900/40 text-brand-300' },
             };
             return (
-              <div className="lg:col-span-3 rounded-xl bg-surface-card p-6 ring-1 ring-surface-border">
+              <div className="lg:col-span-2 rounded-xl bg-surface-card p-6 ring-1 ring-surface-border">
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-base font-semibold text-white">My registrations</h2>
                   <Link href="/events" className="text-xs text-brand-400 hover:text-brand-300 transition-colors">
@@ -366,34 +396,6 @@ export default async function DashboardPage() {
               </div>
             );
           })()}
-
-          {/* Quick actions — player mode */}
-          <div className="rounded-xl bg-surface-card p-6 ring-1 ring-surface-border">
-            <h2 className="text-base font-semibold text-white">Quick actions</h2>
-            <div className="mt-4 space-y-3">
-              <Link
-                href="/events"
-                className="flex items-center gap-3 rounded-lg border border-surface-border p-3 hover:bg-surface transition-colors"
-              >
-                <span className="text-xl">🎾</span>
-                <span className="text-sm font-medium text-slate-300">Browse events</span>
-              </Link>
-              <Link
-                href="/partners"
-                className="flex items-center gap-3 rounded-lg border border-surface-border p-3 hover:bg-surface transition-colors"
-              >
-                <span className="text-xl">🤝</span>
-                <span className="text-sm font-medium text-slate-300">Find a partner</span>
-              </Link>
-              <Link
-                href={player ? `/p/${player.username}` : '#'}
-                className="flex items-center gap-3 rounded-lg border border-surface-border p-3 hover:bg-surface transition-colors"
-              >
-                <span className="text-xl">👤</span>
-                <span className="text-sm font-medium text-slate-300">View my profile</span>
-              </Link>
-            </div>
-          </div>
         </div>
       </main>
     </div>
