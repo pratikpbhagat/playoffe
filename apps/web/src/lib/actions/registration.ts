@@ -109,12 +109,14 @@ export async function registerForCategoryAction(categoryId: string) {
     return { error: 'This category is not currently open for registration.' };
   }
 
-  // Guard: no duplicate entry
+  // Guard: no duplicate entry — check both player_id and partner_id so a
+  // player who was admin-added as someone's doubles partner can't register
+  // again in the same category.
   const { data: existing } = await admin
     .from('tournament_entries')
     .select('id, status')
     .eq('category_id', categoryId)
-    .eq('player_id', user.id)
+    .or(`player_id.eq.${user.id},partner_id.eq.${user.id}`)
     .not('status', 'eq', 'withdrawn')
     .maybeSingle();
 

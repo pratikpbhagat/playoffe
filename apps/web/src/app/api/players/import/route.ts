@@ -107,16 +107,28 @@ export async function POST(request: Request) {
       results.provisional++;
     }
 
-    // ── Upsert tournament entry ────────────────────────────────
-    await admin.from('tournament_entries').upsert(
-      {
-        tournament_id,
-        category_id,
-        player_id: playerId,
-        status: 'active',
-      },
-      { onConflict: 'category_id,player_id', ignoreDuplicates: true },
-    );
+    // ── Guard: player already in this category (as main or partner) ──
+    // The upsert below handles player_id conflicts, but we also need to
+    // skip players who were already admin-added as a doubles partner.
+    const { data: alreadyEntered } = await admin
+      .from('tournament_entries')
+      .select('id')
+      .eq('category_id', category_id)
+      .or(`player_id.eq.${playerId},partner_id.eq.${playerId}`)
+      .maybeSingle();
+
+    if (alreadyEntered) {
+      results.skipped++;
+      continue;
+    }
+
+    // ── Insert tournament entry ────────────────────────────────
+    await admin.from('tournament_entries').insert({
+      tournament_id,
+      category_id,
+      player_id: playerId,
+      status: 'active',
+    });
   }
 
   return NextResponse.json({ success: true, results });
