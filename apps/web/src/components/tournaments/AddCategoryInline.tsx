@@ -32,13 +32,24 @@ const labelClass = 'mb-1.5 block text-xs font-medium text-slate-400';
 
 interface Props {
   tournamentId: string;
+  tournamentScoringFormat?: 'rally' | 'traditional';
+  tournamentNumSets?: 1 | 3 | 5;
+  tournamentPointsPerSet?: number;
 }
 
-export function AddCategoryInline({ tournamentId }: Props) {
+export function AddCategoryInline({
+  tournamentId,
+  tournamentScoringFormat = 'rally',
+  tournamentNumSets = 1,
+  tournamentPointsPerSet = 11,
+}: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [scoringOverride, setScoringOverride] = useState(false);
+  const [scoringFormat, setScoringFormat] = useState<'rally' | 'traditional'>(tournamentScoringFormat);
+  const [numSets, setNumSets] = useState<1 | 3 | 5>(tournamentNumSets);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -60,6 +71,12 @@ export function AddCategoryInline({ tournamentId }: Props) {
       min_age: fd.get('min_age') ? Number(fd.get('min_age')) : undefined,
       max_age: fd.get('max_age') ? Number(fd.get('max_age')) : undefined,
       skill_levels: [],
+      scoring_override: scoringOverride,
+      ...(scoringOverride && {
+        scoring_format: scoringFormat,
+        num_sets: numSets,
+        points_per_set: parseInt(fd.get('points_per_set') as string, 10) || tournamentPointsPerSet,
+      }),
     });
 
     if (result.error) {
@@ -192,6 +209,90 @@ export function AddCategoryInline({ tournamentId }: Props) {
               className={inputClass}
             />
           </div>
+        </div>
+
+        {/* Scoring override */}
+        <div className="rounded-lg border border-surface-border bg-surface px-4 py-3 space-y-3">
+          <label className="flex items-start gap-3 cursor-pointer">
+            <div className="flex-1">
+              <p className="text-xs font-semibold text-slate-300">Override tournament scoring</p>
+              <p className="mt-0.5 text-[11px] text-slate-500">
+                {scoringOverride
+                  ? 'This category uses its own scoring settings.'
+                  : `Using tournament default: ${tournamentScoringFormat === 'rally' ? 'Rally' : 'Service points'}, ${tournamentNumSets} set${tournamentNumSets > 1 ? 's' : ''}, ${tournamentPointsPerSet} pts.`}
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={scoringOverride}
+              onClick={() => setScoringOverride((v) => !v)}
+              className={`relative mt-0.5 inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                scoringOverride ? 'bg-brand-600' : 'bg-slate-700'
+              }`}
+            >
+              <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition duration-200 ${scoringOverride ? 'translate-x-4' : 'translate-x-0'}`} />
+            </button>
+          </label>
+
+          {scoringOverride && (
+            <div className="space-y-3 pt-1 border-t border-surface-border">
+              {/* Scoring format */}
+              <div>
+                <p className="mb-1.5 text-[11px] font-medium text-slate-400">Scoring format</p>
+                <div className="flex gap-2">
+                  {(['rally', 'traditional'] as const).map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => setScoringFormat(v)}
+                      className={`flex-1 rounded border px-2 py-1.5 text-xs transition-colors ${
+                        scoringFormat === v
+                          ? 'border-brand-500 bg-brand-600/20 text-white'
+                          : 'border-slate-700 bg-surface text-slate-400 hover:border-slate-600'
+                      }`}
+                    >
+                      {v === 'rally' ? 'Rally scoring' : 'Service points'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Number of sets */}
+              <div>
+                <p className="mb-1.5 text-[11px] font-medium text-slate-400">Number of sets</p>
+                <div className="flex gap-2">
+                  {([1, 3, 5] as const).map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => setNumSets(n)}
+                      className={`flex-1 rounded border px-2 py-1.5 text-xs transition-colors ${
+                        numSets === n
+                          ? 'border-brand-500 bg-brand-600/20 text-white'
+                          : 'border-slate-700 bg-surface text-slate-400 hover:border-slate-600'
+                      }`}
+                    >
+                      {n} set{n > 1 ? 's' : ''}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Points per set */}
+              <div>
+                <label className="mb-1.5 block text-[11px] font-medium text-slate-400">Points per set</label>
+                <input
+                  name="points_per_set"
+                  type="number"
+                  min={5}
+                  max={100}
+                  defaultValue={tournamentPointsPerSet}
+                  className={`${inputClass} w-28`}
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="flex justify-end">

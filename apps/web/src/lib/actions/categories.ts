@@ -27,7 +27,12 @@ async function assertTournamentManager(tournamentId: string, userId: string) {
 // ── Create a tournament category ───────────────────────────────────────────
 export async function createCategoryAction(
   tournamentId: string,
-  input: CreateCategoryInput,
+  input: CreateCategoryInput & {
+    scoring_override?: boolean;
+    scoring_format?: 'rally' | 'traditional';
+    num_sets?: 1 | 3 | 5;
+    points_per_set?: number;
+  },
 ) {
   const supabase = await createClient();
   const {
@@ -35,7 +40,10 @@ export async function createCategoryAction(
   } = await supabase.auth.getUser();
   if (!user) return { error: 'Not authenticated' };
 
-  const parsed = createCategorySchema.safeParse(input);
+  // Destructure scoring override fields before schema validation
+  const { scoring_override, scoring_format, num_sets, points_per_set, ...rest } = input;
+
+  const parsed = createCategorySchema.safeParse(rest);
   if (!parsed.success) return { error: parsed.error.issues[0].message };
 
   const t = await assertTournamentManager(tournamentId, user.id);
@@ -46,6 +54,12 @@ export async function createCategoryAction(
     tournament_id: tournamentId,
     slug: '', // set by BEFORE INSERT trigger
     ...parsed.data,
+    scoring_override: scoring_override ?? false,
+    ...(scoring_override && {
+      scoring_format: scoring_format ?? null,
+      num_sets: num_sets ?? null,
+      points_per_set: points_per_set ?? null,
+    }),
   });
 
   if (error) return { error: 'Failed to create category. Please try again.' };

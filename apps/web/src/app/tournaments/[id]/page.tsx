@@ -288,7 +288,12 @@ export default async function TournamentPage({ params }: Props) {
         <div>
           <div className="flex items-center justify-between">
             <h2 className="text-base font-semibold text-white">Categories</h2>
-            <AddCategoryInline tournamentId={t.id} />
+            <AddCategoryInline
+              tournamentId={t.id}
+              tournamentScoringFormat={((t as { scoring_format?: string }).scoring_format ?? 'rally') as 'rally' | 'traditional'}
+              tournamentNumSets={((t as { num_sets?: number }).num_sets ?? 1) as 1 | 3 | 5}
+              tournamentPointsPerSet={(t as { points_per_set?: number }).points_per_set ?? 11}
+            />
           </div>
 
           {categories.length === 0 ? (
