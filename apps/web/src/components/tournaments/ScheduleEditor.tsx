@@ -260,7 +260,7 @@ export function ScheduleEditor({ tournamentSlug, startDate, matches }: Props) {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-surface-border text-left">
-                <th className="px-4 py-2.5 text-xs font-medium text-slate-500 w-28">Round</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-slate-500 w-12 text-center">#</th>
                 <th className="px-4 py-2.5 text-xs font-medium text-slate-500">Match</th>
                 <th className="px-4 py-2.5 text-xs font-medium text-slate-500 w-52">
                   Date &amp; time
@@ -274,6 +274,7 @@ export function ScheduleEditor({ tournamentSlug, startDate, matches }: Props) {
               {(() => {
                 const rows: React.ReactNode[] = [];
                 let lastGroup: string | null | undefined = undefined; // sentinel
+                let matchNum = 0;
 
                 for (const m of activeMatches) {
                   // Insert a group header row whenever the group_name changes
@@ -292,6 +293,7 @@ export function ScheduleEditor({ tournamentSlug, startDate, matches }: Props) {
                     );
                   }
 
+                  matchNum += 1;
                   const edit = edits[m.id] ?? { time: '' };
                   const origTime = toLocalInput(m.scheduled_time);
                   const isDirty = m.status === 'scheduled' && edit.time !== origTime;
@@ -302,12 +304,12 @@ export function ScheduleEditor({ tournamentSlug, startDate, matches }: Props) {
                       key={m.id}
                       className={`border-t border-surface-border ${isDirty ? 'bg-brand-900/20' : ''}`}
                     >
-                      <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
-                        {m.round_name ?? `Round ${m.round}`}
+                      <td className="px-4 py-3 text-xs font-medium text-slate-500 text-center tabular-nums">
+                        {matchNum}
                       </td>
 
                       <td className="px-4 py-3">
-                        <p className="text-sm text-white">
+                        <p className="text-sm text-white whitespace-nowrap">
                           {m.player_a}
                           <span className="mx-2 text-slate-600">vs</span>
                           {m.player_b}
