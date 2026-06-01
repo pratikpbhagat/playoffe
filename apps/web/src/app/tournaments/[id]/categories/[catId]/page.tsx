@@ -13,6 +13,7 @@ import { CategoryEditInline } from '@/components/tournaments/CategoryEditInline'
 import { StageScoringPanel } from '@/components/tournaments/StageScoringPanel';
 import { SeedingPanel } from '@/components/tournaments/SeedingPanel';
 import { getCategoryWithEntries, getStageScoringAction } from '@/lib/actions/categories';
+import { getTournamentStageScoringAction } from '@/lib/actions/tournaments';
 import { getMatchesForCategory } from '@/lib/actions/draws';
 
 export const metadata: Metadata = { title: 'Category entries' };
@@ -99,10 +100,11 @@ export default async function CategoryPage({ params }: Props) {
   const categoryId = categoryRow.id;
 
   // Fetch category + entries + matches + stage scoring in parallel
-  const [data, matches, stageRows] = await Promise.all([
+  const [data, matches, stageRows, tournamentStageRows] = await Promise.all([
     getCategoryWithEntries(categoryId),
     getMatchesForCategory(categoryId),
     getStageScoringAction(categoryId),
+    getTournamentStageScoringAction(tournament.id),
   ]);
   if (!data) notFound();
 
@@ -287,6 +289,7 @@ export default async function CategoryPage({ params }: Props) {
               categoryId={categoryId}
               drawFormat={drawFormat}
               initialRows={stageRows}
+              tournamentStageRows={tournamentStageRows}
               effectiveNumSets={
                 ((category as { scoring_override?: boolean }).scoring_override
                   ? (category as { num_sets?: number | null }).num_sets

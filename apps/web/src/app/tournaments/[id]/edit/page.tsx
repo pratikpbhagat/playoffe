@@ -5,6 +5,8 @@ import { cookies } from 'next/headers';
 import { createClient, createAdminClient, getUserRoles } from '@/lib/supabase/server';
 import { AppNav } from '@/components/layout/AppNav';
 import { TournamentForm } from '@/components/tournaments/TournamentForm';
+import { TournamentStageScoringPanel } from '@/components/tournaments/TournamentStageScoringPanel';
+import { getTournamentStageScoringAction } from '@/lib/actions/tournaments';
 
 export const metadata: Metadata = { title: 'Edit tournament' };
 
@@ -51,14 +53,14 @@ export default async function EditTournamentPage({ params }: Props) {
     : isAdminRole ? 'admin' : 'player';
   if (activeMode === 'player') redirect(`/events/${slug}`);
 
-  const { data: managedClubs } = await admin
-    .from('club_managers')
-    .select('clubs(id, name)')
-    .eq('player_id', user.id);
+  const [managedClubsResult, stageRows] = await Promise.all([
+    admin.from('club_managers').select('clubs(id, name)').eq('player_id', user.id),
+    getTournamentStageScoringAction(t.id),
+  ]);
 
-  const clubs = (managedClubs ?? [])
+  const clubs = ((managedClubsResult.data ?? [])
     .map((m) => m.clubs as { id: string; name: string } | null)
-    .filter(Boolean) as { id: string; name: string }[];
+    .filter(Boolean)) as { id: string; name: string }[];
 
   const defaultValues = {
     club_id: club.id,
@@ -100,6 +102,27 @@ export default async function EditTournamentPage({ params }: Props) {
             mode="edit"
             tournamentId={t.id}
             defaultValues={defaultValues}
+          />
+        </div>
+
+        {/* Per-stage scoring defaults — live below the main form so they
+            can be saved independently without reloading the whole form. */}
+        <div className="mt-6 rounded-xl bg-surface-card p-6 ring-1 ring-surface-border">
+          <div className="mb-5 pb-4 border-b border-surface-border">
+            <p className="text-base font-semibold text-white">Stage-wise scoring</p>
+            <p className="mt-1 text-xs text-slate-400">
+              Configure different scoring rules for each stage of play. These
+              become the defaults for all categories in this tournament — each
+              category can still override them individually.
+            </p>
+          </div>
+          <TournamentStageScoringPanel
+            tournamentId={t.id}
+            initialRows={stageRows}
+            defaultNumSets={defaultValues.num_sets}
+            defaultPointsPerSet={defaultValues.points_per_set}
+            defaultWinBy={defaultValues.win_by}
+            defaultDeuceCap={defaultValues.deuce_cap}
           />
         </div>
       </main>

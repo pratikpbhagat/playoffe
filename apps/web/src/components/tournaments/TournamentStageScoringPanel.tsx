@@ -1,39 +1,45 @@
 'use client';
 
 /**
- * Per-stage scoring overrides panel — shown in the category edit page.
- * Allows admins to set different scoring rules for group stage, knockout,
- * semifinal, and final within the same category.
+ * Tournament-level per-stage scoring defaults panel — shown in the
+ * tournament edit page below the main scoring settings.
+ *
+ * Resolution order (most specific wins):
+ *  1. category_stage_scoring  (per-category, per-stage)
+ *  2. tournament_stage_scoring ← this panel
+ *  3. tournament_categories.*  (flat category override)
+ *  4. tournaments.*            (flat tournament default)
  */
 
 import { useState, useTransition } from 'react';
-import { upsertStageScoringAction, deleteStageScoringAction } from '@/lib/actions/categories';
+import {
+  upsertTournamentStageScoringAction,
+  deleteTournamentStageScoringAction,
+} from '@/lib/actions/tournaments';
 import { WinByDeuceFields } from './WinByDeuceFields';
-import type { StageScoringRow, StageKey } from '@/lib/actions/categories';
-import type { TournamentStageScoringRow } from '@/lib/actions/tournaments';
+import type { TournamentStageScoringRow, StageKey } from '@/lib/actions/tournaments';
 
 // ── Stage metadata ────────────────────────────────────────────────────────────
 
-const STAGE_META: Record<StageKey, { label: string; description: string; formats: string[] }> = {
+const STAGE_META: Record<
+  StageKey,
+  { label: string; description: string }
+> = {
   group_stage: {
     label: 'Group Stage',
-    description: 'Round-robin group matches',
-    formats: ['group_stage_knockout'],
+    description: 'Round-robin group matches (group-stage + knockout format)',
   },
   knockout: {
     label: 'Knockout Rounds',
     description: 'Elimination rounds before semifinals',
-    formats: ['single_elimination', 'double_elimination', 'group_stage_knockout'],
   },
   semifinal: {
     label: 'Semifinals',
-    description: 'Last four matches',
-    formats: ['single_elimination', 'double_elimination', 'group_stage_knockout'],
+    description: 'Last four competitors',
   },
   final: {
     label: 'Final',
     description: 'Championship match',
-    formats: ['single_elimination', 'double_elimination', 'group_stage_knockout'],
   },
 };
 
@@ -42,17 +48,19 @@ const ALL_STAGES: StageKey[] = ['group_stage', 'knockout', 'semifinal', 'final']
 const inputClass =
   'block w-full rounded-lg border border-slate-600 bg-surface px-3 py-2 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30';
 
-// ── Stage value chips ─────────────────────────────────────────────────────────
+// ── Value chips ───────────────────────────────────────────────────────────────
 
 interface ChipProps { label: string; dim?: boolean }
 
 function Chip({ label, dim }: ChipProps) {
   return (
-    <span className={`inline-flex items-center rounded px-2 py-0.5 text-[11px] font-medium ${
-      dim
-        ? 'bg-slate-800/60 text-slate-500'
-        : 'bg-slate-700/60 text-slate-300'
-    }`}>
+    <span
+      className={`inline-flex items-center rounded px-2 py-0.5 text-[11px] font-medium ${
+        dim
+          ? 'bg-slate-800/60 text-slate-500'
+          : 'bg-slate-700/60 text-slate-300'
+      }`}
+    >
       {label}
     </span>
   );
@@ -72,11 +80,12 @@ function ScoringChips({
   dim?: boolean;
 }) {
   const setsLabel = `${num_sets} set${num_sets > 1 ? 's' : ''}`;
-  const winLabel = win_by === 1
-    ? 'Golden point'
-    : deuce_cap
-    ? `Deuce → cap ${deuce_cap}`
-    : 'Deuce';
+  const winLabel =
+    win_by === 1
+      ? 'Golden point'
+      : deuce_cap
+      ? `Deuce → cap ${deuce_cap}`
+      : 'Deuce';
   return (
     <div className="flex flex-wrap gap-1.5 mt-1.5">
       <Chip label={`${points_per_set} pts`} dim={dim} />
@@ -90,64 +99,44 @@ function ScoringChips({
 
 interface StageRowProps {
   stage: StageKey;
-  existing: StageScoringRow | undefined;
-  /** Tournament-level stage row for this stage (layer 2 in the chain). */
-  tournamentStageRow: TournamentStageScoringRow | undefined;
-  categoryId: string;
-  /**
-   * Effective flat defaults — result of:
-   *   category override (if set) → tournament flat default
-   * Used as the final fallback when neither this category nor the tournament
-   * has a stage-specific override for this stage.
-   */
-  effectiveNumSets: number;
-  effectivePointsPerSet: number;
-  effectiveWinBy: number;
-  effectiveDeuceCap: number | null;
+  existing: TournamentStageScoringRow | undefined;
+  tournamentId: string;
+  /** Flat tournament defaults — shown as inherited when no stage override set */
+  defaultNumSets: number;
+  defaultPointsPerSet: number;
+  defaultWinBy: number;
+  defaultDeuceCap: number | null;
   onSaved: () => void;
 }
 
 function StageRow({
   stage,
   existing,
-  tournamentStageRow,
-  categoryId,
-  effectiveNumSets,
-  effectivePointsPerSet,
-  effectiveWinBy,
-  effectiveDeuceCap,
+  tournamentId,
+  defaultNumSets,
+  defaultPointsPerSet,
+  defaultWinBy,
+  defaultDeuceCap,
   onSaved,
 }: StageRowProps) {
   const meta = STAGE_META[stage];
   const isOverriding = !!existing;
 
-  // Resolved defaults: category-stage → tournament-stage → flat effective
-  const resolvedNumSets =
-    tournamentStageRow?.num_sets ?? effectiveNumSets;
-  const resolvedPointsPerSet =
-    tournamentStageRow?.points_per_set ?? effectivePointsPerSet;
-  const resolvedWinBy =
-    tournamentStageRow?.win_by ?? effectiveWinBy;
-  const resolvedDeuceCap =
-    tournamentStageRow?.deuce_cap !== undefined
-      ? tournamentStageRow.deuce_cap
-      : effectiveDeuceCap;
-
   const [expanded, setExpanded] = useState(false);
   const [numSets, setNumSets] = useState<1 | 3 | 5>(
-    (existing?.num_sets ?? resolvedNumSets) as 1 | 3 | 5,
+    (existing?.num_sets ?? defaultNumSets) as 1 | 3 | 5,
   );
   const [pointsPerSet, setPointsPerSet] = useState(
-    String(existing?.points_per_set ?? resolvedPointsPerSet),
+    String(existing?.points_per_set ?? defaultPointsPerSet),
   );
   const [winBy, setWinBy] = useState<1 | 2>(
-    (existing?.win_by ?? resolvedWinBy) as 1 | 2,
+    (existing?.win_by ?? defaultWinBy) as 1 | 2,
   );
   const [deuceCap, setDeuceCap] = useState(
     existing?.deuce_cap != null
       ? String(existing.deuce_cap)
-      : resolvedDeuceCap != null
-      ? String(resolvedDeuceCap)
+      : defaultDeuceCap != null
+      ? String(defaultDeuceCap)
       : '',
   );
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
@@ -156,12 +145,16 @@ function StageRow({
   function handleSave() {
     setMsg(null);
     startTransition(async () => {
-      const res = await upsertStageScoringAction(categoryId, stage, {
-        num_sets: numSets,
-        points_per_set: parseInt(pointsPerSet, 10) || resolvedPointsPerSet,
-        win_by: winBy,
-        deuce_cap: deuceCap ? parseInt(deuceCap, 10) : null,
-      });
+      const res = await upsertTournamentStageScoringAction(
+        tournamentId,
+        stage,
+        {
+          num_sets: numSets,
+          points_per_set: parseInt(pointsPerSet, 10) || defaultPointsPerSet,
+          win_by: winBy,
+          deuce_cap: deuceCap ? parseInt(deuceCap, 10) : null,
+        },
+      );
       if (res.error) {
         setMsg({ text: res.error, ok: false });
       } else {
@@ -174,15 +167,19 @@ function StageRow({
 
   function handleRemove() {
     startTransition(async () => {
-      await deleteStageScoringAction(categoryId, stage);
+      await deleteTournamentStageScoringAction(tournamentId, stage);
       onSaved();
     });
   }
 
   return (
-    <div className={`rounded-lg border transition-colors ${
-      isOverriding ? 'border-brand-500/40 bg-brand-900/10' : 'border-surface-border bg-surface-card'
-    }`}>
+    <div
+      className={`rounded-lg border transition-colors ${
+        isOverriding
+          ? 'border-brand-500/40 bg-brand-900/10'
+          : 'border-surface-border bg-surface-card'
+      }`}
+    >
       {/* Row header */}
       <div className="flex items-start gap-3 px-4 py-3">
         <div className="flex-1 min-w-0">
@@ -201,26 +198,19 @@ function StageRow({
           {/* Value chips */}
           {isOverriding ? (
             <ScoringChips
-              num_sets={existing!.num_sets ?? resolvedNumSets}
-              points_per_set={existing!.points_per_set ?? resolvedPointsPerSet}
-              win_by={existing!.win_by ?? resolvedWinBy}
-              deuce_cap={existing!.deuce_cap !== undefined ? existing!.deuce_cap : resolvedDeuceCap}
+              num_sets={existing!.num_sets ?? defaultNumSets}
+              points_per_set={existing!.points_per_set ?? defaultPointsPerSet}
+              win_by={existing!.win_by ?? defaultWinBy}
+              deuce_cap={existing!.deuce_cap ?? defaultDeuceCap}
             />
           ) : (
-            <>
-              <ScoringChips
-                num_sets={resolvedNumSets}
-                points_per_set={resolvedPointsPerSet}
-                win_by={resolvedWinBy}
-                deuce_cap={resolvedDeuceCap}
-                dim={!tournamentStageRow}
-              />
-              {tournamentStageRow && (
-                <p className="text-[10px] text-brand-400/70 mt-1">
-                  ↳ tournament stage default
-                </p>
-              )}
-            </>
+            <ScoringChips
+              num_sets={defaultNumSets}
+              points_per_set={defaultPointsPerSet}
+              win_by={defaultWinBy}
+              deuce_cap={defaultDeuceCap}
+              dim
+            />
           )}
         </div>
 
@@ -237,7 +227,10 @@ function StageRow({
           )}
           <button
             type="button"
-            onClick={() => { setExpanded((v) => !v); setMsg(null); }}
+            onClick={() => {
+              setExpanded((v) => !v);
+              setMsg(null);
+            }}
             className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
               expanded
                 ? 'bg-surface text-slate-300 border border-slate-700'
@@ -256,7 +249,9 @@ function StageRow({
         <div className="border-t border-surface-border px-4 pb-4 pt-3 space-y-3">
           {/* Number of sets */}
           <div>
-            <p className="mb-1.5 text-[11px] font-medium text-slate-400">Number of sets</p>
+            <p className="mb-1.5 text-[11px] font-medium text-slate-400">
+              Number of sets
+            </p>
             <div className="flex gap-2">
               {([1, 3, 5] as const).map((n) => (
                 <button
@@ -277,7 +272,9 @@ function StageRow({
 
           {/* Points per set */}
           <div>
-            <label className="mb-1.5 block text-[11px] font-medium text-slate-400">Points per set</label>
+            <label className="mb-1.5 block text-[11px] font-medium text-slate-400">
+              Points per set
+            </label>
             <input
               type="number"
               min={5}
@@ -297,7 +294,11 @@ function StageRow({
           />
 
           {msg && (
-            <p className={`text-xs ${msg.ok ? 'text-accent-400' : 'text-red-400'}`}>{msg.text}</p>
+            <p
+              className={`text-xs ${msg.ok ? 'text-accent-400' : 'text-red-400'}`}
+            >
+              {msg.text}
+            </p>
           )}
 
           <div className="flex items-center gap-3 pt-1">
@@ -311,7 +312,10 @@ function StageRow({
             </button>
             <button
               type="button"
-              onClick={() => { setExpanded(false); setMsg(null); }}
+              onClick={() => {
+                setExpanded(false);
+                setMsg(null);
+              }}
               className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
             >
               Cancel
@@ -326,59 +330,43 @@ function StageRow({
 // ── Main panel ────────────────────────────────────────────────────────────────
 
 interface Props {
-  categoryId: string;
-  drawFormat: string;
-  /** Category-level stage scoring rows already saved in DB */
-  initialRows: StageScoringRow[];
-  /**
-   * Tournament-level stage scoring rows — layer 2 in the resolution chain.
-   * Shown as "tournament stage default" when a category has no override for
-   * a given stage.
-   */
-  tournamentStageRows?: TournamentStageScoringRow[];
-  /**
-   * Effective flat defaults — result of:
-   *   category flat override (if set) → tournament flat default
-   * Used as the final fallback when no stage-specific row exists at either level.
-   */
-  effectiveNumSets: number;
-  effectivePointsPerSet: number;
-  effectiveWinBy: number;
-  effectiveDeuceCap: number | null;
+  tournamentId: string;
+  initialRows: TournamentStageScoringRow[];
+  /** Flat tournament defaults — shown as the baseline for inherited stages */
+  defaultNumSets: number;
+  defaultPointsPerSet: number;
+  defaultWinBy: number;
+  defaultDeuceCap: number | null;
 }
 
-export function StageScoringPanel({
-  categoryId,
-  drawFormat,
+export function TournamentStageScoringPanel({
+  tournamentId,
   initialRows,
-  tournamentStageRows = [],
-  effectiveNumSets,
-  effectivePointsPerSet,
-  effectiveWinBy,
-  effectiveDeuceCap,
+  defaultNumSets,
+  defaultPointsPerSet,
+  defaultWinBy,
+  defaultDeuceCap,
 }: Props) {
-  const [rows, setRows] = useState<StageScoringRow[]>(initialRows);
-
-  // Only show stages that are applicable to this draw format
-  const visibleStages = ALL_STAGES.filter((s) =>
-    STAGE_META[s].formats.includes(drawFormat),
-  );
-
-  if (visibleStages.length === 0) return null;
+  const [rows, setRows] = useState<TournamentStageScoringRow[]>(initialRows);
 
   function handleSaved() {
-    // Visual update is optimistic via StageRow local state.
-    // SSR truth refreshes on next navigation (revalidatePath in server action).
+    // Visual update is handled optimistically via StageRow local state.
+    // The parent page will pick up DB truth on next navigation.
+    // We increment a key to reset StageRow state if needed — not necessary here
+    // because revalidatePath handles SSR refresh.
+    setRows((prev) => prev); // no-op; keeps existing rows reference stable
   }
 
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between mb-3">
         <div>
-          <p className="text-sm font-semibold text-white">Stage scoring rules</p>
+          <p className="text-sm font-semibold text-white">
+            Stage scoring defaults
+          </p>
           <p className="text-xs text-slate-400 mt-0.5">
-            Override points, sets, and deuce rules per stage for this category.
-            Stages with no override inherit from tournament stage defaults.
+            Set default scoring rules per stage for all categories. Individual
+            categories can override these further.
           </p>
         </div>
         {rows.length > 0 && (
@@ -387,17 +375,17 @@ export function StageScoringPanel({
           </span>
         )}
       </div>
-      {visibleStages.map((stage) => (
+
+      {ALL_STAGES.map((stage) => (
         <StageRow
           key={stage}
           stage={stage}
           existing={rows.find((r) => r.stage === stage)}
-          tournamentStageRow={tournamentStageRows.find((r) => r.stage === stage)}
-          categoryId={categoryId}
-          effectiveNumSets={effectiveNumSets}
-          effectivePointsPerSet={effectivePointsPerSet}
-          effectiveWinBy={effectiveWinBy}
-          effectiveDeuceCap={effectiveDeuceCap}
+          tournamentId={tournamentId}
+          defaultNumSets={defaultNumSets}
+          defaultPointsPerSet={defaultPointsPerSet}
+          defaultWinBy={defaultWinBy}
+          defaultDeuceCap={defaultDeuceCap}
           onSaved={handleSaved}
         />
       ))}

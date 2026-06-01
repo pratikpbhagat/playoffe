@@ -291,3 +291,117 @@ export async function cloneTournamentAction(tournamentId: string) {
   revalidatePath('/dashboard');
   redirect(`/tournaments/${newT.slug}`);
 }
+
+// ── Tournament-level per-stage scoring defaults ───────────────────────────────
+
+export type StageKey = 'group_stage' | 'knockout' | 'semifinal' | 'final';
+
+export interface TournamentStageScoringRow {
+  id: string;
+  tournament_id: string;
+  stage: StageKey;
+  num_sets: number | null;
+  points_per_set: number | null;
+  win_by: number | null;
+  deuce_cap: number | null;
+}
+
+/** Fetch all stage scoring rows for a tournament. */
+export async function getTournamentStageScoringAction(
+  tournamentId: string,
+): Promise<TournamentStageScoringRow[]> {
+  const admin = createAdminClient();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data } = await (admin as any)
+    .from('tournament_stage_scoring')
+    .select('*')
+    .eq('tournament_id', tournamentId)
+    .order('stage');
+  return (data ?? []) as TournamentStageScoringRow[];
+}
+
+/** Upsert a tournament-level stage scoring row. */
+export async function upsertTournamentStageScoringAction(
+  tournamentId: string,
+  stage: StageKey,
+  config: {
+    num_sets: number;
+    points_per_set: number;
+    win_by: number;
+    deuce_cap: number | null;
+  },
+) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: 'Not authenticated' };
+
+  const admin = createAdminClient();
+
+  // Verify the caller manages this tournament's club
+  const { data: t } = await admin
+    .from('tournaments')
+    .select('club_id, slug')
+    .eq('id', tournamentId)
+    .single();
+  if (!t) return { error: 'Tournament not found' };
+
+  const { data: mgr } = await admin
+    .from('club_managers')
+    .select('role')
+    .eq('club_id', t.club_id)
+    .eq('player_id', user.id)
+    .maybeSingle();
+  if (!mgr) return { error: 'Permission denied' };
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (admin as any)
+    .from('tournament_stage_scoring')
+    .upsert(
+      { tournament_id: tournamentId, stage, ...config },
+      { onConflict: 'tournament_id,stage' },
+    );
+
+  if (error) return { error: error.message as string };
+
+  revalidatePath(`/tournaments/${t.slug}`);
+  revalidatePath(`/tournaments/${t.slug}/edit`);
+  return { error: null };
+}
+
+/** Delete a tournament-level stage scoring override. */
+export async function deleteTournamentStageScoringAction(
+  tournamentId: string,
+  stage: StageKey,
+) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: 'Not authenticated' };
+
+  const admin = createAdminClient();
+
+  const { data: t } = await admin
+    .from('tournaments')
+    .select('club_id, slug')
+    .eq('id', tournamentId)
+    .single();
+  if (!t) return { error: 'Tournament not found' };
+
+  const { data: mgr } = await admin
+    .from('club_managers')
+    .select('role')
+    .eq('club_id', t.club_id)
+    .eq('player_id', user.id)
+    .maybeSingle();
+  if (!mgr) return { error: 'Permission denied' };
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await (admin as any)
+    .from('tournament_stage_scoring')
+    .delete()
+    .eq('tournament_id', tournamentId)
+    .eq('stage', stage);
+
+  revalidatePath(`/tournaments/${t.slug}`);
+  revalidatePath(`/tournaments/${t.slug}/edit`);
+  return { error: null };
+}
