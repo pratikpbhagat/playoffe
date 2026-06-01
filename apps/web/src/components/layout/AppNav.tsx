@@ -68,6 +68,7 @@ export async function AppNav() {
           {!superAdmin && player && activeMode === 'admin' && (
             <>
               <NavLink href="/dashboard" exact>Dashboard</NavLink>
+              <NavLink href="/clubs" exact>My clubs</NavLink>
               <NavLink href="/rankings">Rankings</NavLink>
               <NavLink href="/tournaments" exact>My tournaments</NavLink>
             </>
