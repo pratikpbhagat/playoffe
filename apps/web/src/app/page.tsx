@@ -61,12 +61,6 @@ function Hero() {
         }}
       />
 
-      {/* Pill badge */}
-      <div className="relative mb-6 inline-flex items-center gap-2 rounded-full bg-brand-900/60 px-4 py-1.5 ring-1 ring-brand-700/40">
-        <span className="text-base leading-none">🏓</span>
-        <span className="text-xs font-semibold text-brand-300">The complete pickleball platform</span>
-      </div>
-
       {/* Headline */}
       <h1 className="relative max-w-4xl text-5xl font-black tracking-tight text-white md:text-7xl">
         Run Tournaments.{' '}
