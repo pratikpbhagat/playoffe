@@ -19,15 +19,13 @@ export interface MatchForScheduling {
 
 interface Props {
   tournamentSlug: string;
-  startDate: string; // YYYY-MM-DD — default for auto-fill
+  startDate: string;
   matches: MatchForScheduling[];
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-function pad(n: number) {
-  return String(n).padStart(2, '0');
-}
+function pad(n: number) { return String(n).padStart(2, '0'); }
 
 function toLocalInput(iso: string | null): string {
   if (!iso) return '';
@@ -40,14 +38,22 @@ function fromLocalInput(local: string): string | null {
   return new Date(local).toISOString();
 }
 
+function toTimeString(base: Date, minuteOffset: number): string {
+  const d = new Date(base.getTime() + minuteOffset * 60_000);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 // ── Component ──────────────────────────────────────────────────────────────────
 
 export function ScheduleEditor({ tournamentSlug, startDate, matches }: Props) {
-  // Per-match edit state: matchId → { time: datetime-local }
-  const [edits, setEdits] = useState<Record<string, { time: string }>>(() => {
-    const init: Record<string, { time: string }> = {};
+  // Per-match edits: { time, court }
+  const [edits, setEdits] = useState<Record<string, { time: string; court: string }>>(() => {
+    const init: Record<string, { time: string; court: string }> = {};
     for (const m of matches) {
-      init[m.id] = { time: toLocalInput(m.scheduled_time) };
+      init[m.id] = {
+        time: toLocalInput(m.scheduled_time),
+        court: m.court != null ? String(m.court) : '',
+      };
     }
     return init;
   });
@@ -55,65 +61,60 @@ export function ScheduleEditor({ tournamentSlug, startDate, matches }: Props) {
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<{ ok?: string; err?: string } | null>(null);
 
-  // ── Derive category list (ordered by first appearance in matches array) ────────
+  // ── Category list ─────────────────────────────────────────────────────────────
   const categories = useMemo(() => {
     const seen = new Map<string, { id: string; name: string }>();
     for (const m of matches) {
-      if (!seen.has(m.category_id)) {
-        seen.set(m.category_id, { id: m.category_id, name: m.category_name });
-      }
+      if (!seen.has(m.category_id)) seen.set(m.category_id, { id: m.category_id, name: m.category_name });
     }
     return Array.from(seen.values());
   }, [matches]);
 
   const [activeCatId, setActiveCatId] = useState<string>(categories[0]?.id ?? '');
 
-  // Per-category auto-fill controls
-  const [fillDatetime, setFillDatetime] = useState<Record<string, string>>({});
-  const [fillInterval, setFillInterval] = useState<Record<string, number>>({});
+  // ── Per-group auto-fill state ─────────────────────────────────────────────────
+  // Key: `${categoryId}::${groupKey}` where groupKey = group_name or '__ko__'
+  const [groupFill, setGroupFill] = useState<Record<string, { datetime: string; interval: number; court: string }>>({});
 
-  function getFillDatetime(catId: string) {
-    return fillDatetime[catId] ?? `${startDate}T09:00`;
-  }
-  function getFillInterval(catId: string) {
-    return fillInterval[catId] ?? 30;
+  function gfKey(catId: string, groupKey: string) { return `${catId}::${groupKey}`; }
+
+  function getGf(catId: string, groupKey: string) {
+    return groupFill[gfKey(catId, groupKey)] ?? { datetime: `${startDate}T09:00`, interval: 30, court: '' };
   }
 
-  function updateTime(id: string, value: string) {
-    setEdits((prev) => ({ ...prev, [id]: { time: value } }));
+  function setGf(catId: string, groupKey: string, patch: Partial<{ datetime: string; interval: number; court: string }>) {
+    setGroupFill((prev) => {
+      const key = gfKey(catId, groupKey);
+      return { ...prev, [key]: { ...getGf(catId, groupKey), ...patch } };
+    });
+  }
+
+  // ── Edit helpers ──────────────────────────────────────────────────────────────
+  function updateEdit(id: string, patch: Partial<{ time: string; court: string }>) {
+    setEdits((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
     setSaveMsg(null);
   }
 
-  // ── Auto-fill for a single category ──────────────────────────────────────────
-  function handleAutoFill(catId: string) {
-    const unscheduled = matches.filter(
-      (m) => m.category_id === catId && m.status === 'scheduled' && !edits[m.id]?.time,
+  // ── Auto-fill for a single group ──────────────────────────────────────────────
+  function handleGroupAutoFill(catId: string, groupKey: string, groupMatches: MatchForScheduling[]) {
+    const gf = getGf(catId, groupKey);
+    const unscheduled = groupMatches.filter(
+      (m) => m.status === 'scheduled' && !edits[m.id]?.time,
     );
     if (unscheduled.length === 0) {
-      setSaveMsg({ err: 'No unscheduled matches to fill in this category.' });
+      setSaveMsg({ err: 'No unscheduled matches to fill in this group.' });
       return;
     }
+    const base = new Date(gf.datetime);
+    if (isNaN(base.getTime())) { setSaveMsg({ err: 'Invalid start date/time.' }); return; }
 
-    const sorted = [...unscheduled].sort((a, b) => {
-      if ((a.group_name ?? '') !== (b.group_name ?? '')) {
-        return (a.group_name ?? '').localeCompare(b.group_name ?? '');
-      }
-      return a.round - b.round;
-    });
-
-    const base = new Date(getFillDatetime(catId));
-    if (isNaN(base.getTime())) {
-      setSaveMsg({ err: 'Invalid start date/time.' });
-      return;
-    }
-
-    const interval = getFillInterval(catId);
+    const sorted = [...unscheduled].sort((a, b) => a.round - b.round);
     setEdits((prev) => {
       const next = { ...prev };
       sorted.forEach((m, i) => {
-        const matchTime = new Date(base.getTime() + i * interval * 60_000);
         next[m.id] = {
-          time: `${matchTime.getFullYear()}-${pad(matchTime.getMonth() + 1)}-${pad(matchTime.getDate())}T${pad(matchTime.getHours())}:${pad(matchTime.getMinutes())}`,
+          time: toTimeString(base, i * gf.interval),
+          court: gf.court || prev[m.id]?.court || '',
         };
       });
       return next;
@@ -121,7 +122,7 @@ export function ScheduleEditor({ tournamentSlug, startDate, matches }: Props) {
     setSaveMsg(null);
   }
 
-  // ── Save all changes across all categories ─────────────────────────────────────
+  // ── Save all ──────────────────────────────────────────────────────────────────
   async function handleSave() {
     setSaving(true);
     setSaveMsg(null);
@@ -131,11 +132,10 @@ export function ScheduleEditor({ tournamentSlug, startDate, matches }: Props) {
       .map((m) => ({
         matchId: m.id,
         scheduledTime: fromLocalInput(edits[m.id]?.time ?? ''),
-        court: null,
+        court: edits[m.id]?.court ? parseInt(edits[m.id].court) : null,
       }));
 
     const result = await batchScheduleMatchesAction(tournamentSlug, updates);
-
     if (result.error) {
       setSaveMsg({ err: result.error });
     } else {
@@ -144,14 +144,16 @@ export function ScheduleEditor({ tournamentSlug, startDate, matches }: Props) {
     setSaving(false);
   }
 
-  // ── Dirty counts ──────────────────────────────────────────────────────────────
+  // ── Dirty count ───────────────────────────────────────────────────────────────
   const dirtyCountByCat = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const m of matches) {
       if (m.status !== 'scheduled') continue;
       const origTime = toLocalInput(m.scheduled_time);
-      const currTime = edits[m.id]?.time ?? origTime;
-      if (currTime !== origTime) {
+      const origCourt = m.court != null ? String(m.court) : '';
+      const e = edits[m.id];
+      if (!e) continue;
+      if (e.time !== origTime || e.court !== origCourt) {
         counts[m.category_id] = (counts[m.category_id] ?? 0) + 1;
       }
     }
@@ -160,20 +162,32 @@ export function ScheduleEditor({ tournamentSlug, startDate, matches }: Props) {
 
   const totalDirty = Object.values(dirtyCountByCat).reduce((a, b) => a + b, 0);
 
-  const inputCls =
-    'block w-full rounded border border-slate-700 bg-surface px-2 py-1.5 text-xs text-white outline-none focus:border-brand-500 disabled:opacity-40';
-
-  // Active category matches sorted: group A→Z first (null = knockout, last), then by round
-  const activeMatches = useMemo(() => {
-    return matches
+  // ── Active category — sorted + grouped ───────────────────────────────────────
+  const activeGroups = useMemo(() => {
+    const sorted = matches
       .filter((m) => m.category_id === activeCatId)
       .sort((a, b) => {
-        const ga = a.group_name ?? '￿'; // null groups sort after named groups
+        const ga = a.group_name ?? '￿';
         const gb = b.group_name ?? '￿';
         if (ga !== gb) return ga.localeCompare(gb);
         return a.round - b.round;
       });
+
+    const groupMap = new Map<string, MatchForScheduling[]>();
+    for (const m of sorted) {
+      const key = m.group_name ?? '__ko__';
+      if (!groupMap.has(key)) groupMap.set(key, []);
+      groupMap.get(key)!.push(m);
+    }
+    return Array.from(groupMap.entries()).map(([key, grpMatches]) => ({
+      key,
+      label: key === '__ko__' ? 'Knockout Stage' : key,
+      matches: grpMatches,
+    }));
   }, [matches, activeCatId]);
+
+  const inputCls =
+    'block w-full rounded border border-slate-700 bg-surface px-2 py-1.5 text-xs text-white outline-none focus:border-brand-500 disabled:opacity-40';
 
   if (matches.length === 0) {
     return (
@@ -184,6 +198,8 @@ export function ScheduleEditor({ tournamentSlug, startDate, matches }: Props) {
       </div>
     );
   }
+
+  let globalMatchNum = 0;
 
   return (
     <div className="space-y-5 pb-28">
@@ -209,154 +225,150 @@ export function ScheduleEditor({ tournamentSlug, startDate, matches }: Props) {
         </div>
       </div>
 
-      {/* ── Auto-schedule for active category ────────────────────────────────── */}
-      <div className="rounded-xl bg-surface-card p-5 ring-1 ring-surface-border">
-        <h2 className="mb-1 text-sm font-semibold text-white">Auto-schedule</h2>
-        <p className="mb-4 text-xs text-slate-500">
-          Assign times to all unscheduled matches in this category starting from the chosen time.
-        </p>
-        <div className="flex flex-wrap items-end gap-4">
-          <label className="space-y-1">
-            <span className="text-xs text-slate-400">Start date &amp; time</span>
-            <input
-              type="datetime-local"
-              value={getFillDatetime(activeCatId)}
-              onChange={(e) =>
-                setFillDatetime((prev) => ({ ...prev, [activeCatId]: e.target.value }))
-              }
-              className="block rounded-lg border border-slate-700 bg-surface px-3 py-2 text-sm text-white outline-none focus:border-brand-500"
-            />
-          </label>
+      {/* ── One section per group ─────────────────────────────────────────────── */}
+      {activeGroups.map((group) => {
+        const gf = getGf(activeCatId, group.key);
 
-          <label className="space-y-1">
-            <span className="text-xs text-slate-400">Min per match</span>
-            <input
-              type="number"
-              min={5}
-              max={180}
-              value={getFillInterval(activeCatId)}
-              onChange={(e) =>
-                setFillInterval((prev) => ({
-                  ...prev,
-                  [activeCatId]: parseInt(e.target.value) || 30,
-                }))
-              }
-              className="block w-24 rounded-lg border border-slate-700 bg-surface px-3 py-2 text-sm text-white outline-none focus:border-brand-500"
-            />
-          </label>
+        return (
+          <div key={group.key} className="rounded-xl bg-surface-card ring-1 ring-surface-border overflow-hidden">
+            {/* Group header + auto-fill controls */}
+            <div className="border-b border-surface-border bg-surface px-4 py-3 space-y-3">
+              <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
+                {group.label}
+              </p>
 
-          <button
-            onClick={() => handleAutoFill(activeCatId)}
-            className="rounded-lg border border-brand-600/50 bg-brand-600/20 px-4 py-2 text-sm font-semibold text-brand-300 hover:bg-brand-600/30 transition-colors"
-          >
-            ⚡ Auto-fill
-          </button>
-        </div>
-      </div>
+              {/* Auto-fill row */}
+              <div className="flex flex-wrap items-end gap-3">
+                <label className="space-y-1">
+                  <span className="text-[10px] text-slate-500">Start time</span>
+                  <input
+                    type="datetime-local"
+                    value={gf.datetime}
+                    onChange={(e) => setGf(activeCatId, group.key, { datetime: e.target.value })}
+                    className="block rounded border border-slate-700 bg-surface px-2.5 py-1.5 text-xs text-white outline-none focus:border-brand-500"
+                  />
+                </label>
 
-      {/* ── Match table for active category ──────────────────────────────────── */}
-      <div className="rounded-xl bg-surface-card ring-1 ring-surface-border overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-surface-border text-left">
-                <th className="px-4 py-2.5 text-xs font-medium text-slate-500 w-12 text-center">#</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-slate-500">Match</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-slate-500 w-52">
-                  Date &amp; time
-                </th>
-                <th className="px-4 py-2.5 text-xs font-medium text-slate-500 w-24 text-center">
-                  Status
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {(() => {
-                const rows: React.ReactNode[] = [];
-                let lastGroup: string | null | undefined = undefined; // sentinel
-                let matchNum = 0;
+                <label className="space-y-1">
+                  <span className="text-[10px] text-slate-500">Min / match</span>
+                  <input
+                    type="number"
+                    min={5}
+                    max={180}
+                    value={gf.interval}
+                    onChange={(e) => setGf(activeCatId, group.key, { interval: parseInt(e.target.value) || 30 })}
+                    className="block w-20 rounded border border-slate-700 bg-surface px-2.5 py-1.5 text-xs text-white outline-none focus:border-brand-500"
+                  />
+                </label>
 
-                for (const m of activeMatches) {
-                  // Insert a group header row whenever the group_name changes
-                  if (m.group_name !== lastGroup) {
-                    lastGroup = m.group_name;
-                    const label = m.group_name ?? 'Knockout Stage';
-                    rows.push(
-                      <tr key={`header-${label}`} className="border-t border-surface-border">
-                        <td
-                          colSpan={4}
-                          className="bg-surface px-4 py-2 text-[11px] font-bold uppercase tracking-widest text-slate-500"
-                        >
-                          {label}
+                <label className="space-y-1">
+                  <span className="text-[10px] text-slate-500">Default court</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={99}
+                    placeholder="—"
+                    value={gf.court}
+                    onChange={(e) => setGf(activeCatId, group.key, { court: e.target.value })}
+                    className="block w-20 rounded border border-slate-700 bg-surface px-2.5 py-1.5 text-xs text-white outline-none focus:border-brand-500"
+                  />
+                </label>
+
+                <button
+                  onClick={() => handleGroupAutoFill(activeCatId, group.key, group.matches)}
+                  className="self-end rounded border border-brand-600/50 bg-brand-600/20 px-3 py-1.5 text-xs font-semibold text-brand-300 hover:bg-brand-600/30 transition-colors"
+                >
+                  ⚡ Auto-fill
+                </button>
+              </div>
+            </div>
+
+            {/* Match rows */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-surface-border text-left">
+                    <th className="px-4 py-2 text-xs font-medium text-slate-500 w-10 text-center">#</th>
+                    <th className="px-4 py-2 text-xs font-medium text-slate-500">Match</th>
+                    <th className="px-4 py-2 text-xs font-medium text-slate-500 w-48">Date &amp; time</th>
+                    <th className="px-4 py-2 text-xs font-medium text-slate-500 w-20 text-center">Court</th>
+                    <th className="px-4 py-2 text-xs font-medium text-slate-500 w-20 text-center">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-surface-border">
+                  {group.matches.map((m) => {
+                    globalMatchNum += 1;
+                    const edit = edits[m.id] ?? { time: '', court: '' };
+                    const origTime = toLocalInput(m.scheduled_time);
+                    const origCourt = m.court != null ? String(m.court) : '';
+                    const isDirty = m.status === 'scheduled' && (edit.time !== origTime || edit.court !== origCourt);
+                    const isLocked = m.status !== 'scheduled';
+
+                    return (
+                      <tr key={m.id} className={isDirty ? 'bg-brand-900/20' : ''}>
+                        <td className="px-4 py-2.5 text-xs font-medium text-slate-500 text-center tabular-nums">
+                          {globalMatchNum}
                         </td>
-                      </tr>,
+
+                        <td className="px-4 py-2.5">
+                          <p className="text-sm text-white whitespace-nowrap">
+                            {m.player_a}
+                            <span className="mx-2 text-slate-600">vs</span>
+                            {m.player_b}
+                          </p>
+                        </td>
+
+                        <td className="px-4 py-2.5">
+                          <input
+                            type="datetime-local"
+                            value={edit.time}
+                            onChange={(e) => updateEdit(m.id, { time: e.target.value })}
+                            disabled={isLocked}
+                            className={inputCls}
+                          />
+                        </td>
+
+                        <td className="px-4 py-2.5">
+                          <input
+                            type="number"
+                            min={1}
+                            max={99}
+                            placeholder="—"
+                            value={edit.court}
+                            onChange={(e) => updateEdit(m.id, { court: e.target.value })}
+                            disabled={isLocked}
+                            className={`${inputCls} text-center`}
+                          />
+                        </td>
+
+                        <td className="px-4 py-2.5 text-center">
+                          {isLocked ? (
+                            <span className="rounded-full bg-slate-700/50 px-2 py-0.5 text-[10px] font-medium text-slate-400 capitalize">
+                              {m.status}
+                            </span>
+                          ) : isDirty ? (
+                            <span className="text-xs text-brand-400">unsaved</span>
+                          ) : edit.time ? (
+                            <span className="text-xs text-accent-500">✓</span>
+                          ) : (
+                            <span className="text-xs text-slate-700">—</span>
+                          )}
+                        </td>
+                      </tr>
                     );
-                  }
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })}
 
-                  matchNum += 1;
-                  const edit = edits[m.id] ?? { time: '' };
-                  const origTime = toLocalInput(m.scheduled_time);
-                  const isDirty = m.status === 'scheduled' && edit.time !== origTime;
-                  const isLocked = m.status !== 'scheduled';
-
-                  rows.push(
-                    <tr
-                      key={m.id}
-                      className={`border-t border-surface-border ${isDirty ? 'bg-brand-900/20' : ''}`}
-                    >
-                      <td className="px-4 py-3 text-xs font-medium text-slate-500 text-center tabular-nums">
-                        {matchNum}
-                      </td>
-
-                      <td className="px-4 py-3">
-                        <p className="text-sm text-white whitespace-nowrap">
-                          {m.player_a}
-                          <span className="mx-2 text-slate-600">vs</span>
-                          {m.player_b}
-                        </p>
-                      </td>
-
-                      <td className="px-4 py-3">
-                        <input
-                          type="datetime-local"
-                          value={edit.time}
-                          onChange={(e) => updateTime(m.id, e.target.value)}
-                          disabled={isLocked}
-                          className={inputCls}
-                        />
-                      </td>
-
-                      <td className="px-4 py-3 text-center">
-                        {isLocked ? (
-                          <span className="rounded-full bg-slate-700/50 px-2 py-0.5 text-[10px] font-medium text-slate-400 capitalize">
-                            {m.status}
-                          </span>
-                        ) : isDirty ? (
-                          <span className="text-xs text-brand-400">unsaved</span>
-                        ) : edit.time ? (
-                          <span className="text-xs text-accent-500">✓</span>
-                        ) : (
-                          <span className="text-xs text-slate-700">—</span>
-                        )}
-                      </td>
-                    </tr>,
-                  );
-                }
-
-                return rows;
-              })()}
-
-              {activeMatches.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="px-4 py-8 text-center text-sm text-slate-500">
-                    No matches for this category yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+      {activeGroups.length === 0 && (
+        <div className="rounded-xl bg-surface-card p-8 text-center ring-1 ring-surface-border">
+          <p className="text-sm text-slate-500">No matches for this category yet.</p>
         </div>
-      </div>
+      )}
 
       {/* ── Sticky save bar ───────────────────────────────────────────────────── */}
       <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-full max-w-2xl px-4">
@@ -368,8 +380,7 @@ export function ScheduleEditor({ tournamentSlug, startDate, matches }: Props) {
               <p className="text-sm text-accent-400">{saveMsg.ok}</p>
             ) : totalDirty > 0 ? (
               <p className="text-sm text-slate-300">
-                <span className="font-bold text-white">{totalDirty}</span> unsaved change
-                {totalDirty !== 1 ? 's' : ''} across all categories
+                <span className="font-bold text-white">{totalDirty}</span> unsaved change{totalDirty !== 1 ? 's' : ''}
               </p>
             ) : (
               <p className="text-sm text-slate-600">Schedule is up to date</p>
