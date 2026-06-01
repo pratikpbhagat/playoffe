@@ -216,13 +216,13 @@ export default async function TournamentPage({ params }: Props) {
         {/* Quick links */}
         <div className="mb-10 flex flex-wrap gap-3">
           <Link
-            href={`/tournaments/${slug}/scoring`}
+            href={`/tournaments/${slug}/registrations`}
             className="relative flex items-center gap-2 rounded-lg border border-surface-border px-4 py-2 text-sm text-slate-300 hover:bg-surface-card transition-colors"
           >
-            <span>🎾</span> Scoring
-            {(pendingScoreCount ?? 0) > 0 && (
+            <span>📋</span> Registrations
+            {(pendingCount ?? 0) > 0 && (
               <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold text-white">
-                {pendingScoreCount}
+                {pendingCount}
               </span>
             )}
           </Link>
@@ -233,13 +233,13 @@ export default async function TournamentPage({ params }: Props) {
             <span>📅</span> Schedule
           </Link>
           <Link
-            href={`/tournaments/${slug}/registrations`}
+            href={`/tournaments/${slug}/scoring`}
             className="relative flex items-center gap-2 rounded-lg border border-surface-border px-4 py-2 text-sm text-slate-300 hover:bg-surface-card transition-colors"
           >
-            <span>📋</span> Registrations
-            {(pendingCount ?? 0) > 0 && (
+            <span>🎾</span> Scoring
+            {(pendingScoreCount ?? 0) > 0 && (
               <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold text-white">
-                {pendingCount}
+                {pendingScoreCount}
               </span>
             )}
           </Link>
