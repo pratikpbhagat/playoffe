@@ -5,7 +5,6 @@ import { cookies } from 'next/headers';
 import { createClient, createAdminClient, getUserRoles } from '@/lib/supabase/server';
 import { AppNav } from '@/components/layout/AppNav';
 import { RegistrationsClient } from '@/components/tournaments/RegistrationsClient';
-import { InvitePlayersPanel } from '@/components/tournaments/InvitePlayersPanel';
 
 export const metadata: Metadata = { title: 'Registrations' };
 
@@ -128,8 +127,6 @@ export default async function RegistrationsPage({ params }: Props) {
           categories={cats}
           allEntries={allEntries}
         />
-        {/* Invite players panel */}
-        <InvitePlayersPanel tournamentId={t.id} />
       </main>
     </div>
   );

@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import { PendingEntriesPanel } from './PendingEntriesPanel';
+import { AddPlayerByEmail } from './AddPlayerByEmail';
 
 interface EntryRow {
   id: string;
@@ -145,7 +146,7 @@ export function RegistrationsClient({ tournamentSlug, tournamentId, categories, 
         </div>
       </div>
 
-      {/* ── Panel ───────────────────────────────────────────────────────────── */}
+      {/* ── Entries panel ───────────────────────────────────────────────────── */}
       {activeCategory && (
         <PendingEntriesPanel
           tournamentSlug={tournamentSlug}
@@ -153,6 +154,15 @@ export function RegistrationsClient({ tournamentSlug, tournamentId, categories, 
           category={activeCategory}
           entries={filteredEntries}
           isFiltered={!!(search || statusFilter)}
+        />
+      )}
+
+      {/* ── Add player / pair ────────────────────────────────────────────────── */}
+      {activeCategory && (
+        <AddPlayerByEmail
+          tournamentId={tournamentId}
+          categoryId={activeCategory.id}
+          playFormat={activeCategory.play_format as 'singles' | 'doubles' | 'mixed_doubles'}
         />
       )}
     </div>
