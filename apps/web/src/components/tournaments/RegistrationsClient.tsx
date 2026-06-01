@@ -39,6 +39,7 @@ const STATUS_OPTS = [
   { value: 'pending',     label: 'Pending approval' },
   { value: 'waitlisted',  label: 'Waitlisted' },
   { value: 'provisional', label: 'Invite sent' },
+  { value: 'withdrawn',   label: 'Withdrawn / Removed' },
 ];
 
 export function RegistrationsClient({ tournamentSlug, tournamentId, categories, allEntries }: Props) {

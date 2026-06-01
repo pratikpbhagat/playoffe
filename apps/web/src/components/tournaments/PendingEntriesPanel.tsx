@@ -51,10 +51,11 @@ interface Props {
 }
 
 const STATUS_BADGE: Record<string, { label: string; className: string }> = {
-  active:      { label: 'Active',      className: 'text-accent-400 bg-accent-500/10' },
-  pending:     { label: 'Pending',     className: 'text-amber-300 bg-amber-900/30' },
-  waitlisted:  { label: 'Waitlisted',  className: 'text-slate-300 bg-slate-700/50' },
-  provisional: { label: 'Invite sent', className: 'text-brand-300 bg-brand-900/40' },
+  active:      { label: 'Active',           className: 'text-accent-400 bg-accent-500/10' },
+  pending:     { label: 'Pending',          className: 'text-amber-300 bg-amber-900/30' },
+  waitlisted:  { label: 'Waitlisted',       className: 'text-slate-300 bg-slate-700/50' },
+  provisional: { label: 'Invite sent',      className: 'text-brand-300 bg-brand-900/40' },
+  withdrawn:   { label: 'Withdrawn',        className: 'text-slate-500 bg-slate-800/60 line-through' },
 };
 
 const PLAY_FORMAT: Record<string, string> = {
@@ -76,6 +77,7 @@ export function PendingEntriesPanel({ tournamentSlug, tournamentId, category, en
   const active      = entries.filter((e) => e.status === 'active');
   const waitlisted  = entries.filter((e) => e.status === 'waitlisted');
   const provisional = entries.filter((e) => e.status === 'provisional');
+  const withdrawn   = entries.filter((e) => e.status === 'withdrawn');
 
   async function handleApprove(entryId: string) {
     setActing(entryId);
@@ -163,8 +165,8 @@ export function PendingEntriesPanel({ tournamentSlug, tournamentId, category, en
     ? `${activeCount} / ${category.max_entries}`
     : `${activeCount} active`;
 
-  // Order: pending → provisional → waitlisted → active
-  const orderedEntries = [...pending, ...provisional, ...waitlisted, ...active];
+  // Order: pending → provisional → waitlisted → active → withdrawn (last)
+  const orderedEntries = [...pending, ...provisional, ...waitlisted, ...active, ...withdrawn];
 
   return (
     <div className="rounded-xl bg-surface-card ring-1 ring-surface-border overflow-hidden">
@@ -182,6 +184,7 @@ export function PendingEntriesPanel({ tournamentSlug, tournamentId, category, en
             {pending.length > 0 && (
               <> · <span className="text-amber-300">{pending.length} pending approval</span></>
             )}
+            {withdrawn.length > 0 && ` · ${withdrawn.length} withdrawn`}
           </p>
         </div>
 
@@ -229,6 +232,7 @@ export function PendingEntriesPanel({ tournamentSlug, tournamentId, category, en
               const isProvisional = entry.status === 'provisional';
               const isActive = entry.status === 'active';
               const isWaitlisted = entry.status === 'waitlisted';
+              const isWithdrawn = entry.status === 'withdrawn';
               const isEditingSeed = editingSeed === entry.id;
               const registeredDate = new Date(entry.registered_at).toLocaleDateString('en-AU', {
                 day: 'numeric', month: 'short',
@@ -237,7 +241,15 @@ export function PendingEntriesPanel({ tournamentSlug, tournamentId, category, en
               return (
                 <tr
                   key={entry.id}
-                  className={`transition-colors ${isPending ? 'bg-amber-900/5' : isProvisional ? 'bg-brand-900/5' : 'hover:bg-surface/30'}`}
+                  className={`transition-colors ${
+                    isWithdrawn
+                      ? 'opacity-50'
+                      : isPending
+                      ? 'bg-amber-900/5'
+                      : isProvisional
+                      ? 'bg-brand-900/5'
+                      : 'hover:bg-surface/30'
+                  }`}
                 >
                   {/* Player — for doubles show both names at identical style */}
                   <td className="px-5 py-3">
@@ -338,9 +350,12 @@ export function PendingEntriesPanel({ tournamentSlug, tournamentId, category, en
                     </span>
                   </td>
 
-                  {/* Actions */}
+                  {/* Actions — hidden for withdrawn entries */}
                   <td className="px-5 py-3 text-right">
                     <div className="flex items-center justify-end gap-2">
+                      {isWithdrawn && (
+                        <span className="text-xs text-slate-600 italic">—</span>
+                      )}
                       {isPending && (
                         <>
                           <button

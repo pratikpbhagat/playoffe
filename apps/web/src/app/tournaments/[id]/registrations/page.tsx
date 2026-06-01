@@ -64,7 +64,6 @@ export default async function RegistrationsPage({ params }: Props) {
       partner:players!partner_id(full_name, username)
     `)
     .eq('tournament_id', t.id)
-    .not('status', 'eq', 'withdrawn')
     .order('registered_at', { ascending: true });
 
   type EntryRow = {
