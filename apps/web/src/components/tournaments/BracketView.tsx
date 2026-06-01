@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import type { MatchWithPlayers } from '@/lib/actions/draws';
 
@@ -9,10 +9,22 @@ interface Props {
   format: string;
   tournamentSlug: string;
   readOnly?: boolean; // when true, match tiles are non-clickable divs
+  // Swap / adjust-draw mode
+  adjustMode?: boolean;
+  selectedEntryId?: string | null;
+  onEntryClick?: (entryId: string, entryName: string) => void;
 }
 
 // ── Single match card ─────────────────────────────────────────────────────────
-function MatchCard({ match, tournamentSlug, readOnly }: { match: MatchWithPlayers; tournamentSlug: string; readOnly?: boolean }) {
+function MatchCard({
+  match, tournamentSlug, readOnly,
+  adjustMode, selectedEntryId, onEntryClick, lockedEntryIds,
+}: {
+  match: MatchWithPlayers; tournamentSlug: string; readOnly?: boolean;
+  adjustMode?: boolean; selectedEntryId?: string | null;
+  onEntryClick?: (id: string, name: string) => void;
+  lockedEntryIds?: Set<string>;
+}) {
   const isCompleted = match.status === 'completed' || match.status === 'walkover';
 
   const sets = Array.isArray(match.sets)
@@ -33,12 +45,21 @@ function MatchCard({ match, tournamentSlug, readOnly }: { match: MatchWithPlayer
     setScores: number[];
   }) {
     const isBye = entry === null;
-    return (
-      <div
-        className={`flex items-center gap-1.5 px-3 py-1.5 ${
-          isWinner ? 'bg-brand-600/20' : ''
-        }`}
-      >
+    const isSelected = adjustMode && !isBye && entry?.id === selectedEntryId;
+    const isLocked   = adjustMode && !isBye && entry?.id != null && (lockedEntryIds?.has(entry.id) ?? false);
+    const isClickable = adjustMode && !isBye && entry?.id != null && !isLocked;
+
+    const entryName = entry ? (entry.partner_name ? `${entry.player_name} / ${entry.partner_name}` : entry.player_name) : '';
+
+    const rowBase = `flex items-center gap-1.5 px-3 py-1.5 transition-all ${isWinner ? 'bg-brand-600/20' : ''}`;
+    const adjustStyle = isClickable
+      ? `${rowBase} cursor-pointer ${isSelected ? 'bg-amber-500/20 ring-1 ring-amber-500/60' : 'hover:bg-amber-500/10'}`
+      : isLocked
+        ? `${rowBase} opacity-40 cursor-not-allowed`
+        : rowBase;
+
+    const inner = (
+      <div className={adjustMode ? adjustStyle : rowBase}>
         {/* Seed */}
         {entry?.seed ? (
           <span className="w-4 shrink-0 text-center text-[10px] font-bold text-brand-400">
@@ -65,7 +86,7 @@ function MatchCard({ match, tournamentSlug, readOnly }: { match: MatchWithPlayer
             }`;
             return (
               <>
-                <span className={nameClass}>{isBye ? 'BYE' : entry.player_name}</span>
+                <span className={nameClass}>{isBye ? 'TBD' : entry.player_name}</span>
                 {!isBye && entry.partner_name && (
                   <span className={`${nameClass} mt-0.5`}>{entry.partner_name}</span>
                 )}
@@ -87,8 +108,29 @@ function MatchCard({ match, tournamentSlug, readOnly }: { match: MatchWithPlayer
             {setScores.map((s, i) => <span key={i}>{s}</span>)}
           </span>
         )}
+        {/* Adjust mode: selected indicator */}
+        {isSelected && (
+          <span className="ml-1 shrink-0 text-[10px] font-semibold text-amber-400">●</span>
+        )}
+        {/* Adjust mode: locked indicator */}
+        {isLocked && (
+          <span className="ml-1 shrink-0 text-[10px] text-slate-600">🔒</span>
+        )}
       </div>
     );
+
+    if (isClickable) {
+      return (
+        <button
+          type="button"
+          onClick={() => onEntryClick?.(entry!.id, entryName)}
+          className="block w-full text-left"
+        >
+          {inner}
+        </button>
+      );
+    }
+    return inner;
   }
 
   const aWins = match.winner_entry_id === match.entry_a?.id;
@@ -128,17 +170,14 @@ function MatchCard({ match, tournamentSlug, readOnly }: { match: MatchWithPlayer
 
 // ── Round column ──────────────────────────────────────────────────────────────
 function RoundColumn({
-  round_name,
-  matches,
-  matchSlots,
-  tournamentSlug,
-  readOnly,
+  round_name, matches, matchSlots, tournamentSlug, readOnly,
+  adjustMode, selectedEntryId, onEntryClick, lockedEntryIds,
 }: {
-  round_name: string;
-  matches: MatchWithPlayers[];
-  matchSlots: number;
-  tournamentSlug: string;
-  readOnly?: boolean;
+  round_name: string; matches: MatchWithPlayers[]; matchSlots: number;
+  tournamentSlug: string; readOnly?: boolean;
+  adjustMode?: boolean; selectedEntryId?: string | null;
+  onEntryClick?: (id: string, name: string) => void;
+  lockedEntryIds?: Set<string>;
 }) {
   const slotsPerMatch = matchSlots / matches.length;
 
@@ -149,12 +188,12 @@ function RoundColumn({
       </div>
       <div className="flex flex-1 flex-col">
         {matches.map((m) => (
-          <div
-            key={m.id}
-            className="flex items-center justify-center"
-            style={{ flex: slotsPerMatch }}
-          >
-            <MatchCard match={m} tournamentSlug={tournamentSlug} readOnly={readOnly} />
+          <div key={m.id} className="flex items-center justify-center" style={{ flex: slotsPerMatch }}>
+            <MatchCard
+              match={m} tournamentSlug={tournamentSlug} readOnly={readOnly}
+              adjustMode={adjustMode} selectedEntryId={selectedEntryId}
+              onEntryClick={onEntryClick} lockedEntryIds={lockedEntryIds}
+            />
           </div>
         ))}
       </div>
@@ -164,15 +203,14 @@ function RoundColumn({
 
 // ── Mobile round navigator (used inside elimination brackets) ─────────────────
 function MobileRoundNav({
-  rounds,
-  maxSlots,
-  tournamentSlug,
-  readOnly,
+  rounds, maxSlots, tournamentSlug, readOnly,
+  adjustMode, selectedEntryId, onEntryClick, lockedEntryIds,
 }: {
   rounds: [number, MatchWithPlayers[]][];
-  maxSlots: number;
-  tournamentSlug: string;
-  readOnly?: boolean;
+  maxSlots: number; tournamentSlug: string; readOnly?: boolean;
+  adjustMode?: boolean; selectedEntryId?: string | null;
+  onEntryClick?: (id: string, name: string) => void;
+  lockedEntryIds?: Set<string>;
 }) {
   const [idx, setIdx] = useState(0);
   const [, roundMatches] = rounds[idx];
@@ -218,16 +256,12 @@ function MobileRoundNav({
       </div>
 
       {/* Current round matches */}
-      <div
-        className="flex flex-col"
-        style={{ minHeight: `${Math.max(maxSlots * 72, 200)}px` }}
-      >
+      <div className="flex flex-col" style={{ minHeight: `${Math.max(maxSlots * 72, 200)}px` }}>
         <RoundColumn
-          round_name=""
-          matches={roundMatches}
-          matchSlots={maxSlots}
-          tournamentSlug={tournamentSlug}
-          readOnly={readOnly}
+          round_name="" matches={roundMatches} matchSlots={maxSlots}
+          tournamentSlug={tournamentSlug} readOnly={readOnly}
+          adjustMode={adjustMode} selectedEntryId={selectedEntryId}
+          onEntryClick={onEntryClick} lockedEntryIds={lockedEntryIds}
         />
       </div>
     </div>
@@ -235,7 +269,15 @@ function MobileRoundNav({
 }
 
 // ── Bracket (single elimination) ─────────────────────────────────────────────
-function EliminationBracket({ matches, tournamentSlug, readOnly }: { matches: MatchWithPlayers[]; tournamentSlug: string; readOnly?: boolean }) {
+function EliminationBracket({
+  matches, tournamentSlug, readOnly,
+  adjustMode, selectedEntryId, onEntryClick, lockedEntryIds,
+}: {
+  matches: MatchWithPlayers[]; tournamentSlug: string; readOnly?: boolean;
+  adjustMode?: boolean; selectedEntryId?: string | null;
+  onEntryClick?: (id: string, name: string) => void;
+  lockedEntryIds?: Set<string>;
+}) {
   // Group by round
   const roundMap = new Map<number, MatchWithPlayers[]>();
   for (const m of matches) {
@@ -252,25 +294,25 @@ function EliminationBracket({ matches, tournamentSlug, readOnly }: { matches: Ma
     <>
       {/* Mobile: swipeable round-by-round navigator */}
       <div className="md:hidden">
-        <MobileRoundNav rounds={rounds} maxSlots={maxSlots} tournamentSlug={tournamentSlug} readOnly={readOnly} />
+        <MobileRoundNav
+          rounds={rounds} maxSlots={maxSlots} tournamentSlug={tournamentSlug} readOnly={readOnly}
+          adjustMode={adjustMode} selectedEntryId={selectedEntryId}
+          onEntryClick={onEntryClick} lockedEntryIds={lockedEntryIds}
+        />
       </div>
 
       {/* Desktop: full horizontal bracket */}
       <div className="hidden md:block overflow-x-auto pb-4">
-        <div
-          className="flex gap-6"
-          style={{ minHeight: `${Math.max(maxSlots * 72, 200)}px` }}
-        >
+        <div className="flex gap-6" style={{ minHeight: `${Math.max(maxSlots * 72, 200)}px` }}>
           {rounds.map(([, roundMatches]) => {
             const name = roundMatches[0].round_name ?? `Round ${roundMatches[0].round}`;
             return (
               <RoundColumn
                 key={roundMatches[0].round}
-                round_name={name}
-                matches={roundMatches}
-                matchSlots={maxSlots}
-                tournamentSlug={tournamentSlug}
-                readOnly={readOnly}
+                round_name={name} matches={roundMatches} matchSlots={maxSlots}
+                tournamentSlug={tournamentSlug} readOnly={readOnly}
+                adjustMode={adjustMode} selectedEntryId={selectedEntryId}
+                onEntryClick={onEntryClick} lockedEntryIds={lockedEntryIds}
               />
             );
           })}
@@ -281,7 +323,15 @@ function EliminationBracket({ matches, tournamentSlug, readOnly }: { matches: Ma
 }
 
 // ── Double elimination bracket ────────────────────────────────────────────────
-function DoubleEliminationBracket({ matches, tournamentSlug, readOnly }: { matches: MatchWithPlayers[]; tournamentSlug: string; readOnly?: boolean }) {
+function DoubleEliminationBracket({
+  matches, tournamentSlug, readOnly,
+  adjustMode, selectedEntryId, onEntryClick, lockedEntryIds,
+}: {
+  matches: MatchWithPlayers[]; tournamentSlug: string; readOnly?: boolean;
+  adjustMode?: boolean; selectedEntryId?: string | null;
+  onEntryClick?: (id: string, name: string) => void;
+  lockedEntryIds?: Set<string>;
+}) {
   const winners = matches.filter((m) => m.bracket_type === 'winners');
   const losers  = matches.filter((m) => m.bracket_type === 'losers');
   const gf      = matches.filter((m) => m.bracket_type === 'grand_final');
@@ -312,7 +362,10 @@ function DoubleEliminationBracket({ matches, tournamentSlug, readOnly }: { match
             Winners Bracket
           </p>
           <div className="md:hidden">
-            <MobileRoundNav rounds={wbRounds} maxSlots={wbMaxSlots} tournamentSlug={tournamentSlug} readOnly={readOnly} />
+            <MobileRoundNav
+              rounds={wbRounds} maxSlots={wbMaxSlots} tournamentSlug={tournamentSlug} readOnly={readOnly}
+              adjustMode={adjustMode} selectedEntryId={selectedEntryId} onEntryClick={onEntryClick} lockedEntryIds={lockedEntryIds}
+            />
           </div>
           <div className="hidden md:block overflow-x-auto pb-2">
             <div className="flex gap-6" style={{ minHeight: `${Math.max(wbMaxSlots * 72, 140)}px` }}>
@@ -320,10 +373,10 @@ function DoubleEliminationBracket({ matches, tournamentSlug, readOnly }: { match
                 <RoundColumn
                   key={roundMatches[0].round}
                   round_name={roundMatches[0].round_name ?? `Round ${roundMatches[0].round}`}
-                  matches={roundMatches}
-                  matchSlots={wbMaxSlots}
-                  tournamentSlug={tournamentSlug}
-                  readOnly={readOnly}
+                  matches={roundMatches} matchSlots={wbMaxSlots}
+                  tournamentSlug={tournamentSlug} readOnly={readOnly}
+                  adjustMode={adjustMode} selectedEntryId={selectedEntryId}
+                  onEntryClick={onEntryClick} lockedEntryIds={lockedEntryIds}
                 />
               ))}
             </div>
@@ -338,7 +391,10 @@ function DoubleEliminationBracket({ matches, tournamentSlug, readOnly }: { match
             Losers Bracket
           </p>
           <div className="md:hidden">
-            <MobileRoundNav rounds={lbRounds} maxSlots={lbMaxSlots} tournamentSlug={tournamentSlug} readOnly={readOnly} />
+            <MobileRoundNav
+              rounds={lbRounds} maxSlots={lbMaxSlots} tournamentSlug={tournamentSlug} readOnly={readOnly}
+              adjustMode={adjustMode} selectedEntryId={selectedEntryId} onEntryClick={onEntryClick} lockedEntryIds={lockedEntryIds}
+            />
           </div>
           <div className="hidden md:block overflow-x-auto pb-2">
             <div className="flex gap-6" style={{ minHeight: `${Math.max(lbMaxSlots * 72, 100)}px` }}>
@@ -346,10 +402,10 @@ function DoubleEliminationBracket({ matches, tournamentSlug, readOnly }: { match
                 <RoundColumn
                   key={roundMatches[0].round}
                   round_name={roundMatches[0].round_name ?? `Round ${roundMatches[0].round}`}
-                  matches={roundMatches}
-                  matchSlots={lbMaxSlots}
-                  tournamentSlug={tournamentSlug}
-                  readOnly={readOnly}
+                  matches={roundMatches} matchSlots={lbMaxSlots}
+                  tournamentSlug={tournamentSlug} readOnly={readOnly}
+                  adjustMode={adjustMode} selectedEntryId={selectedEntryId}
+                  onEntryClick={onEntryClick} lockedEntryIds={lockedEntryIds}
                 />
               ))}
             </div>
@@ -446,15 +502,14 @@ function RoundRobinMatchList({
 
 // ── Group section (group_stage_knockout) ─────────────────────────────────────
 function GroupSection({
-  groupName,
-  groupMatches,
-  tournamentSlug,
-  readOnly,
+  groupName, groupMatches, tournamentSlug, readOnly,
+  adjustMode, selectedEntryId, onEntryClick, isGroupLocked,
 }: {
-  groupName: string;
-  groupMatches: MatchWithPlayers[];
-  tournamentSlug: string;
-  readOnly?: boolean;
+  groupName: string; groupMatches: MatchWithPlayers[];
+  tournamentSlug: string; readOnly?: boolean;
+  adjustMode?: boolean; selectedEntryId?: string | null;
+  onEntryClick?: (id: string, name: string) => void;
+  isGroupLocked?: boolean;
 }) {
   // Extract unique participants from the match entries (dedupe by entry id)
   const participantMap = new Map<string, { id: string; playerName: string; partnerName: string | null; seed: number | null; wins: number; losses: number; withdrawn: boolean }>();
@@ -507,19 +562,26 @@ function GroupSection({
       <div className="bg-surface-card px-4 py-3 border-b border-surface-border">
         <div className="flex items-center justify-between mb-3">
           <p className="text-sm font-bold text-white tracking-wide">{groupName}</p>
-          <span className="text-[11px] text-slate-500">{participants.length} players</span>
+          <div className="flex items-center gap-2">
+            {adjustMode && isGroupLocked && (
+              <span className="text-[11px] text-slate-500">🔒 Locked</span>
+            )}
+            <span className="text-[11px] text-slate-500">{participants.length} players</span>
+          </div>
         </div>
 
         {/* Participant list */}
         <div className="space-y-1.5">
           {participants.map((p, i) => {
-            return (
-              <div key={p.id} className="flex items-center gap-2.5">
-                {/* Standing position (only meaningful once games played) */}
+            const displayName = p.partnerName ? `${p.playerName} / ${p.partnerName}` : p.playerName;
+            const isSelected = adjustMode && p.id === selectedEntryId;
+            const isClickable = adjustMode && !isGroupLocked && !p.withdrawn;
+
+            const rowContent = (
+              <>
+                {/* Standing position */}
                 <span className={`w-4 shrink-0 text-center text-[11px] font-bold ${
-                  anyResultsIn
-                    ? i === 0 ? 'text-amber-400' : 'text-slate-500'
-                    : 'text-slate-600'
+                  anyResultsIn ? i === 0 ? 'text-amber-400' : 'text-slate-500' : 'text-slate-600'
                 }`}>
                   {anyResultsIn ? (i + 1) : '·'}
                 </span>
@@ -528,17 +590,13 @@ function GroupSection({
                   <span className="text-[10px] font-bold text-brand-400 w-4 shrink-0">[{p.seed}]</span>
                 )}
                 <span className={`flex-1 text-xs ${
-                  p.withdrawn
-                    ? 'line-through text-slate-600'
-                    : anyResultsIn && i === 0
-                      ? 'font-semibold text-white'
-                      : 'text-slate-300'
+                  p.withdrawn ? 'line-through text-slate-600'
+                  : anyResultsIn && i === 0 ? 'font-semibold text-white'
+                  : 'text-slate-300'
                 }`}>
-                  {p.partnerName ? `${p.playerName} / ${p.partnerName}` : p.playerName}
+                  {displayName}
                   {p.withdrawn && (
-                    <span className="ml-1.5 no-underline text-[9px] font-semibold uppercase tracking-wide text-red-500/70">
-                      WD
-                    </span>
+                    <span className="ml-1.5 no-underline text-[9px] font-semibold uppercase tracking-wide text-red-500/70">WD</span>
                   )}
                 </span>
                 {/* W/L record */}
@@ -547,6 +605,32 @@ function GroupSection({
                     {p.wins}W&nbsp;{p.losses}L
                   </span>
                 )}
+                {/* Selected indicator */}
+                {isSelected && (
+                  <span className="shrink-0 text-[10px] font-semibold text-amber-400 ml-1">●</span>
+                )}
+              </>
+            );
+
+            if (isClickable) {
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => onEntryClick?.(p.id, displayName)}
+                  className={`flex w-full items-center gap-2.5 rounded-md px-1.5 py-1 -mx-1.5 text-left transition-all ${
+                    isSelected
+                      ? 'bg-amber-500/20 ring-1 ring-amber-500/50'
+                      : 'hover:bg-amber-500/10'
+                  }`}
+                >
+                  {rowContent}
+                </button>
+              );
+            }
+            return (
+              <div key={p.id} className="flex items-center gap-2.5">
+                {rowContent}
               </div>
             );
           })}
@@ -598,7 +682,15 @@ function GroupSection({
   );
 }
 
-function RoundRobinBracket({ matches, tournamentSlug, readOnly, format }: { matches: MatchWithPlayers[]; tournamentSlug: string; readOnly?: boolean; format?: string }) {
+function RoundRobinBracket({
+  matches, tournamentSlug, readOnly, format,
+  adjustMode, selectedEntryId, onEntryClick, lockedGroupNames,
+}: {
+  matches: MatchWithPlayers[]; tournamentSlug: string; readOnly?: boolean; format?: string;
+  adjustMode?: boolean; selectedEntryId?: string | null;
+  onEntryClick?: (id: string, name: string) => void;
+  lockedGroupNames?: Set<string>;
+}) {
   // For group_stage_knockout: group by group_name first (alphabetical), then knockout (null) last
   if (format === 'group_stage_knockout') {
     const groupMap = new Map<string, MatchWithPlayers[]>();
@@ -632,6 +724,10 @@ function RoundRobinBracket({ matches, tournamentSlug, readOnly, format }: { matc
                   groupMatches={groupMap.get(groupName)!}
                   tournamentSlug={tournamentSlug}
                   readOnly={readOnly}
+                  adjustMode={adjustMode}
+                  selectedEntryId={selectedEntryId}
+                  onEntryClick={onEntryClick}
+                  isGroupLocked={lockedGroupNames?.has(groupName) ?? false}
                 />
               ))}
             </div>
@@ -648,6 +744,10 @@ function RoundRobinBracket({ matches, tournamentSlug, readOnly, format }: { matc
               matches={knockoutMatches}
               tournamentSlug={tournamentSlug}
               readOnly={readOnly}
+              adjustMode={adjustMode}
+              selectedEntryId={selectedEntryId}
+              onEntryClick={onEntryClick}
+              lockedEntryIds={new Set()} /* KO slots are TBD pre-promotion */
             />
           </div>
         )}
@@ -744,18 +844,59 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 // ── Main export ───────────────────────────────────────────────────────────────
-export function BracketView({ matches, format, tournamentSlug, readOnly }: Props) {
+export function BracketView({
+  matches, format, tournamentSlug, readOnly,
+  adjustMode, selectedEntryId, onEntryClick,
+}: Props) {
+  // Entries whose matches have been played — can't be swapped
+  const lockedEntryIds = useMemo<Set<string>>(() => {
+    if (!adjustMode) return new Set();
+    const s = new Set<string>();
+    for (const m of matches) {
+      if (m.status !== 'scheduled') {
+        if (m.entry_a?.id) s.add(m.entry_a.id);
+        if (m.entry_b?.id) s.add(m.entry_b.id);
+      }
+    }
+    return s;
+  }, [adjustMode, matches]);
+
+  // Group names that contain at least one played match (entire group locked)
+  const lockedGroupNames = useMemo<Set<string>>(() => {
+    if (!adjustMode) return new Set();
+    const s = new Set<string>();
+    for (const m of matches) {
+      if (m.group_name && m.status !== 'scheduled') s.add(m.group_name);
+    }
+    return s;
+  }, [adjustMode, matches]);
+
   if (matches.length === 0) {
-    return (
-      <p className="text-sm italic text-slate-600">No matches found.</p>
-    );
+    return <p className="text-sm italic text-slate-600">No matches found.</p>;
   }
 
+  const adjustProps = { adjustMode, selectedEntryId, onEntryClick };
+
   if (format === 'double_elimination') {
-    return <DoubleEliminationBracket matches={matches} tournamentSlug={tournamentSlug} readOnly={readOnly} />;
+    return (
+      <DoubleEliminationBracket
+        matches={matches} tournamentSlug={tournamentSlug} readOnly={readOnly}
+        {...adjustProps} lockedEntryIds={lockedEntryIds}
+      />
+    );
   }
   if (format === 'single_elimination') {
-    return <EliminationBracket matches={matches} tournamentSlug={tournamentSlug} readOnly={readOnly} />;
+    return (
+      <EliminationBracket
+        matches={matches} tournamentSlug={tournamentSlug} readOnly={readOnly}
+        {...adjustProps} lockedEntryIds={lockedEntryIds}
+      />
+    );
   }
-  return <RoundRobinBracket matches={matches} tournamentSlug={tournamentSlug} readOnly={readOnly} format={format} />;
+  return (
+    <RoundRobinBracket
+      matches={matches} tournamentSlug={tournamentSlug} readOnly={readOnly} format={format}
+      {...adjustProps} lockedGroupNames={lockedGroupNames}
+    />
+  );
 }

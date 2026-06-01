@@ -76,7 +76,10 @@ export function singleElimination(config: DrawConfig): GeneratedDraw {
   // ── 3rd place match ──────────────────────────────────────────────────────────
   // Only meaningful when there are at least 4 entries (i.e. there is a semifinal
   // round before the final).  The two semifinal losers play for bronze.
-  if (totalRounds >= 2) {
+  // has_third_place_match defaults to true (undefined) for backward-compat with
+  // standalone single-elimination draws.  group_stage_knockout passes it explicitly.
+  const shouldHaveThirdPlace = config.has_third_place_match !== false;
+  if (totalRounds >= 2 && shouldHaveThirdPlace) {
     const finalRound = totalRounds; // 1-based round number of the Final
     const semifinalRoundIndex = finalRound - 1; // round index of the Semis
 

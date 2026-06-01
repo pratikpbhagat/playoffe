@@ -29,7 +29,14 @@ export function groupStageKnockout(config: DrawConfig): GeneratedDraw {
     rating: 1500,
   }));
 
-  const knockoutDraw = singleElimination({ ...config, entries: knockoutEntries, category_id });
+  const knockoutDraw = singleElimination({
+    ...config,
+    entries: knockoutEntries,
+    category_id,
+    // Explicitly forward has_third_place_match so the user's choice is respected.
+    // If not set, default to false for group-stage draws (different from standalone SE).
+    has_third_place_match: config.has_third_place_match ?? false,
+  });
 
   // Null out all entry slots in knockout matches — slots are TBD until group
   // stage results are recorded and standings are computed.

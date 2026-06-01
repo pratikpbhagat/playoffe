@@ -34,6 +34,9 @@ export async function createCategoryAction(
     points_per_set?: number;
     win_by?: 1 | 2;
     deuce_cap?: number | null;
+    groups_count?: number | null;
+    advance_per_group?: number;
+    has_third_place_match?: boolean;
   },
 ) {
   const supabase = await createClient();
@@ -43,7 +46,11 @@ export async function createCategoryAction(
   if (!user) return { error: 'Not authenticated' };
 
   // Destructure scoring override fields before schema validation
-  const { scoring_override, scoring_format, num_sets, points_per_set, win_by, deuce_cap, ...rest } = input;
+  const {
+    scoring_override, scoring_format, num_sets, points_per_set, win_by, deuce_cap,
+    groups_count, advance_per_group, has_third_place_match,
+    ...rest
+  } = input;
 
   const parsed = createCategorySchema.safeParse(rest);
   if (!parsed.success) return { error: parsed.error.issues[0].message };
@@ -52,7 +59,7 @@ export async function createCategoryAction(
   if (!t) return { error: 'Permission denied' };
 
   const admin = createAdminClient();
-  const { error } = await admin.from('tournament_categories').insert({
+  const { error } = await (admin as any).from('tournament_categories').insert({
     tournament_id: tournamentId,
     slug: '', // set by BEFORE INSERT trigger
     ...parsed.data,
@@ -64,6 +71,9 @@ export async function createCategoryAction(
       win_by: win_by ?? null,
       deuce_cap: deuce_cap ?? null,
     }),
+    groups_count: groups_count ?? null,
+    advance_per_group: advance_per_group ?? 2,
+    has_third_place_match: has_third_place_match ?? false,
   });
 
   if (error) return { error: 'Failed to create category. Please try again.' };
@@ -88,6 +98,9 @@ export async function updateCategoryAction(
     points_per_set?: number;
     win_by?: 1 | 2;
     deuce_cap?: number | null;
+    groups_count?: number | null;
+    advance_per_group?: number;
+    has_third_place_match?: boolean;
   },
 ) {
   const supabase = await createClient();
@@ -138,6 +151,11 @@ export async function updateCategoryAction(
   if (input.points_per_set !== undefined) update.points_per_set = input.points_per_set;
   if (input.win_by !== undefined) update.win_by = input.win_by;
   if ('deuce_cap' in input) update.deuce_cap = input.deuce_cap ?? null;
+
+  // Group stage configuration — always editable (doesn't affect existing entries)
+  if ('groups_count' in input) update.groups_count = input.groups_count ?? null;
+  if (input.advance_per_group !== undefined) update.advance_per_group = input.advance_per_group;
+  if (input.has_third_place_match !== undefined) update.has_third_place_match = input.has_third_place_match;
 
   if (Object.keys(update).length === 0) return { error: 'No changes provided' };
 

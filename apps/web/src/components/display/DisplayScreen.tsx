@@ -119,7 +119,7 @@ export function DisplayScreen({ tournament, initialDisplayState }: Props) {
 
   const safeIndex = rotationSlides.length > 0 ? rotationIndex % rotationSlides.length : 0;
   const effectiveSlide: DisplaySlide = displayState.is_pinned ? displayState.current_slide : (rotationSlides[safeIndex] ?? 'live_scores');
-  const entryLabel = (id: string | null): string => { if (!id) return 'BYE'; const ep = entryPlayers.get(id); if (!ep) return '—'; return ep.partnerName ? ep.playerName + ' / ' + ep.partnerName : ep.playerName; };
+  const entryLabel = (id: string | null): string => { if (!id) return 'TBD'; const ep = entryPlayers.get(id); if (!ep) return '—'; return ep.partnerName ? ep.playerName + ' / ' + ep.partnerName : ep.playerName; };
   const formatTime = (s: string | null): string => { if (!s) return '—'; return new Date(s).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: true }); };
   const parseSets = (s: unknown): SetScore[] => Array.isArray(s) ? s as SetScore[] : [];
   const catName = (id: string) => categories.find((c) => c.id === id)?.name ?? '';
@@ -130,15 +130,15 @@ export function DisplayScreen({ tournament, initialDisplayState }: Props) {
 
   const renderSlide = () => {
     switch (effectiveSlide) {
-      case 'live_scores': return <LiveScoresSlide matches={liveMatches} entryLabel={entryLabel} parseSets={parseSets} catName={catName} />;
+      case 'live_scores': return <LiveScoresSlide matches={liveMatches} entryLabel={entryLabel} entryPlayers={entryPlayers} parseSets={parseSets} catName={catName} />;
       case 'group_standings': return <GroupStandingsSlide matches={completedMatches} categories={categories} entryLabel={entryLabel} categoryFilter={displayState.active_category_filter} />;
-      case 'live_bracket': return <LiveBracketSlide matches={matches} categories={categories} entryLabel={entryLabel} categoryFilter={displayState.active_category_filter} />;
-      case 'upcoming_matches': return <UpcomingMatchesSlide matches={upcomingMatches} entryLabel={entryLabel} formatTime={formatTime} catName={catName} />;
+      case 'live_bracket': return <LiveBracketSlide matches={matches} categories={categories} entryLabel={entryLabel} entryPlayers={entryPlayers} categoryFilter={displayState.active_category_filter} />;
+      case 'upcoming_matches': return <UpcomingMatchesSlide matches={upcomingMatches} entryLabel={entryLabel} entryPlayers={entryPlayers} formatTime={formatTime} catName={catName} />;
       case 'full_schedule': return <FullScheduleSlide matches={matches} entryLabel={entryLabel} formatTime={formatTime} catName={catName} />;
       case 'category_podium': return <CategoryPodiumSlide categories={categories} entryLabel={entryLabel} categoryFilter={displayState.active_category_filter} />;
       case 'announcement': return <AnnouncementSlide announcement={activeAnnouncement} tournamentName={tournament.name} />;
       case 'wrap_up': return <WrapUpSlide categories={categories} entryLabel={entryLabel} tournamentName={tournament.name} />;
-      default: return <LiveScoresSlide matches={liveMatches} entryLabel={entryLabel} parseSets={parseSets} catName={catName} />;
+      default: return <LiveScoresSlide matches={liveMatches} entryLabel={entryLabel} entryPlayers={entryPlayers} parseSets={parseSets} catName={catName} />;
     }
   };
 
@@ -213,8 +213,26 @@ function PageIndicator({ pageNum, totalPages }: { pageNum: number; totalPages: n
   );
 }
 
-function LiveScoresSlide({ matches, entryLabel, parseSets, catName }: {
+function PlayerNameCell({ id, isWinner = false, entryPlayers, fontSize = '2vw', minHeight = '5vh', color, maxWidth = '65%', flex }: {
+  id: string | null; isWinner?: boolean; entryPlayers: Map<string, EntryPlayer>;
+  fontSize?: string; minHeight?: string; color?: string; maxWidth?: string; flex?: string | number;
+}) {
+  const resolvedColor = color ?? (isWinner ? '#a5f3fc' : '#94a3b8');
+  const ep = id ? entryPlayers.get(id) : null;
+  const nameStyle: React.CSSProperties = { fontSize, fontWeight: 600, color: resolvedColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.25 };
+  return (
+    /* minHeight locks all rows (singles & doubles) to the same height so
+       dividers, score columns and "vs" labels stay vertically aligned */
+    <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight, maxWidth, overflow: 'hidden', gap: '0.15vh', ...(flex !== undefined ? { flex } : {}) }}>
+      <span style={nameStyle}>{ep ? ep.playerName : (id ? '—' : 'TBD')}</span>
+      {ep?.partnerName && <span style={nameStyle}>{ep.partnerName}</span>}
+    </div>
+  );
+}
+
+function LiveScoresSlide({ matches, entryLabel, entryPlayers, parseSets, catName }: {
   matches: MatchRow[]; entryLabel: (id: string | null) => string;
+  entryPlayers: Map<string, EntryPlayer>;
   parseSets: (s: unknown) => SetScore[]; catName: (id: string) => string;
 }) {
   if (matches.length === 0) return <EmptySlide icon="🎯" title="No live matches" subtitle="Matches will appear here when in progress" />;
@@ -233,7 +251,7 @@ function LiveScoresSlide({ matches, entryLabel, parseSets, catName }: {
               </div>
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '1.5vh' }}>
                 <div className="flex items-center justify-between">
-                  <span style={{ fontSize: '2vw', fontWeight: 600, color: aWins > bWins ? '#a5f3fc' : '#94a3b8', maxWidth: '65%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entryLabel(m.entry_a_id)}</span>
+                  <PlayerNameCell id={m.entry_a_id} isWinner={aWins > bWins} entryPlayers={entryPlayers} />
                   <div className="flex items-center gap-[1vw]">
                     {sets.map((s, i) => <span key={i} style={{ fontSize: '2.5vw', fontWeight: 700, color: s.score_a > s.score_b ? '#ffffff' : '#64748b', minWidth: '2vw', textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>{s.score_a}</span>)}
                     <span style={{ fontSize: '3.5vw', fontWeight: 900, color: aWins > bWins ? '#6366f1' : '#1e293b', minWidth: '3vw', textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>{aWins}</span>
@@ -241,7 +259,7 @@ function LiveScoresSlide({ matches, entryLabel, parseSets, catName }: {
                 </div>
                 <div style={{ height: '1px', background: '#1e293b' }} />
                 <div className="flex items-center justify-between">
-                  <span style={{ fontSize: '2vw', fontWeight: 600, color: bWins > aWins ? '#a5f3fc' : '#94a3b8', maxWidth: '65%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entryLabel(m.entry_b_id)}</span>
+                  <PlayerNameCell id={m.entry_b_id} isWinner={bWins > aWins} entryPlayers={entryPlayers} />
                   <div className="flex items-center gap-[1vw]">
                     {sets.map((s, i) => <span key={i} style={{ fontSize: '2.5vw', fontWeight: 700, color: s.score_b > s.score_a ? '#ffffff' : '#64748b', minWidth: '2vw', textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>{s.score_b}</span>)}
                     <span style={{ fontSize: '3.5vw', fontWeight: 900, color: bWins > aWins ? '#6366f1' : '#1e293b', minWidth: '3vw', textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>{bWins}</span>
@@ -260,8 +278,9 @@ function LiveScoresSlide({ matches, entryLabel, parseSets, catName }: {
   );
 }
 
-function UpcomingMatchesSlide({ matches, entryLabel, formatTime, catName }: {
+function UpcomingMatchesSlide({ matches, entryLabel, entryPlayers, formatTime, catName }: {
   matches: MatchRow[]; entryLabel: (id: string | null) => string;
+  entryPlayers: Map<string, EntryPlayer>;
   formatTime: (s: string | null) => string; catName: (id: string) => string;
 }) {
   const { page, pageNum, totalPages } = useAutoPage(matches, 8);
@@ -270,14 +289,23 @@ function UpcomingMatchesSlide({ matches, entryLabel, formatTime, catName }: {
     <div className="h-full px-[3vw] py-[2vh] overflow-hidden" style={{ position: 'relative' }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2vh' }}>
         {page.map((m, i) => (
-          <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '2vw', background: i % 2 === 0 ? '#0f172a' : '#1e293b', border: '1px solid #1e293b', borderRadius: '0.8vw', padding: '1.5vh 2vw' }}>
-            <span style={{ fontSize: '1.6vw', fontWeight: 700, color: '#6366f1', minWidth: '8vw' }}>{formatTime(m.scheduled_time)}</span>
-            {m.court != null && <span style={{ fontSize: '1.3vw', color: '#64748b', minWidth: '6vw' }}>Court {m.court}</span>}
-            <span style={{ fontSize: '1.3vw', color: '#475569', minWidth: '10vw', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{catName(m.category_id)} · {m.round_name ?? 'R' + m.round}</span>
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '1.5vw', overflow: 'hidden' }}>
-              <span style={{ fontSize: '1.8vw', fontWeight: 600, color: '#e2e8f0', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entryLabel(m.entry_a_id)}</span>
+          // minHeight: 7.5vh ensures every row — singles (1 line) or doubles (2 lines) —
+          // occupies the same vertical space. alignItems: center keeps all left-side
+          // meta text and the "vs" label pinned to the vertical midpoint of the row.
+          <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '2vw', background: i % 2 === 0 ? '#0f172a' : '#1e293b', border: '1px solid #1e293b', borderRadius: '0.8vw', padding: '0 2vw', minHeight: '7.5vh' }}>
+            <span style={{ fontSize: '1.6vw', fontWeight: 700, color: '#6366f1', minWidth: '8vw', flexShrink: 0 }}>{formatTime(m.scheduled_time)}</span>
+            {m.court != null && <span style={{ fontSize: '1.3vw', color: '#64748b', minWidth: '6vw', flexShrink: 0 }}>Court {m.court}</span>}
+            {/* Two-line stacked cell: category name wraps freely, round shown below */}
+            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: '14vw', maxWidth: '28vw', flexShrink: 0, gap: '0.2vh' }}>
+              <span style={{ fontSize: '1.25vw', color: '#475569', lineHeight: 1.3 }}>{catName(m.category_id)}</span>
+              <span style={{ fontSize: '1.1vw', color: '#334155', lineHeight: 1.3, whiteSpace: 'nowrap' }}>{m.round_name ?? 'Round ' + m.round}</span>
+            </div>
+            {/* flex: 1 + no overflow:hidden lets both name cells expand equally and
+                show their full stacked height without being clipped */}
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '1.5vw', minWidth: 0 }}>
+              <PlayerNameCell id={m.entry_a_id} entryPlayers={entryPlayers} fontSize="1.8vw" minHeight="3.2vh" color="#e2e8f0" maxWidth="none" flex={1} />
               <span style={{ fontSize: '1.4vw', color: '#475569', fontWeight: 700, flexShrink: 0 }}>vs</span>
-              <span style={{ fontSize: '1.8vw', fontWeight: 600, color: '#e2e8f0', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entryLabel(m.entry_b_id)}</span>
+              <PlayerNameCell id={m.entry_b_id} entryPlayers={entryPlayers} fontSize="1.8vw" minHeight="3.2vh" color="#e2e8f0" maxWidth="none" flex={1} />
             </div>
           </div>
         ))}
@@ -402,9 +430,11 @@ function GroupStandingsSlide({ matches, categories, entryLabel, categoryFilter }
   );
 }
 
-function LiveBracketSlide({ matches, categories, entryLabel, categoryFilter }: {
+function LiveBracketSlide({ matches, categories, entryLabel, entryPlayers, categoryFilter }: {
   matches: MatchRow[]; categories: CategoryRow[];
-  entryLabel: (id: string | null) => string; categoryFilter: string | null;
+  entryLabel: (id: string | null) => string;
+  entryPlayers: Map<string, EntryPlayer>;
+  categoryFilter: string | null;
 }) {
   const elimCats = categories.filter((c) => c.draw_format === 'single_elimination' || c.draw_format === 'double_elimination' || c.draw_format === 'group_stage_knockout');
   const cat = categoryFilter ? (elimCats.find((c) => c.id === categoryFilter) ?? elimCats[0]) : elimCats[0];
@@ -444,11 +474,17 @@ function LiveBracketSlide({ matches, categories, entryLabel, categoryFilter }: {
                   const bWon = m.winner_entry_id === m.entry_b_id;
                   return (
                     <div key={m.id} style={{ background: '#0f172a', border: '1px solid ' + (m.status === 'in_progress' ? '#6366f1' : '#1e293b'), borderRadius: '0.6vw', overflow: 'hidden' }}>
-                      {([{ id: m.entry_a_id, won: aWon }, { id: m.entry_b_id, won: bWon }] as const).map((p, i) => (
-                        <div key={i} style={{ padding: '0.8vh 1vw', fontSize: '1.4vw', fontWeight: p.won ? 700 : 500, color: p.won ? '#ffffff' : m.winner_entry_id ? '#475569' : '#cbd5e1', background: p.won ? 'rgba(99,102,241,0.2)' : 'transparent', borderBottom: i === 0 ? '1px solid #1e293b' : 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {p.id ? entryLabel(p.id) : 'TBD'}{p.won ? ' ✓' : ''}
-                        </div>
-                      ))}
+                      {([{ id: m.entry_a_id, won: aWon }, { id: m.entry_b_id, won: bWon }] as const).map((p, i) => {
+                        const ep = p.id ? entryPlayers.get(p.id) : null;
+                        const nameColor = p.won ? '#ffffff' : m.winner_entry_id ? '#475569' : '#cbd5e1';
+                        const nameStyle: React.CSSProperties = { fontSize: '1.4vw', fontWeight: p.won ? 700 : 500, color: nameColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.3 };
+                        return (
+                          <div key={i} style={{ padding: '0.8vh 1vw', background: p.won ? 'rgba(99,102,241,0.2)' : 'transparent', borderBottom: i === 0 ? '1px solid #1e293b' : 'none', overflow: 'hidden', minHeight: '3.5vh', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '0.1vh' }}>
+                            <span style={nameStyle}>{ep ? ep.playerName : (p.id ? '—' : 'TBD')}{p.won ? ' ✓' : ''}</span>
+                            {ep?.partnerName && <span style={{ ...nameStyle, fontWeight: p.won ? 600 : 400 }}>{ep.partnerName}</span>}
+                          </div>
+                        );
+                      })}
                     </div>
                   );
                 })}

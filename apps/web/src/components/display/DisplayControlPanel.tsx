@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useState, useTransition, useEffect } from 'react';
 import { QRCodeSVG as QRCode } from 'qrcode.react';
 import type { DisplaySlide } from '@pickleball/shared';
 import {
@@ -86,10 +86,14 @@ export function DisplayControlPanel({
   const [annSent, setAnnSent] = useState(false);
   const [isPending, startTransition] = useTransition();
 
-  const displayUrl =
-    typeof window !== 'undefined'
-      ? `${window.location.origin}/display/${tournamentSlug.toUpperCase()}`
-      : `/display/${tournamentSlug.toUpperCase()}`;
+  // Start with the relative path so server and client agree during hydration,
+  // then patch to the full absolute URL once the component mounts.
+  const relativePath = `/display/${tournamentSlug.toUpperCase()}`;
+  const [displayUrl, setDisplayUrl] = useState(relativePath);
+  useEffect(() => {
+    setDisplayUrl(`${window.location.origin}${relativePath}`);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSlideChange = (slide: DisplaySlide, pin: boolean) => {
     startTransition(async () => {

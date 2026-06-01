@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { generateDrawAction, clearDrawAction, generateNextSwissRoundAction, promoteGroupWinnersAction } from '@/lib/actions/draws';
+import { generateDrawAction, clearDrawAction, generateNextSwissRoundAction, promoteGroupWinnersAction, swapDrawEntriesAction } from '@/lib/actions/draws';
 import type { MatchWithPlayers } from '@/lib/actions/draws';
 import { BracketView } from './BracketView';
 import { useRealtimeCategoryMatches } from '@/hooks/useRealtimeCategoryMatches';
@@ -48,6 +48,15 @@ export function DrawSection({
   const [showRegenConfirm, setShowRegenConfirm] = useState(false);
   const [matches, setMatches] = useState(initialMatches);
 
+  // ── Swap / adjust-draw state ─────────────────────────────────────────────────
+  const [adjustMode, setAdjustMode] = useState(false);
+  const [selectedEntry, setSelectedEntry] = useState<{ id: string; name: string } | null>(null);
+  const [pendingSwap, setPendingSwap] = useState<{
+    id1: string; name1: string; id2: string; name2: string;
+  } | null>(null);
+  const [swapping, setSwapping] = useState(false);
+  const [swapError, setSwapError] = useState<string | null>(null);
+
   // Sync matches when server re-renders after router.refresh() passes new initialMatches
   useEffect(() => {
     setMatches(initialMatches);
@@ -89,6 +98,49 @@ export function DrawSection({
     setPromotingGroups(false);
   }
 
+  // Can adjust: draw exists, category not completed, not swiss
+  const canAdjust =
+    isDrawn &&
+    categoryStatus !== 'completed' &&
+    drawFormat !== 'swiss' &&
+    matches.length > 0 &&
+    !readOnly;
+
+  function handleEntryClick(entryId: string, entryName: string) {
+    setSwapError(null);
+    if (!selectedEntry) {
+      setSelectedEntry({ id: entryId, name: entryName });
+    } else if (selectedEntry.id === entryId) {
+      // Clicking the same entry deselects it
+      setSelectedEntry(null);
+    } else {
+      // Second entry selected → queue for confirmation
+      setPendingSwap({ id1: selectedEntry.id, name1: selectedEntry.name, id2: entryId, name2: entryName });
+      setSelectedEntry(null);
+    }
+  }
+
+  async function handleConfirmSwap() {
+    if (!pendingSwap) return;
+    setSwapping(true);
+    setSwapError(null);
+    const result = await swapDrawEntriesAction(categoryId, pendingSwap.id1, pendingSwap.id2);
+    if ('error' in result && result.error) {
+      setSwapError(result.error);
+    } else {
+      setPendingSwap(null);
+      router.refresh();
+    }
+    setSwapping(false);
+  }
+
+  function exitAdjustMode() {
+    setAdjustMode(false);
+    setSelectedEntry(null);
+    setPendingSwap(null);
+    setSwapError(null);
+  }
+
   // Live subscription — auto-refreshes bracket when any match in this category changes
   const liveStatus = useRealtimeCategoryMatches(categoryId);
 
@@ -127,7 +179,7 @@ export function DrawSection({
   }
 
   return (
-    <section>
+    <section className={pendingSwap ? 'pb-24' : ''}>
       {/* Section header */}
       <div className="mb-4 flex items-center justify-between flex-wrap gap-3">
         <div>
@@ -170,64 +222,86 @@ export function DrawSection({
                 {matches.length} match{matches.length !== 1 ? 'es' : ''}
               </span>
 
-              {/* Link to schedule page */}
-              {!showRegenConfirm && (
-                <Link
-                  href={`/tournaments/${tournamentSlug}/schedule`}
-                  className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs text-slate-300 hover:border-brand-500 hover:text-brand-400 transition-colors"
-                >
-                  📅 Schedule
-                </Link>
-              )}
-
-              {/* Swiss: generate next round */}
-              {canGenerateNextSwissRound && !showRegenConfirm && (
+              {adjustMode ? (
+                /* ── Adjust mode active: only show "Done" ── */
                 <button
-                  onClick={handleGenerateNextSwissRound}
-                  disabled={generatingSwissRound}
-                  className="rounded-lg border border-brand-600 px-3 py-1.5 text-xs text-brand-400 hover:bg-brand-600/10 transition-colors disabled:opacity-50"
+                  onClick={exitAdjustMode}
+                  className="rounded-lg bg-amber-600/20 border border-amber-600/50 px-3 py-1.5 text-xs font-semibold text-amber-300 hover:bg-amber-600/30 transition-colors"
                 >
-                  {generatingSwissRound ? 'Generating…' : `Generate Round ${maxRound + 1}`}
+                  ✓ Done adjusting
                 </button>
-              )}
+              ) : (
+                <>
+                  {/* Link to schedule page */}
+                  {!showRegenConfirm && (
+                    <Link
+                      href={`/tournaments/${tournamentSlug}/schedule`}
+                      className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs text-slate-300 hover:border-brand-500 hover:text-brand-400 transition-colors"
+                    >
+                      📅 Schedule
+                    </Link>
+                  )}
 
-              {/* Group stage knockout: promote group winners to knockout bracket */}
-              {canPromoteGroups && !showRegenConfirm && (
-                <button
-                  onClick={handlePromoteGroups}
-                  disabled={promotingGroups}
-                  className="rounded-lg border border-brand-600 px-3 py-1.5 text-xs text-brand-400 hover:bg-brand-600/10 transition-colors disabled:opacity-50"
-                >
-                  {promotingGroups ? 'Promoting…' : 'Promote group winners →'}
-                </button>
-              )}
+                  {/* Adjust draw button */}
+                  {canAdjust && !showRegenConfirm && (
+                    <button
+                      onClick={() => setAdjustMode(true)}
+                      className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs text-slate-300 hover:border-amber-500 hover:text-amber-400 transition-colors"
+                    >
+                      ✏️ Adjust draw
+                    </button>
+                  )}
 
-              {categoryStatus === 'draw_generated' && !showRegenConfirm && (
-                <button
-                  onClick={() => setShowRegenConfirm(true)}
-                  className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs text-slate-300 hover:border-red-600 hover:text-red-400 transition-colors"
-                >
-                  Regenerate
-                </button>
-              )}
+                  {/* Swiss: generate next round */}
+                  {canGenerateNextSwissRound && !showRegenConfirm && (
+                    <button
+                      onClick={handleGenerateNextSwissRound}
+                      disabled={generatingSwissRound}
+                      className="rounded-lg border border-brand-600 px-3 py-1.5 text-xs text-brand-400 hover:bg-brand-600/10 transition-colors disabled:opacity-50"
+                    >
+                      {generatingSwissRound ? 'Generating…' : `Generate Round ${maxRound + 1}`}
+                    </button>
+                  )}
 
-              {showRegenConfirm && (
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-red-400">Delete existing draw?</span>
-                  <button
-                    onClick={handleClear}
-                    disabled={loading}
-                    className="rounded-lg bg-red-900/40 px-3 py-1.5 text-xs font-semibold text-red-400 hover:bg-red-900/60 transition-colors disabled:opacity-50"
-                  >
-                    {loading ? '…' : 'Yes, regenerate'}
-                  </button>
-                  <button
-                    onClick={() => setShowRegenConfirm(false)}
-                    className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                </div>
+                  {/* Group stage knockout: promote group winners to knockout bracket */}
+                  {canPromoteGroups && !showRegenConfirm && (
+                    <button
+                      onClick={handlePromoteGroups}
+                      disabled={promotingGroups}
+                      className="rounded-lg border border-brand-600 px-3 py-1.5 text-xs text-brand-400 hover:bg-brand-600/10 transition-colors disabled:opacity-50"
+                    >
+                      {promotingGroups ? 'Promoting…' : 'Promote group winners →'}
+                    </button>
+                  )}
+
+                  {categoryStatus === 'draw_generated' && !showRegenConfirm && (
+                    <button
+                      onClick={() => setShowRegenConfirm(true)}
+                      className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs text-slate-300 hover:border-red-600 hover:text-red-400 transition-colors"
+                    >
+                      Regenerate
+                    </button>
+                  )}
+
+                  {showRegenConfirm && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-red-400">Delete existing draw?</span>
+                      <button
+                        onClick={handleClear}
+                        disabled={loading}
+                        className="rounded-lg bg-red-900/40 px-3 py-1.5 text-xs font-semibold text-red-400 hover:bg-red-900/60 transition-colors disabled:opacity-50"
+                      >
+                        {loading ? '…' : 'Yes, regenerate'}
+                      </button>
+                      <button
+                        onClick={() => setShowRegenConfirm(false)}
+                        className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+                </>
               )}
             </>
           ) : (
@@ -250,6 +324,33 @@ export function DrawSection({
         </div>
       )}
 
+      {/* ── Adjust-mode instruction banner (top) ────────────────────────── */}
+      {adjustMode && (
+        <div className="mb-4 space-y-2">
+          <div className="flex items-center gap-2 rounded-lg border border-amber-700/40 bg-amber-950/30 px-4 py-2.5">
+            <span className="text-amber-400">✏️</span>
+            <p className="flex-1 text-xs text-amber-200">
+              {selectedEntry
+                ? <>Selected <strong>{selectedEntry.name}</strong> — now click another entry to swap positions.</>
+                : 'Click any entry to select it, then click another to swap their positions. Groups with played matches are locked.'}
+            </p>
+            {selectedEntry && (
+              <button
+                onClick={() => setSelectedEntry(null)}
+                className="text-xs text-amber-500 hover:text-amber-300 transition-colors"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          {swapError && (
+            <div className="rounded-lg border border-red-800 bg-red-950 px-3 py-2 text-xs text-red-400">
+              {swapError}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Draw not yet generated */}
       {!isDrawn && !loading && (
         <div className="rounded-xl bg-surface-card p-8 text-center ring-1 ring-surface-border">
@@ -265,12 +366,53 @@ export function DrawSection({
 
       {/* Bracket / schedule */}
       {showBracket && isDrawn && matches.length > 0 && (
-        <BracketView matches={matches} format={drawFormat} tournamentSlug={tournamentSlug} readOnly={readOnly} />
+        <BracketView
+          matches={matches}
+          format={drawFormat}
+          tournamentSlug={tournamentSlug}
+          readOnly={readOnly}
+          adjustMode={adjustMode}
+          selectedEntryId={selectedEntry?.id ?? null}
+          onEntryClick={handleEntryClick}
+        />
       )}
 
       {/* Live standings — round-robin, swiss, group stage */}
       {showStandings && isDrawn && matches.length > 0 && (
         <StandingsTable matches={matches} format={drawFormat} />
+      )}
+
+      {/* ── Fixed bottom confirmation bar ────────────────────────────────────
+          Rendered outside normal flow so it stays visible while scrolling.
+          Adds pb-24 to the section (above) so no content is hidden behind it. */}
+      {adjustMode && pendingSwap && (
+        <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-brand-700/50 bg-surface/95 backdrop-blur-sm shadow-2xl">
+          <div className="mx-auto max-w-4xl flex items-center gap-4 flex-wrap px-6 py-4">
+            <div className="flex-1 min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5">Confirm swap</p>
+              <p className="text-sm text-slate-200 truncate">
+                <span className="font-semibold text-white">{pendingSwap.name1}</span>
+                <span className="mx-2 text-slate-500">↔</span>
+                <span className="font-semibold text-white">{pendingSwap.name2}</span>
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => setPendingSwap(null)}
+                className="rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-300 hover:border-slate-400 hover:text-white transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmSwap}
+                disabled={swapping}
+                className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 transition-colors disabled:opacity-50"
+              >
+                {swapping ? 'Swapping…' : 'Confirm swap'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </section>
   );

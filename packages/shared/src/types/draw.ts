@@ -8,6 +8,10 @@ export interface DrawConfig {
   groups_per_page?: number;
   top_per_group_advance?: number;
   min_rest_minutes?: number;
+  /** Whether to generate a 3rd-place (bronze) match for the knockout phase.
+   *  Defaults to true for single_elimination (backward-compat).
+   *  Explicitly set to false to suppress it. */
+  has_third_place_match?: boolean;
 }
 
 export interface DrawEntry {

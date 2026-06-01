@@ -70,11 +70,26 @@ export async function generateDrawAction(categoryId: string) {
     };
   });
 
+  // For group_stage_knockout, derive group_size from stored config
+  const catAny = cat as typeof cat & {
+    max_entries?: number | null;
+    groups_count?: number | null;
+    advance_per_group?: number | null;
+    has_third_place_match?: boolean | null;
+  };
+  const groupsCount = catAny.groups_count ?? null;
+  const groupSize = groupsCount && catAny.max_entries
+    ? Math.ceil(catAny.max_entries / groupsCount)
+    : 4; // default group size
+
   // Generate the draw
   const config: DrawConfig = {
     format: cat.draw_format as DrawConfig['format'],
     entries: drawEntries,
     category_id: categoryId,
+    group_size: groupSize,
+    top_per_group_advance: catAny.advance_per_group ?? 2,
+    has_third_place_match: catAny.has_third_place_match ?? false,
   };
 
   let draw;
@@ -504,6 +519,91 @@ export type MatchWithPlayers = {
     entry_status?: string;
   } | null;
 };
+
+// ── Swap two draw entries ─────────────────────────────────────────────────────
+// Atomically swaps entryId1 and entryId2 in every match row for this category,
+// including any auto-advanced bye slots and winner_entry_id references.
+// Also swaps their seed values so draw ordering stays consistent.
+// Blocked if either entry has any completed / in-progress / walkover match.
+export async function swapDrawEntriesAction(
+  categoryId: string,
+  entryId1: string,
+  entryId2: string,
+) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: 'Not authenticated' };
+
+  const cat = await assertCategoryManager(categoryId, user.id);
+  if (!cat) return { error: 'Permission denied' };
+
+  const admin = createAdminClient();
+
+  // Refuse if any non-scheduled match references either entry
+  const { data: blockers } = await admin
+    .from('matches')
+    .select('id')
+    .eq('category_id', categoryId)
+    .not('status', 'eq', 'scheduled')
+    .or(
+      `entry_a_id.eq.${entryId1},entry_a_id.eq.${entryId2},` +
+      `entry_b_id.eq.${entryId1},entry_b_id.eq.${entryId2}`,
+    )
+    .limit(1);
+
+  if (blockers && blockers.length > 0) {
+    return { error: 'Cannot swap — one or both entries have already played a match.' };
+  }
+
+  // Fetch every match that references either entry (includes auto-advanced bye slots)
+  const { data: affected } = await admin
+    .from('matches')
+    .select('id, entry_a_id, entry_b_id, winner_entry_id')
+    .eq('category_id', categoryId)
+    .or(
+      `entry_a_id.eq.${entryId1},entry_a_id.eq.${entryId2},` +
+      `entry_b_id.eq.${entryId1},entry_b_id.eq.${entryId2},` +
+      `winner_entry_id.eq.${entryId1},winner_entry_id.eq.${entryId2}`,
+    );
+
+  if (!affected || affected.length === 0) {
+    return { error: 'No draw matches found for these entries.' };
+  }
+
+  const swap = (id: string | null) =>
+    id === entryId1 ? entryId2 : id === entryId2 ? entryId1 : id;
+
+  await Promise.all(
+    affected.map((m) =>
+      admin.from('matches').update({
+        entry_a_id:      swap(m.entry_a_id),
+        entry_b_id:      swap(m.entry_b_id),
+        winner_entry_id: swap(m.winner_entry_id ?? null),
+      }).eq('id', m.id),
+    ),
+  );
+
+  // Swap seed values on the entries themselves
+  const { data: seeds } = await admin
+    .from('tournament_entries')
+    .select('id, seed')
+    .in('id', [entryId1, entryId2]);
+
+  if (seeds && seeds.length === 2) {
+    const s1 = seeds.find((s) => s.id === entryId1);
+    const s2 = seeds.find((s) => s.id === entryId2);
+    if (s1 && s2) {
+      await Promise.all([
+        admin.from('tournament_entries').update({ seed: s2.seed ?? null }).eq('id', entryId1),
+        admin.from('tournament_entries').update({ seed: s1.seed ?? null }).eq('id', entryId2),
+      ]);
+    }
+  }
+
+  const tSlug = (cat.tournaments as { slug: string } | null)?.slug ?? '';
+  revalidatePath(`/tournaments/${tSlug}/categories/${cat.slug}`);
+  return { success: true };
+}
 
 export async function getMatchesForCategory(categoryId: string): Promise<MatchWithPlayers[]> {
   const admin = createAdminClient();

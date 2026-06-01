@@ -228,6 +228,9 @@ export default async function CategoryPage({ params }: Props) {
               currentWinBy={((category as { win_by?: number | null }).win_by ?? null) as 1 | 2 | null}
               currentDeuceCap={(category as { deuce_cap?: number | null }).deuce_cap ?? null}
               drawFormat={drawFormat}
+              currentGroupsCount={(category as { groups_count?: number | null }).groups_count ?? null}
+              currentAdvancePerGroup={(category as { advance_per_group?: number }).advance_per_group ?? 2}
+              currentHasThirdPlaceMatch={(category as { has_third_place_match?: boolean }).has_third_place_match ?? false}
             />
           </div>
         </div>

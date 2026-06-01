@@ -4,6 +4,13 @@ import { useState } from 'react';
 import { updateCategoryAction } from '@/lib/actions/categories';
 import { useRouter } from 'next/navigation';
 import { WinByDeuceFields } from './WinByDeuceFields';
+import { GroupStageConfigPanel } from './AddCategoryInline';
+import {
+  suggestGroupConfig,
+  deriveGroupSize,
+  deriveKnockoutTeams,
+  getKnockoutRoundNames,
+} from '@/lib/utils/groupStageConfig';
 
 interface Props {
   categoryId: string;
@@ -27,6 +34,10 @@ interface Props {
   currentDeuceCap: number | null;
   // Draw format (for showing stage overrides hint)
   drawFormat: string;
+  // Group stage config
+  currentGroupsCount: number | null;
+  currentAdvancePerGroup: number;
+  currentHasThirdPlaceMatch: boolean;
 }
 
 const PLAY_FORMAT_OPTS = [
@@ -65,22 +76,51 @@ export function CategoryEditInline({
   currentWinBy,
   currentDeuceCap,
   drawFormat,
+  currentGroupsCount,
+  currentAdvancePerGroup,
+  currentHasThirdPlaceMatch,
 }: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Controlled fields
+  const [localDrawFormat, setLocalDrawFormat] = useState(currentDrawFormat);
+  const [maxEntries, setMaxEntries] = useState(currentMaxEntries != null ? String(currentMaxEntries) : '');
+
+  // Group stage config state
+  const [groupsCount, setGroupsCount] = useState(currentGroupsCount != null ? String(currentGroupsCount) : '');
+  const [advancePerGroup, setAdvancePerGroup] = useState(String(currentAdvancePerGroup));
+  const [hasThirdPlaceMatch, setHasThirdPlaceMatch] = useState(currentHasThirdPlaceMatch);
+
+  // Scoring
   const [scoringOverride, setScoringOverride] = useState(currentScoringOverride);
   const [scoringFormat, setScoringFormat] = useState<'rally' | 'traditional'>(
     currentScoringFormat ?? tournamentScoringFormat,
   );
-  const [numSets, setNumSets] = useState<1 | 3 | 5>(
-    currentNumSets ?? tournamentNumSets,
-  );
+  const [numSets, setNumSets] = useState<1 | 3 | 5>(currentNumSets ?? tournamentNumSets);
   const [winBy, setWinBy] = useState<1 | 2>(currentWinBy ?? tournamentWinBy);
   const [deuceCap, setDeuceCap] = useState(
     currentDeuceCap != null ? String(currentDeuceCap) : (tournamentDeuceCap != null ? String(tournamentDeuceCap) : ''),
   );
+
+  const isGroupStage = localDrawFormat === 'group_stage_knockout';
+  const maxEntriesNum = parseInt(maxEntries, 10);
+  const hasMaxEntries = !isNaN(maxEntriesNum) && maxEntriesNum >= 2;
+
+  const suggestedConfig = hasMaxEntries ? suggestGroupConfig(maxEntriesNum) : null;
+  const effectiveGroups = groupsCount ? parseInt(groupsCount, 10) : (suggestedConfig?.groupsCount ?? 0);
+  const effectiveAdvance = parseInt(advancePerGroup, 10) || 2;
+  const groupSize = (hasMaxEntries && effectiveGroups > 0) ? deriveGroupSize(maxEntriesNum, effectiveGroups) : 0;
+  const knockoutTeams = effectiveGroups > 0 ? deriveKnockoutTeams(effectiveGroups, effectiveAdvance) : 0;
+  const knockoutRounds = knockoutTeams >= 2 ? getKnockoutRoundNames(knockoutTeams) : [];
+
+  function handleMaxEntriesChange(val: string) {
+    setMaxEntries(val);
+    // Re-auto-suggest groups when max_entries changes
+    if (groupsCount === String(currentGroupsCount ?? '')) setGroupsCount('');
+  }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -88,14 +128,14 @@ export function CategoryEditInline({
     setLoading(true);
 
     const fd = new FormData(e.currentTarget);
-    const maxEntriesRaw = fd.get('max_entries') as string;
+    const maxEntriesRaw = maxEntries;
 
     const result = await updateCategoryAction(categoryId, {
       name: fd.get('name') as string,
       max_entries: maxEntriesRaw ? parseInt(maxEntriesRaw, 10) : null,
       ...(canEditFormats && {
         play_format: fd.get('play_format') as string,
-        draw_format: fd.get('draw_format') as string,
+        draw_format: localDrawFormat,
       }),
       scoring_override: scoringOverride,
       ...(scoringOverride && {
@@ -105,6 +145,10 @@ export function CategoryEditInline({
         win_by: winBy,
         deuce_cap: deuceCap ? parseInt(deuceCap, 10) : null,
       }),
+      // Always persist group stage config (server ignores it for non-group formats)
+      groups_count: effectiveGroups > 0 ? effectiveGroups : null,
+      advance_per_group: effectiveAdvance,
+      has_third_place_match: hasThirdPlaceMatch,
     });
 
     setLoading(false);
@@ -130,51 +174,36 @@ export function CategoryEditInline({
   }
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="w-full rounded-xl bg-surface-card ring-1 ring-surface-border p-5 space-y-4"
-    >
+    <form onSubmit={handleSubmit} className="w-full rounded-xl bg-surface-card ring-1 ring-surface-border p-5 space-y-4">
       <div className="flex items-center justify-between mb-1">
         <p className="text-sm font-semibold text-white">Edit category</p>
-        <button
-          type="button"
-          onClick={() => { setOpen(false); setError(null); }}
-          className="text-xs text-slate-500 hover:text-slate-300"
-        >
+        <button type="button" onClick={() => { setOpen(false); setError(null); }} className="text-xs text-slate-500 hover:text-slate-300">
           Cancel
         </button>
       </div>
 
       {error && (
-        <div className="rounded-lg border border-red-800 bg-red-950 px-3 py-2 text-xs text-red-400">
-          {error}
-        </div>
+        <div className="rounded-lg border border-red-800 bg-red-950 px-3 py-2 text-xs text-red-400">{error}</div>
       )}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
           <label className="mb-1.5 block text-xs font-medium text-slate-400">Name</label>
-          <input
-            name="name"
-            type="text"
-            required
-            minLength={2}
-            maxLength={80}
-            defaultValue={currentName}
-            className={inputClass}
-          />
+          <input name="name" type="text" required minLength={2} maxLength={80} defaultValue={currentName} className={inputClass} />
         </div>
         <div>
           <label className="mb-1.5 block text-xs font-medium text-slate-400">
-            Max entries <span className="text-slate-600">(blank = unlimited)</span>
+            Max entries{isGroupStage ? ' *' : ' (blank = unlimited)'}
           </label>
           <input
             name="max_entries"
             type="number"
             min={2}
             max={256}
-            defaultValue={currentMaxEntries ?? ''}
-            placeholder="Unlimited"
+            required={isGroupStage}
+            value={maxEntries}
+            onChange={(e) => handleMaxEntriesChange(e.target.value)}
+            placeholder={isGroupStage ? 'Required' : 'Unlimited'}
             className={inputClass}
           />
         </div>
@@ -185,20 +214,39 @@ export function CategoryEditInline({
           <div>
             <label className="mb-1.5 block text-xs font-medium text-slate-400">Play format</label>
             <select name="play_format" defaultValue={currentPlayFormat} className={`${inputClass} cursor-pointer`}>
-              {PLAY_FORMAT_OPTS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
+              {PLAY_FORMAT_OPTS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </div>
           <div>
             <label className="mb-1.5 block text-xs font-medium text-slate-400">Draw format</label>
-            <select name="draw_format" defaultValue={currentDrawFormat} className={`${inputClass} cursor-pointer`}>
-              {DRAW_FORMAT_OPTS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
+            <select
+              name="draw_format"
+              value={localDrawFormat}
+              onChange={(e) => setLocalDrawFormat(e.target.value)}
+              className={`${inputClass} cursor-pointer`}
+            >
+              {DRAW_FORMAT_OPTS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </div>
         </div>
+      )}
+
+      {/* ── Group stage configuration panel ─────────────────────────────── */}
+      {isGroupStage && (
+        <GroupStageConfigPanel
+          maxEntries={hasMaxEntries ? maxEntriesNum : null}
+          suggestedConfig={suggestedConfig}
+          groupsCount={groupsCount}
+          onGroupsCountChange={setGroupsCount}
+          effectiveGroups={effectiveGroups}
+          groupSize={groupSize}
+          advancePerGroup={advancePerGroup}
+          onAdvancePerGroupChange={setAdvancePerGroup}
+          knockoutTeams={knockoutTeams}
+          knockoutRounds={knockoutRounds}
+          hasThirdPlaceMatch={hasThirdPlaceMatch}
+          onHasThirdPlaceMatchChange={setHasThirdPlaceMatch}
+        />
       )}
 
       {/* Scoring override */}
@@ -217,9 +265,7 @@ export function CategoryEditInline({
             role="switch"
             aria-checked={scoringOverride}
             onClick={() => setScoringOverride((v) => !v)}
-            className={`relative mt-0.5 inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
-              scoringOverride ? 'bg-brand-600' : 'bg-slate-700'
-            }`}
+            className={`relative mt-0.5 inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${scoringOverride ? 'bg-brand-600' : 'bg-slate-700'}`}
           >
             <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition duration-200 ${scoringOverride ? 'translate-x-4' : 'translate-x-0'}`} />
           </button>
@@ -227,85 +273,42 @@ export function CategoryEditInline({
 
         {scoringOverride && (
           <div className="space-y-3 pt-1 border-t border-surface-border">
-            {/* Scoring format */}
             <div>
               <p className="mb-1.5 text-[11px] font-medium text-slate-400">Scoring format</p>
               <div className="flex gap-2">
                 {(['rally', 'traditional'] as const).map((v) => (
-                  <button
-                    key={v}
-                    type="button"
-                    onClick={() => setScoringFormat(v)}
-                    className={`flex-1 rounded border px-2 py-1.5 text-xs transition-colors ${
-                      scoringFormat === v
-                        ? 'border-brand-500 bg-brand-600/20 text-white'
-                        : 'border-slate-700 bg-surface text-slate-400 hover:border-slate-600'
-                    }`}
-                  >
+                  <button key={v} type="button" onClick={() => setScoringFormat(v)}
+                    className={`flex-1 rounded border px-2 py-1.5 text-xs transition-colors ${scoringFormat === v ? 'border-brand-500 bg-brand-600/20 text-white' : 'border-slate-700 bg-surface text-slate-400 hover:border-slate-600'}`}>
                     {v === 'rally' ? 'Rally scoring' : 'Service points'}
                   </button>
                 ))}
               </div>
             </div>
-
-            {/* Number of sets */}
             <div>
               <p className="mb-1.5 text-[11px] font-medium text-slate-400">Number of sets</p>
               <div className="flex gap-2">
                 {([1, 3, 5] as const).map((n) => (
-                  <button
-                    key={n}
-                    type="button"
-                    onClick={() => setNumSets(n)}
-                    className={`flex-1 rounded border px-2 py-1.5 text-xs transition-colors ${
-                      numSets === n
-                        ? 'border-brand-500 bg-brand-600/20 text-white'
-                        : 'border-slate-700 bg-surface text-slate-400 hover:border-slate-600'
-                    }`}
-                  >
+                  <button key={n} type="button" onClick={() => setNumSets(n)}
+                    className={`flex-1 rounded border px-2 py-1.5 text-xs transition-colors ${numSets === n ? 'border-brand-500 bg-brand-600/20 text-white' : 'border-slate-700 bg-surface text-slate-400 hover:border-slate-600'}`}>
                     {n} set{n > 1 ? 's' : ''}
                   </button>
                 ))}
               </div>
             </div>
-
-            {/* Points per set */}
             <div>
               <label className="mb-1.5 block text-[11px] font-medium text-slate-400">Points per set</label>
-              <input
-                name="points_per_set"
-                type="number"
-                min={5}
-                max={100}
-                defaultValue={currentPointsPerSet ?? tournamentPointsPerSet}
-                className={`${inputClass} w-28`}
-              />
+              <input name="points_per_set" type="number" min={5} max={100} defaultValue={currentPointsPerSet ?? tournamentPointsPerSet} className={`${inputClass} w-28`} />
             </div>
-
-            {/* Win-by / deuce */}
-            <WinByDeuceFields
-              winBy={winBy}
-              deuceCapValue={deuceCap}
-              onWinByChange={setWinBy}
-              onDeuceCapChange={setDeuceCap}
-            />
+            <WinByDeuceFields winBy={winBy} deuceCapValue={deuceCap} onWinByChange={setWinBy} onDeuceCapChange={setDeuceCap} />
           </div>
         )}
       </div>
 
       <div className="flex items-center gap-3 pt-1">
-        <button
-          type="submit"
-          disabled={loading}
-          className="rounded-lg bg-brand-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 transition-colors disabled:opacity-50"
-        >
+        <button type="submit" disabled={loading} className="rounded-lg bg-brand-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 transition-colors disabled:opacity-50">
           {loading ? 'Saving…' : 'Save changes'}
         </button>
-        <button
-          type="button"
-          onClick={() => { setOpen(false); setError(null); }}
-          className="text-xs text-slate-500 hover:text-slate-300"
-        >
+        <button type="button" onClick={() => { setOpen(false); setError(null); }} className="text-xs text-slate-500 hover:text-slate-300">
           Cancel
         </button>
       </div>
