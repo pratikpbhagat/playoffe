@@ -11,6 +11,15 @@ interface Props {
   currentPlayFormat: string;
   currentDrawFormat: string;
   canEditFormats: boolean; // only allowed before draw generation
+  // Tournament-level scoring defaults (shown as hints)
+  tournamentScoringFormat: 'rally' | 'traditional';
+  tournamentNumSets: 1 | 3 | 5;
+  tournamentPointsPerSet: number;
+  // Current category scoring override
+  currentScoringOverride: boolean;
+  currentScoringFormat: 'rally' | 'traditional' | null;
+  currentNumSets: 1 | 3 | 5 | null;
+  currentPointsPerSet: number | null;
 }
 
 const PLAY_FORMAT_OPTS = [
@@ -37,11 +46,25 @@ export function CategoryEditInline({
   currentPlayFormat,
   currentDrawFormat,
   canEditFormats,
+  tournamentScoringFormat,
+  tournamentNumSets,
+  tournamentPointsPerSet,
+  currentScoringOverride,
+  currentScoringFormat,
+  currentNumSets,
+  currentPointsPerSet,
 }: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [scoringOverride, setScoringOverride] = useState(currentScoringOverride);
+  const [scoringFormat, setScoringFormat] = useState<'rally' | 'traditional'>(
+    currentScoringFormat ?? tournamentScoringFormat,
+  );
+  const [numSets, setNumSets] = useState<1 | 3 | 5>(
+    currentNumSets ?? tournamentNumSets,
+  );
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -57,6 +80,12 @@ export function CategoryEditInline({
       ...(canEditFormats && {
         play_format: fd.get('play_format') as string,
         draw_format: fd.get('draw_format') as string,
+      }),
+      scoring_override: scoringOverride,
+      ...(scoringOverride && {
+        scoring_format: scoringFormat,
+        num_sets: numSets,
+        points_per_set: parseInt(fd.get('points_per_set') as string, 10) || tournamentPointsPerSet,
       }),
     });
 
@@ -153,6 +182,90 @@ export function CategoryEditInline({
           </div>
         </div>
       )}
+
+      {/* Scoring override */}
+      <div className="rounded-lg border border-surface-border bg-surface px-4 py-3 space-y-3">
+        <label className="flex items-start gap-3 cursor-pointer">
+          <div className="flex-1">
+            <p className="text-xs font-semibold text-slate-300">Override tournament scoring</p>
+            <p className="mt-0.5 text-[11px] text-slate-500">
+              {scoringOverride
+                ? 'This category uses its own scoring settings.'
+                : `Using tournament default: ${tournamentScoringFormat === 'rally' ? 'Rally' : 'Service points'}, ${tournamentNumSets} set${tournamentNumSets > 1 ? 's' : ''}, ${tournamentPointsPerSet} pts.`}
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={scoringOverride}
+            onClick={() => setScoringOverride((v) => !v)}
+            className={`relative mt-0.5 inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+              scoringOverride ? 'bg-brand-600' : 'bg-slate-700'
+            }`}
+          >
+            <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition duration-200 ${scoringOverride ? 'translate-x-4' : 'translate-x-0'}`} />
+          </button>
+        </label>
+
+        {scoringOverride && (
+          <div className="space-y-3 pt-1 border-t border-surface-border">
+            {/* Scoring format */}
+            <div>
+              <p className="mb-1.5 text-[11px] font-medium text-slate-400">Scoring format</p>
+              <div className="flex gap-2">
+                {(['rally', 'traditional'] as const).map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => setScoringFormat(v)}
+                    className={`flex-1 rounded border px-2 py-1.5 text-xs transition-colors ${
+                      scoringFormat === v
+                        ? 'border-brand-500 bg-brand-600/20 text-white'
+                        : 'border-slate-700 bg-surface text-slate-400 hover:border-slate-600'
+                    }`}
+                  >
+                    {v === 'rally' ? 'Rally scoring' : 'Service points'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Number of sets */}
+            <div>
+              <p className="mb-1.5 text-[11px] font-medium text-slate-400">Number of sets</p>
+              <div className="flex gap-2">
+                {([1, 3, 5] as const).map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => setNumSets(n)}
+                    className={`flex-1 rounded border px-2 py-1.5 text-xs transition-colors ${
+                      numSets === n
+                        ? 'border-brand-500 bg-brand-600/20 text-white'
+                        : 'border-slate-700 bg-surface text-slate-400 hover:border-slate-600'
+                    }`}
+                  >
+                    {n} set{n > 1 ? 's' : ''}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Points per set */}
+            <div>
+              <label className="mb-1.5 block text-[11px] font-medium text-slate-400">Points per set</label>
+              <input
+                name="points_per_set"
+                type="number"
+                min={5}
+                max={100}
+                defaultValue={currentPointsPerSet ?? tournamentPointsPerSet}
+                className={`${inputClass} w-28`}
+              />
+            </div>
+          </div>
+        )}
+      </div>
 
       <div className="flex items-center gap-3 pt-1">
         <button

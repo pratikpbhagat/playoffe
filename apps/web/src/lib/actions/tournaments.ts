@@ -95,6 +95,9 @@ export async function updateTournamentAction(
   if (input.registration_deadline !== undefined) update.registration_deadline = input.registration_deadline ?? null;
   if (input.max_participants !== undefined) update.max_participants = input.max_participants ?? null;
   if (input.auto_approve_entries !== undefined) update.auto_approve_entries = input.auto_approve_entries;
+  if (input.scoring_format !== undefined) update.scoring_format = input.scoring_format;
+  if (input.num_sets !== undefined) update.num_sets = input.num_sets;
+  if (input.points_per_set !== undefined) update.points_per_set = input.points_per_set;
 
   const { error } = await admin.from('tournaments').update(update).eq('id', tournamentId);
   if (error) return { error: 'Failed to update tournament. Please try again.' };

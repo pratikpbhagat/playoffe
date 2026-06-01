@@ -50,6 +50,19 @@ export default async function CategoryPage({ params }: Props) {
     .eq('slug', tournamentSlug)
     .single();
 
+  // Fetch tournament scoring defaults (new columns — bypass generated types with cast)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: tScoring } = await (admin as any)
+    .from('tournaments')
+    .select('scoring_format, num_sets, points_per_set')
+    .eq('slug', tournamentSlug)
+    .maybeSingle();
+  const tournamentScoring = (tScoring ?? {}) as {
+    scoring_format?: string;
+    num_sets?: number;
+    points_per_set?: number;
+  };
+
   if (!tournament) notFound();
 
   // Verify manager access
@@ -194,6 +207,13 @@ export default async function CategoryPage({ params }: Props) {
               currentPlayFormat={(category as { play_format: string }).play_format}
               currentDrawFormat={(category as { draw_format: string }).draw_format}
               canEditFormats={categoryStatus === 'pending' || categoryStatus === 'registration'}
+              tournamentScoringFormat={(tournamentScoring.scoring_format ?? 'rally') as 'rally' | 'traditional'}
+              tournamentNumSets={(tournamentScoring.num_sets ?? 1) as 1 | 3 | 5}
+              tournamentPointsPerSet={tournamentScoring.points_per_set ?? 11}
+              currentScoringOverride={(category as { scoring_override?: boolean }).scoring_override ?? false}
+              currentScoringFormat={((category as { scoring_format?: string | null }).scoring_format ?? null) as 'rally' | 'traditional' | null}
+              currentNumSets={((category as { num_sets?: number | null }).num_sets ?? null) as 1 | 3 | 5 | null}
+              currentPointsPerSet={(category as { points_per_set?: number | null }).points_per_set ?? null}
             />
           </div>
         </div>

@@ -71,6 +71,9 @@ export default async function EditTournamentPage({ params }: Props) {
     registration_deadline: t.registration_deadline,
     max_participants: t.max_participants,
     auto_approve_entries: t.auto_approve_entries ?? true,
+    scoring_format: ((t as { scoring_format?: string }).scoring_format ?? 'rally') as 'rally' | 'traditional',
+    num_sets: ((t as { num_sets?: number }).num_sets ?? 1) as 1 | 3 | 5,
+    points_per_set: (t as { points_per_set?: number }).points_per_set ?? 11,
   };
 
   return (

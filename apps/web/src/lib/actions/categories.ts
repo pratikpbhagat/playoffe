@@ -64,6 +64,10 @@ export async function updateCategoryAction(
     max_age?: number | null;
     play_format?: string;
     draw_format?: string;
+    scoring_override?: boolean;
+    scoring_format?: 'rally' | 'traditional';
+    num_sets?: 1 | 3 | 5;
+    points_per_set?: number;
   },
 ) {
   const supabase = await createClient();
@@ -96,6 +100,20 @@ export async function updateCategoryAction(
     if (input.play_format !== undefined) update.play_format = input.play_format;
     if (input.draw_format !== undefined) update.draw_format = input.draw_format;
   }
+
+  // Scoring override — always editable
+  if (input.scoring_override !== undefined) {
+    update.scoring_override = input.scoring_override;
+    if (!input.scoring_override) {
+      // Clear the override values when disabling
+      update.scoring_format = null;
+      update.num_sets = null;
+      update.points_per_set = null;
+    }
+  }
+  if (input.scoring_format !== undefined) update.scoring_format = input.scoring_format;
+  if (input.num_sets !== undefined) update.num_sets = input.num_sets;
+  if (input.points_per_set !== undefined) update.points_per_set = input.points_per_set;
 
   if (Object.keys(update).length === 0) return { error: 'No changes provided' };
 

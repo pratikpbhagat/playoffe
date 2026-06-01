@@ -19,6 +19,9 @@ interface DefaultValues {
   registration_deadline?: string | null;
   max_participants?: number | null;
   auto_approve_entries: boolean;
+  scoring_format?: 'rally' | 'traditional';
+  num_sets?: 1 | 3 | 5;
+  points_per_set?: number;
 }
 
 interface Props {
@@ -49,6 +52,12 @@ export function TournamentForm({
   const [autoApprove, setAutoApprove] = useState(
     defaultValues?.auto_approve_entries ?? true,
   );
+  const [scoringFormat, setScoringFormat] = useState<'rally' | 'traditional'>(
+    defaultValues?.scoring_format ?? 'rally',
+  );
+  const [numSets, setNumSets] = useState<1 | 3 | 5>(
+    defaultValues?.num_sets ?? 1,
+  );
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -70,6 +79,9 @@ export function TournamentForm({
         ? parseInt(fd.get('max_participants') as string, 10)
         : undefined,
       auto_approve_entries: autoApprove,
+      scoring_format: scoringFormat,
+      num_sets: numSets,
+      points_per_set: parseInt(fd.get('points_per_set') as string, 10) || 11,
     };
 
     let result: { error?: string } | undefined;
@@ -242,6 +254,82 @@ export function TournamentForm({
           placeholder="Optional notes about this tournament"
           className={`${inputClass} resize-none`}
         />
+      </div>
+
+      {/* ── Scoring defaults ──────────────────────────────────────────────── */}
+      <div className="rounded-xl border border-surface-border bg-surface p-4 space-y-4">
+        <div>
+          <p className="text-sm font-medium text-slate-300">Scoring defaults</p>
+          <p className="mt-0.5 text-xs text-slate-500">
+            These apply to all categories. Individual categories can override them.
+          </p>
+        </div>
+
+        {/* Scoring format */}
+        <div>
+          <label className={labelClass}>Scoring format</label>
+          <div className="flex gap-2">
+            {([
+              { value: 'rally', label: 'Rally scoring', desc: 'Every rally scores a point' },
+              { value: 'traditional', label: 'Service points', desc: 'Only serving team scores' },
+            ] as const).map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setScoringFormat(opt.value)}
+                className={`flex-1 rounded-lg border px-3 py-2.5 text-left transition-colors ${
+                  scoringFormat === opt.value
+                    ? 'border-brand-500 bg-brand-600/20 text-white'
+                    : 'border-slate-600 bg-surface text-slate-400 hover:border-slate-500'
+                }`}
+              >
+                <p className="text-xs font-semibold">{opt.label}</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">{opt.desc}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Number of sets */}
+        <div>
+          <label className={labelClass}>Number of sets</label>
+          <div className="flex gap-2">
+            {([1, 3, 5] as const).map((n) => {
+              const winsNeeded = Math.ceil(n / 2);
+              return (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => setNumSets(n)}
+                  className={`flex-1 rounded-lg border px-3 py-2.5 text-center transition-colors ${
+                    numSets === n
+                      ? 'border-brand-500 bg-brand-600/20 text-white'
+                      : 'border-slate-600 bg-surface text-slate-400 hover:border-slate-500'
+                  }`}
+                >
+                  <p className="text-sm font-bold">{n} set{n > 1 ? 's' : ''}</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">First to {winsNeeded} win{winsNeeded > 1 ? 's' : ''}</p>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Points per set */}
+        <div>
+          <label className={labelClass}>Points per set</label>
+          <div className="flex items-center gap-3">
+            <input
+              name="points_per_set"
+              type="number"
+              min={5}
+              max={100}
+              defaultValue={defaultValues?.points_per_set ?? 11}
+              className={`${inputClass} w-28`}
+            />
+            <p className="text-xs text-slate-500">Points needed to win a set (e.g. 11, 15, 21)</p>
+          </div>
+        </div>
       </div>
 
       {/* Auto-approve toggle */}
