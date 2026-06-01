@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { batchScheduleMatchesAction } from '@/lib/actions/scheduling';
 
 export interface MatchForScheduling {
@@ -163,7 +163,17 @@ export function ScheduleEditor({ tournamentSlug, startDate, matches }: Props) {
   const inputCls =
     'block w-full rounded border border-slate-700 bg-surface px-2 py-1.5 text-xs text-white outline-none focus:border-brand-500 disabled:opacity-40';
 
-  const activeMatches = matches.filter((m) => m.category_id === activeCatId);
+  // Active category matches sorted: group A→Z first (null = knockout, last), then by round
+  const activeMatches = useMemo(() => {
+    return matches
+      .filter((m) => m.category_id === activeCatId)
+      .sort((a, b) => {
+        const ga = a.group_name ?? '￿'; // null groups sort after named groups
+        const gb = b.group_name ?? '￿';
+        if (ga !== gb) return ga.localeCompare(gb);
+        return a.round - b.round;
+      });
+  }, [matches, activeCatId]);
 
   if (matches.length === 0) {
     return (
@@ -260,56 +270,79 @@ export function ScheduleEditor({ tournamentSlug, startDate, matches }: Props) {
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-surface-border">
-              {activeMatches.map((m) => {
-                const edit = edits[m.id] ?? { time: '' };
-                const origTime = toLocalInput(m.scheduled_time);
-                const isDirty = m.status === 'scheduled' && edit.time !== origTime;
-                const isLocked = m.status !== 'scheduled';
+            <tbody>
+              {(() => {
+                const rows: React.ReactNode[] = [];
+                let lastGroup: string | null | undefined = undefined; // sentinel
 
-                return (
-                  <tr key={m.id} className={isDirty ? 'bg-brand-900/20' : ''}>
-                    <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
-                      {m.round_name ?? `Round ${m.round}`}
-                      {m.group_name ? (
-                        <span className="ml-1 text-slate-600">· {m.group_name}</span>
-                      ) : null}
-                    </td>
+                for (const m of activeMatches) {
+                  // Insert a group header row whenever the group_name changes
+                  if (m.group_name !== lastGroup) {
+                    lastGroup = m.group_name;
+                    const label = m.group_name ?? 'Knockout Stage';
+                    rows.push(
+                      <tr key={`header-${label}`} className="border-t border-surface-border">
+                        <td
+                          colSpan={4}
+                          className="bg-surface px-4 py-2 text-[11px] font-bold uppercase tracking-widest text-slate-500"
+                        >
+                          {label}
+                        </td>
+                      </tr>,
+                    );
+                  }
 
-                    <td className="px-4 py-3">
-                      <p className="text-sm text-white whitespace-nowrap">
-                        {m.player_a}
-                        <span className="mx-2 text-slate-600">vs</span>
-                        {m.player_b}
-                      </p>
-                    </td>
+                  const edit = edits[m.id] ?? { time: '' };
+                  const origTime = toLocalInput(m.scheduled_time);
+                  const isDirty = m.status === 'scheduled' && edit.time !== origTime;
+                  const isLocked = m.status !== 'scheduled';
 
-                    <td className="px-4 py-3">
-                      <input
-                        type="datetime-local"
-                        value={edit.time}
-                        onChange={(e) => updateTime(m.id, e.target.value)}
-                        disabled={isLocked}
-                        className={inputCls}
-                      />
-                    </td>
+                  rows.push(
+                    <tr
+                      key={m.id}
+                      className={`border-t border-surface-border ${isDirty ? 'bg-brand-900/20' : ''}`}
+                    >
+                      <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
+                        {m.round_name ?? `Round ${m.round}`}
+                      </td>
 
-                    <td className="px-4 py-3 text-center">
-                      {isLocked ? (
-                        <span className="rounded-full bg-slate-700/50 px-2 py-0.5 text-[10px] font-medium text-slate-400 capitalize">
-                          {m.status}
-                        </span>
-                      ) : isDirty ? (
-                        <span className="text-xs text-brand-400">unsaved</span>
-                      ) : edit.time ? (
-                        <span className="text-xs text-accent-500">✓</span>
-                      ) : (
-                        <span className="text-xs text-slate-700">—</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
+                      <td className="px-4 py-3">
+                        <p className="text-sm text-white">
+                          {m.player_a}
+                          <span className="mx-2 text-slate-600">vs</span>
+                          {m.player_b}
+                        </p>
+                      </td>
+
+                      <td className="px-4 py-3">
+                        <input
+                          type="datetime-local"
+                          value={edit.time}
+                          onChange={(e) => updateTime(m.id, e.target.value)}
+                          disabled={isLocked}
+                          className={inputCls}
+                        />
+                      </td>
+
+                      <td className="px-4 py-3 text-center">
+                        {isLocked ? (
+                          <span className="rounded-full bg-slate-700/50 px-2 py-0.5 text-[10px] font-medium text-slate-400 capitalize">
+                            {m.status}
+                          </span>
+                        ) : isDirty ? (
+                          <span className="text-xs text-brand-400">unsaved</span>
+                        ) : edit.time ? (
+                          <span className="text-xs text-accent-500">✓</span>
+                        ) : (
+                          <span className="text-xs text-slate-700">—</span>
+                        )}
+                      </td>
+                    </tr>,
+                  );
+                }
+
+                return rows;
+              })()}
 
               {activeMatches.length === 0 && (
                 <tr>
