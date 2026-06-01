@@ -71,9 +71,6 @@ function MatchCard({ match, tournamentSlug, readOnly }: { match: MatchWithPlayer
             {setScores.map((s, i) => <span key={i}>{s}</span>)}
           </span>
         )}
-
-        {/* Winner tick */}
-        {isWinner && <span className="shrink-0 text-[10px] text-brand-400 ml-0.5">✓</span>}
       </div>
     );
   }
@@ -529,7 +526,6 @@ function PlayerChip({
           {setScores.map((s, i) => <span key={i}>{s}</span>)}
         </span>
       )}
-      {isWinner && <span className="shrink-0 text-[10px] text-brand-400">✓</span>}
     </span>
   );
 }
