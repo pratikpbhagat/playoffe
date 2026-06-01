@@ -48,10 +48,10 @@ function MatchCard({ match, tournamentSlug, readOnly }: { match: MatchWithPlayer
           <span className="w-4 shrink-0" />
         )}
 
-        {/* Name(s) — stacked for doubles so neither name is truncated */}
+        {/* Name(s) — stacked for doubles, same style for both names */}
         <span className="flex-1 min-w-0">
-          <span
-            className={`block text-xs leading-tight ${
+          {(() => {
+            const nameClass = `block text-xs leading-tight ${
               isBye
                 ? 'italic text-slate-600'
                 : isWinner
@@ -59,17 +59,16 @@ function MatchCard({ match, tournamentSlug, readOnly }: { match: MatchWithPlayer
                   : isCompleted
                     ? 'text-slate-500'
                     : 'text-slate-300'
-            }`}
-          >
-            {isBye ? 'BYE' : entry.player_name}
-          </span>
-          {!isBye && entry.partner_name && (
-            <span className={`block text-[10px] leading-tight mt-0.5 ${
-              isWinner ? 'text-slate-300' : 'text-slate-500'
-            }`}>
-              {entry.partner_name}
-            </span>
-          )}
+            }`;
+            return (
+              <>
+                <span className={nameClass}>{isBye ? 'BYE' : entry.player_name}</span>
+                {!isBye && entry.partner_name && (
+                  <span className={`${nameClass} mt-0.5`}>{entry.partner_name}</span>
+                )}
+              </>
+            );
+          })()}
         </span>
 
         {/* Per-set scores next to name */}
@@ -519,17 +518,10 @@ function GroupSection({
                 {p.seed && (
                   <span className="text-[10px] font-bold text-brand-400 w-4 shrink-0">[{p.seed}]</span>
                 )}
-                <span className="flex flex-col flex-1 min-w-0">
-                  <span className={`text-xs leading-tight ${
-                    anyResultsIn && i === 0 ? 'font-semibold text-white' : 'text-slate-300'
-                  }`}>
-                    {p.playerName}
-                  </span>
-                  {p.partnerName && (
-                    <span className="text-[10px] leading-tight text-slate-500 mt-0.5">
-                      {p.partnerName}
-                    </span>
-                  )}
+                <span className={`flex-1 text-xs ${
+                  anyResultsIn && i === 0 ? 'font-semibold text-white' : 'text-slate-300'
+                }`}>
+                  {p.partnerName ? `${p.playerName} / ${p.partnerName}` : p.playerName}
                 </span>
                 {/* W/L record */}
                 {anyResultsIn && (
@@ -689,16 +681,14 @@ function PlayerChip({
 
   return (
     <span className="flex flex-1 items-start gap-1.5 min-w-0">
-      {/* Names — stacked for doubles */}
+      {/* Names — stacked for doubles, identical style for both */}
       <span className="flex flex-col flex-1 min-w-0">
         <span className={`text-sm leading-tight ${nameClass}`}>
           {entry?.seed ? <span className="mr-1 text-xs text-brand-400">[{entry.seed}]</span> : null}
           {entry ? entry.player_name : 'TBD'}
         </span>
         {entry?.partner_name && (
-          <span className={`text-xs leading-tight mt-0.5 ${
-            isWinner ? 'text-slate-300' : 'text-slate-500'
-          }`}>
+          <span className={`text-sm leading-tight mt-0.5 ${nameClass}`}>
             {entry.partner_name}
           </span>
         )}
