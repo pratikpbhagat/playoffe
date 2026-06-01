@@ -283,14 +283,6 @@ export default async function CategoryPage({ params }: Props) {
         {/* Stage scoring overrides — shown for elimination-type formats */}
         {['single_elimination', 'double_elimination', 'group_stage_knockout'].includes(drawFormat) && (
           <section className="mt-8">
-            <div className="mb-3">
-              <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wide">
-                Stage scoring rules
-              </h3>
-              <p className="mt-0.5 text-xs text-slate-600">
-                Override points, sets, and deuce rules per stage within this category.
-              </p>
-            </div>
             <StageScoringPanel
               categoryId={categoryId}
               drawFormat={drawFormat}

@@ -41,17 +41,48 @@ const ALL_STAGES: StageKey[] = ['group_stage', 'knockout', 'semifinal', 'final']
 const inputClass =
   'block w-full rounded-lg border border-slate-600 bg-surface px-3 py-2 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30';
 
-// ── Stage default display ─────────────────────────────────────────────────────
+// ── Stage value chips ─────────────────────────────────────────────────────────
 
-function inheritedLabel(
-  num_sets: number,
-  points_per_set: number,
-  win_by: number,
-  deuce_cap: number | null,
-): string {
+interface ChipProps { label: string; dim?: boolean }
+
+function Chip({ label, dim }: ChipProps) {
+  return (
+    <span className={`inline-flex items-center rounded px-2 py-0.5 text-[11px] font-medium ${
+      dim
+        ? 'bg-slate-800/60 text-slate-500'
+        : 'bg-slate-700/60 text-slate-300'
+    }`}>
+      {label}
+    </span>
+  );
+}
+
+function ScoringChips({
+  num_sets,
+  points_per_set,
+  win_by,
+  deuce_cap,
+  dim = false,
+}: {
+  num_sets: number;
+  points_per_set: number;
+  win_by: number;
+  deuce_cap: number | null;
+  dim?: boolean;
+}) {
   const setsLabel = `${num_sets} set${num_sets > 1 ? 's' : ''}`;
-  const winLabel = win_by === 1 ? 'golden pt' : deuce_cap ? `deuce to ${deuce_cap}` : 'deuce';
-  return `${points_per_set} pts · ${setsLabel} · ${winLabel}`;
+  const winLabel = win_by === 1
+    ? 'Golden point'
+    : deuce_cap
+    ? `Deuce → cap ${deuce_cap}`
+    : 'Deuce';
+  return (
+    <div className="flex flex-wrap gap-1.5 mt-1.5">
+      <Chip label={`${points_per_set} pts`} dim={dim} />
+      <Chip label={setsLabel} dim={dim} />
+      <Chip label={winLabel} dim={dim} />
+    </div>
+  );
 }
 
 // ── Single stage row ──────────────────────────────────────────────────────────
@@ -129,31 +160,49 @@ function StageRow({
 
   return (
     <div className={`rounded-lg border transition-colors ${
-      isOverriding ? 'border-brand-500/40 bg-brand-900/10' : 'border-surface-border bg-surface'
+      isOverriding ? 'border-brand-500/40 bg-brand-900/10' : 'border-surface-border bg-surface-card'
     }`}>
       {/* Row header */}
-      <div className="flex items-center gap-3 px-4 py-3">
+      <div className="flex items-start gap-3 px-4 py-3">
         <div className="flex-1 min-w-0">
-          <p className="text-xs font-semibold text-slate-300">{meta.label}</p>
-          <p className="text-[10px] text-slate-600 mt-0.5">
-            {isOverriding
-              ? inheritedLabel(
-                  existing!.num_sets ?? effectiveNumSets,
-                  existing!.points_per_set ?? effectivePointsPerSet,
-                  existing!.win_by ?? effectiveWinBy,
-                  existing!.deuce_cap ?? effectiveDeuceCap,
-                )
-              : `Inheriting: ${inheritedLabel(effectiveNumSets, effectivePointsPerSet, effectiveWinBy, effectiveDeuceCap)}`}
-          </p>
+          <div className="flex items-center gap-2">
+            <p className="text-sm font-semibold text-white">{meta.label}</p>
+            {isOverriding ? (
+              <span className="rounded-full bg-brand-600/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-brand-300">
+                Custom
+              </span>
+            ) : (
+              <span className="text-[11px] text-slate-500">Inherited</span>
+            )}
+          </div>
+          <p className="text-[11px] text-slate-500 mt-0.5">{meta.description}</p>
+
+          {/* Value chips */}
+          {isOverriding ? (
+            <ScoringChips
+              num_sets={existing!.num_sets ?? effectiveNumSets}
+              points_per_set={existing!.points_per_set ?? effectivePointsPerSet}
+              win_by={existing!.win_by ?? effectiveWinBy}
+              deuce_cap={existing!.deuce_cap ?? effectiveDeuceCap}
+            />
+          ) : (
+            <ScoringChips
+              num_sets={effectiveNumSets}
+              points_per_set={effectivePointsPerSet}
+              win_by={effectiveWinBy}
+              deuce_cap={effectiveDeuceCap}
+              dim
+            />
+          )}
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0 mt-0.5">
           {isOverriding && !expanded && (
             <button
               type="button"
               onClick={handleRemove}
               disabled={isPending}
-              className="text-[10px] text-slate-600 hover:text-red-400 transition-colors"
+              className="text-xs text-slate-500 hover:text-red-400 transition-colors"
             >
               Remove
             </button>
@@ -161,12 +210,12 @@ function StageRow({
           <button
             type="button"
             onClick={() => { setExpanded((v) => !v); setMsg(null); }}
-            className={`rounded px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+            className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
               expanded
-                ? 'bg-surface-card text-slate-300'
+                ? 'bg-surface text-slate-300 border border-slate-700'
                 : isOverriding
                 ? 'bg-brand-600/20 text-brand-300 hover:bg-brand-600/30'
-                : 'border border-surface-border text-slate-400 hover:border-slate-500 hover:text-slate-300'
+                : 'border border-surface-border text-slate-300 hover:border-slate-500 hover:text-white'
             }`}
           >
             {expanded ? 'Close' : isOverriding ? 'Edit' : 'Override'}
@@ -286,13 +335,18 @@ export function StageScoringPanel({
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between mb-1">
-        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">
-          Stage scoring overrides
-        </p>
-        <p className="text-[10px] text-slate-600">
-          {rows.length > 0 ? `${rows.length} override${rows.length > 1 ? 's' : ''} active` : 'All stages inherit defaults'}
-        </p>
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <p className="text-sm font-semibold text-white">Stage scoring rules</p>
+          <p className="text-xs text-slate-400 mt-0.5">
+            Override points, sets, and deuce rules per stage within this category.
+          </p>
+        </div>
+        {rows.length > 0 && (
+          <span className="rounded-full bg-brand-600/20 px-2.5 py-0.5 text-[11px] font-semibold text-brand-300">
+            {rows.length} override{rows.length > 1 ? 's' : ''}
+          </span>
+        )}
       </div>
       {visibleStages.map((stage) => (
         <StageRow
