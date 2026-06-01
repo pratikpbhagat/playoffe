@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { cookies } from 'next/headers';
 import { createClient, createAdminClient, getUserRoles } from '@/lib/supabase/server';
 import { AppNav } from '@/components/layout/AppNav';
-import { PendingEntriesPanel } from '@/components/tournaments/PendingEntriesPanel';
+import { RegistrationsClient } from '@/components/tournaments/RegistrationsClient';
 import { InvitePlayersPanel } from '@/components/tournaments/InvitePlayersPanel';
 
 export const metadata: Metadata = { title: 'Registrations' };
@@ -123,26 +123,12 @@ export default async function RegistrationsPage({ params }: Props) {
           )}
         </div>
 
-        {cats.length === 0 ? (
-          <div className="rounded-xl bg-surface-card p-10 text-center ring-1 ring-surface-border">
-            <p className="text-sm text-slate-500">No categories have been added to this tournament.</p>
-          </div>
-        ) : (
-          <div className="space-y-6">
-            {cats.map((cat) => {
-              const catEntries = entriesByCategory[cat.id] ?? [];
-              return (
-                <PendingEntriesPanel
-                  key={cat.id}
-                  tournamentSlug={slug}
-                  tournamentId={t.id}
-                  category={cat}
-                  entries={catEntries}
-                />
-              );
-            })}
-          </div>
-        )}
+        <RegistrationsClient
+          tournamentSlug={slug}
+          tournamentId={t.id}
+          categories={cats}
+          allEntries={allEntries}
+        />
         {/* Invite players panel */}
         <InvitePlayersPanel tournamentId={t.id} />
       </main>

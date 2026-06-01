@@ -46,6 +46,8 @@ interface Props {
   tournamentId: string;
   category: Category;
   entries: EntryRow[];
+  /** When true, the empty-state message acknowledges active filters */
+  isFiltered?: boolean;
 }
 
 const STATUS_BADGE: Record<string, { label: string; className: string }> = {
@@ -61,7 +63,7 @@ const PLAY_FORMAT: Record<string, string> = {
   mixed_doubles: 'Mixed doubles',
 };
 
-export function PendingEntriesPanel({ tournamentSlug, tournamentId, category, entries }: Props) {
+export function PendingEntriesPanel({ tournamentSlug, tournamentId, category, entries, isFiltered }: Props) {
   const router = useRouter();
   const { confirm } = useConfirm();
   const [acting, setActing] = useState<string | null>(null);
@@ -203,7 +205,9 @@ export function PendingEntriesPanel({ tournamentSlug, tournamentId, category, en
 
       {totalCount === 0 ? (
         <div className="px-5 py-8 text-center">
-          <p className="text-sm text-slate-500">No entries yet.</p>
+          <p className="text-sm text-slate-500">
+            {isFiltered ? 'No entries match the current filters.' : 'No entries yet.'}
+          </p>
         </div>
       ) : (
         <table className="w-full text-sm">
@@ -235,26 +239,41 @@ export function PendingEntriesPanel({ tournamentSlug, tournamentId, category, en
                   key={entry.id}
                   className={`transition-colors ${isPending ? 'bg-amber-900/5' : isProvisional ? 'bg-brand-900/5' : 'hover:bg-surface/30'}`}
                 >
-                  {/* Player */}
+                  {/* Player — for doubles show both names at identical style */}
                   <td className="px-5 py-3">
                     {player ? (
                       <div>
-                        <Link
-                          href={`/p/${player.username}`}
-                          className="text-sm font-medium text-white hover:text-brand-300 transition-colors"
-                        >
-                          {player.full_name}
-                        </Link>
-                        <p className="text-xs text-slate-500">@{player.username}</p>
-                        {/* Partner name for doubles */}
-                        {entry.partner && (
-                          <p className="text-xs text-slate-600 mt-0.5">
-                            with{' '}
-                            <Link href={`/p/${entry.partner.username}`} className="text-slate-500 hover:text-slate-300">
+                        {entry.partner ? (
+                          /* ── Doubles pair ── */
+                          <>
+                            <Link
+                              href={`/p/${player.username}`}
+                              className="block text-sm font-medium text-white hover:text-brand-300 transition-colors"
+                            >
+                              {player.full_name}
+                            </Link>
+                            <Link
+                              href={`/p/${entry.partner.username}`}
+                              className="block text-sm font-medium text-white hover:text-brand-300 transition-colors"
+                            >
                               {entry.partner.full_name}
                             </Link>
-                            {isProvisional && <span className="ml-1 text-brand-500">⏳ awaiting confirm</span>}
-                          </p>
+                            <p className="mt-0.5 text-xs text-slate-500">
+                              @{player.username} · @{entry.partner.username}
+                              {isProvisional && <span className="ml-1 text-brand-400">⏳ awaiting confirm</span>}
+                            </p>
+                          </>
+                        ) : (
+                          /* ── Singles ── */
+                          <>
+                            <Link
+                              href={`/p/${player.username}`}
+                              className="text-sm font-medium text-white hover:text-brand-300 transition-colors"
+                            >
+                              {player.full_name}
+                            </Link>
+                            <p className="text-xs text-slate-500">@{player.username}</p>
+                          </>
                         )}
                       </div>
                     ) : (
