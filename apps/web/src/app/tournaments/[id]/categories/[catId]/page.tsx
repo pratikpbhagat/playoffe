@@ -10,8 +10,9 @@ import { ImportPlayersPanel } from '@/components/tournaments/ImportPlayersPanel'
 import { DrawSection } from '@/components/tournaments/DrawSection';
 import { StandingsTable } from '@/components/tournaments/StandingsTable';
 import { CategoryEditInline } from '@/components/tournaments/CategoryEditInline';
+import { StageScoringPanel } from '@/components/tournaments/StageScoringPanel';
 import { SeedingPanel } from '@/components/tournaments/SeedingPanel';
-import { getCategoryWithEntries } from '@/lib/actions/categories';
+import { getCategoryWithEntries, getStageScoringAction } from '@/lib/actions/categories';
 import { getMatchesForCategory } from '@/lib/actions/draws';
 
 export const metadata: Metadata = { title: 'Category entries' };
@@ -97,10 +98,11 @@ export default async function CategoryPage({ params }: Props) {
 
   const categoryId = categoryRow.id;
 
-  // Fetch category + entries + matches in parallel
-  const [data, matches] = await Promise.all([
+  // Fetch category + entries + matches + stage scoring in parallel
+  const [data, matches, stageRows] = await Promise.all([
     getCategoryWithEntries(categoryId),
     getMatchesForCategory(categoryId),
+    getStageScoringAction(categoryId),
   ]);
   if (!data) notFound();
 
@@ -210,10 +212,15 @@ export default async function CategoryPage({ params }: Props) {
               tournamentScoringFormat={(tournamentScoring.scoring_format ?? 'rally') as 'rally' | 'traditional'}
               tournamentNumSets={(tournamentScoring.num_sets ?? 1) as 1 | 3 | 5}
               tournamentPointsPerSet={tournamentScoring.points_per_set ?? 11}
+              tournamentWinBy={((tournamentScoring as { win_by?: number }).win_by ?? 2) as 1 | 2}
+              tournamentDeuceCap={(tournamentScoring as { deuce_cap?: number | null }).deuce_cap ?? null}
               currentScoringOverride={(category as { scoring_override?: boolean }).scoring_override ?? false}
               currentScoringFormat={((category as { scoring_format?: string | null }).scoring_format ?? null) as 'rally' | 'traditional' | null}
               currentNumSets={((category as { num_sets?: number | null }).num_sets ?? null) as 1 | 3 | 5 | null}
               currentPointsPerSet={(category as { points_per_set?: number | null }).points_per_set ?? null}
+              currentWinBy={((category as { win_by?: number | null }).win_by ?? null) as 1 | 2 | null}
+              currentDeuceCap={(category as { deuce_cap?: number | null }).deuce_cap ?? null}
+              drawFormat={drawFormat}
             />
           </div>
         </div>
@@ -272,6 +279,45 @@ export default async function CategoryPage({ params }: Props) {
           initialMatches={matches}
           showStandings={false}
         />
+
+        {/* Stage scoring overrides — shown for elimination-type formats */}
+        {['single_elimination', 'double_elimination', 'group_stage_knockout'].includes(drawFormat) && (
+          <section className="mt-8">
+            <div className="mb-3">
+              <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wide">
+                Stage scoring rules
+              </h3>
+              <p className="mt-0.5 text-xs text-slate-600">
+                Override points, sets, and deuce rules per stage within this category.
+              </p>
+            </div>
+            <StageScoringPanel
+              categoryId={categoryId}
+              drawFormat={drawFormat}
+              initialRows={stageRows}
+              effectiveNumSets={
+                ((category as { scoring_override?: boolean }).scoring_override
+                  ? (category as { num_sets?: number | null }).num_sets
+                  : null) ?? tournamentScoring.num_sets ?? 1
+              }
+              effectivePointsPerSet={
+                ((category as { scoring_override?: boolean }).scoring_override
+                  ? (category as { points_per_set?: number | null }).points_per_set
+                  : null) ?? tournamentScoring.points_per_set ?? 11
+              }
+              effectiveWinBy={
+                ((category as { scoring_override?: boolean }).scoring_override
+                  ? (category as { win_by?: number | null }).win_by
+                  : null) ?? (tournamentScoring as { win_by?: number }).win_by ?? 2
+              }
+              effectiveDeuceCap={
+                ((category as { scoring_override?: boolean }).scoring_override
+                  ? (category as { deuce_cap?: number | null }).deuce_cap
+                  : undefined) ?? (tournamentScoring as { deuce_cap?: number | null }).deuce_cap ?? null
+              }
+            />
+          </section>
+        )}
       </main>
     </div>
   );

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createCategoryAction } from '@/lib/actions/categories';
+import { WinByDeuceFields } from './WinByDeuceFields';
 
 const DRAW_FORMATS = [
   { value: 'single_elimination', label: 'Single elimination' },
@@ -35,6 +36,8 @@ interface Props {
   tournamentScoringFormat?: 'rally' | 'traditional';
   tournamentNumSets?: 1 | 3 | 5;
   tournamentPointsPerSet?: number;
+  tournamentWinBy?: 1 | 2;
+  tournamentDeuceCap?: number | null;
 }
 
 export function AddCategoryInline({
@@ -42,6 +45,8 @@ export function AddCategoryInline({
   tournamentScoringFormat = 'rally',
   tournamentNumSets = 1,
   tournamentPointsPerSet = 11,
+  tournamentWinBy = 2,
+  tournamentDeuceCap = null,
 }: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -50,6 +55,8 @@ export function AddCategoryInline({
   const [scoringOverride, setScoringOverride] = useState(false);
   const [scoringFormat, setScoringFormat] = useState<'rally' | 'traditional'>(tournamentScoringFormat);
   const [numSets, setNumSets] = useState<1 | 3 | 5>(tournamentNumSets);
+  const [winBy, setWinBy] = useState<1 | 2>(tournamentWinBy);
+  const [deuceCap, setDeuceCap] = useState(tournamentDeuceCap != null ? String(tournamentDeuceCap) : '');
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -76,6 +83,8 @@ export function AddCategoryInline({
         scoring_format: scoringFormat,
         num_sets: numSets,
         points_per_set: parseInt(fd.get('points_per_set') as string, 10) || tournamentPointsPerSet,
+        win_by: winBy,
+        deuce_cap: deuceCap ? parseInt(deuceCap, 10) : null,
       }),
     });
 
@@ -291,6 +300,14 @@ export function AddCategoryInline({
                   className={`${inputClass} w-28`}
                 />
               </div>
+
+              {/* Win-by / deuce */}
+              <WinByDeuceFields
+                winBy={winBy}
+                deuceCapValue={deuceCap}
+                onWinByChange={setWinBy}
+                onDeuceCapChange={setDeuceCap}
+              />
             </div>
           )}
         </div>

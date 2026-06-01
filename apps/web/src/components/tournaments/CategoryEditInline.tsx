@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { updateCategoryAction } from '@/lib/actions/categories';
 import { useRouter } from 'next/navigation';
+import { WinByDeuceFields } from './WinByDeuceFields';
 
 interface Props {
   categoryId: string;
@@ -15,11 +16,17 @@ interface Props {
   tournamentScoringFormat: 'rally' | 'traditional';
   tournamentNumSets: 1 | 3 | 5;
   tournamentPointsPerSet: number;
+  tournamentWinBy: 1 | 2;
+  tournamentDeuceCap: number | null;
   // Current category scoring override
   currentScoringOverride: boolean;
   currentScoringFormat: 'rally' | 'traditional' | null;
   currentNumSets: 1 | 3 | 5 | null;
   currentPointsPerSet: number | null;
+  currentWinBy: 1 | 2 | null;
+  currentDeuceCap: number | null;
+  // Draw format (for showing stage overrides hint)
+  drawFormat: string;
 }
 
 const PLAY_FORMAT_OPTS = [
@@ -49,10 +56,15 @@ export function CategoryEditInline({
   tournamentScoringFormat,
   tournamentNumSets,
   tournamentPointsPerSet,
+  tournamentWinBy,
+  tournamentDeuceCap,
   currentScoringOverride,
   currentScoringFormat,
   currentNumSets,
   currentPointsPerSet,
+  currentWinBy,
+  currentDeuceCap,
+  drawFormat,
 }: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -64,6 +76,10 @@ export function CategoryEditInline({
   );
   const [numSets, setNumSets] = useState<1 | 3 | 5>(
     currentNumSets ?? tournamentNumSets,
+  );
+  const [winBy, setWinBy] = useState<1 | 2>(currentWinBy ?? tournamentWinBy);
+  const [deuceCap, setDeuceCap] = useState(
+    currentDeuceCap != null ? String(currentDeuceCap) : (tournamentDeuceCap != null ? String(tournamentDeuceCap) : ''),
   );
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -86,6 +102,8 @@ export function CategoryEditInline({
         scoring_format: scoringFormat,
         num_sets: numSets,
         points_per_set: parseInt(fd.get('points_per_set') as string, 10) || tournamentPointsPerSet,
+        win_by: winBy,
+        deuce_cap: deuceCap ? parseInt(deuceCap, 10) : null,
       }),
     });
 
@@ -263,6 +281,14 @@ export function CategoryEditInline({
                 className={`${inputClass} w-28`}
               />
             </div>
+
+            {/* Win-by / deuce */}
+            <WinByDeuceFields
+              winBy={winBy}
+              deuceCapValue={deuceCap}
+              onWinByChange={setWinBy}
+              onDeuceCapChange={setDeuceCap}
+            />
           </div>
         )}
       </div>

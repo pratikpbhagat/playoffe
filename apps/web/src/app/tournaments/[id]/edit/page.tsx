@@ -74,6 +74,8 @@ export default async function EditTournamentPage({ params }: Props) {
     scoring_format: ((t as { scoring_format?: string }).scoring_format ?? 'rally') as 'rally' | 'traditional',
     num_sets: ((t as { num_sets?: number }).num_sets ?? 1) as 1 | 3 | 5,
     points_per_set: (t as { points_per_set?: number }).points_per_set ?? 11,
+    win_by: ((t as { win_by?: number }).win_by ?? 2) as 1 | 2,
+    deuce_cap: (t as { deuce_cap?: number | null }).deuce_cap ?? null,
   };
 
   return (

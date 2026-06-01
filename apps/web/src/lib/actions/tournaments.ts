@@ -98,6 +98,8 @@ export async function updateTournamentAction(
   if (input.scoring_format !== undefined) update.scoring_format = input.scoring_format;
   if (input.num_sets !== undefined) update.num_sets = input.num_sets;
   if (input.points_per_set !== undefined) update.points_per_set = input.points_per_set;
+  if (input.win_by !== undefined) update.win_by = input.win_by;
+  if ('deuce_cap' in input) update.deuce_cap = input.deuce_cap ?? null;
 
   const { error } = await admin.from('tournaments').update(update).eq('id', tournamentId);
   if (error) return { error: 'Failed to update tournament. Please try again.' };

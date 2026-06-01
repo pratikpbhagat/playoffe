@@ -9,10 +9,12 @@ export const createTournamentSchema = z.object({
   court_count: z.number().int().min(1).max(50),
   registration_deadline: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   max_participants: z.number().int().min(4).max(512).nullable().optional(),
-  // Scoring defaults (can be overridden per category)
+  // Scoring defaults (can be overridden per category or per stage)
   scoring_format: z.enum(['rally', 'traditional']).default('rally'),
   num_sets: z.union([z.literal(1), z.literal(3), z.literal(5)]).default(1),
   points_per_set: z.number().int().min(5).max(100).default(11),
+  win_by: z.union([z.literal(1), z.literal(2)]).default(2),
+  deuce_cap: z.number().int().min(5).max(200).nullable().optional(),
 }).refine((data) => data.end_date >= data.start_date, {
   message: 'End date must be on or after start date',
   path: ['end_date'],

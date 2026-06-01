@@ -293,6 +293,8 @@ export default async function TournamentPage({ params }: Props) {
               tournamentScoringFormat={((t as { scoring_format?: string }).scoring_format ?? 'rally') as 'rally' | 'traditional'}
               tournamentNumSets={((t as { num_sets?: number }).num_sets ?? 1) as 1 | 3 | 5}
               tournamentPointsPerSet={(t as { points_per_set?: number }).points_per_set ?? 11}
+              tournamentWinBy={((t as { win_by?: number }).win_by ?? 2) as 1 | 2}
+              tournamentDeuceCap={(t as { deuce_cap?: number | null }).deuce_cap ?? null}
             />
           </div>
 

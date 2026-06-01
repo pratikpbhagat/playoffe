@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { createTournamentAction, updateTournamentAction } from '@/lib/actions/tournaments';
+import { WinByDeuceFields } from './WinByDeuceFields';
 
 interface Club {
   id: string;
@@ -22,6 +23,8 @@ interface DefaultValues {
   scoring_format?: 'rally' | 'traditional';
   num_sets?: 1 | 3 | 5;
   points_per_set?: number;
+  win_by?: 1 | 2;
+  deuce_cap?: number | null;
 }
 
 interface Props {
@@ -58,6 +61,10 @@ export function TournamentForm({
   const [numSets, setNumSets] = useState<1 | 3 | 5>(
     defaultValues?.num_sets ?? 1,
   );
+  const [winBy, setWinBy] = useState<1 | 2>(defaultValues?.win_by ?? 2);
+  const [deuceCap, setDeuceCap] = useState(
+    defaultValues?.deuce_cap != null ? String(defaultValues.deuce_cap) : '',
+  );
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -82,6 +89,8 @@ export function TournamentForm({
       scoring_format: scoringFormat,
       num_sets: numSets,
       points_per_set: parseInt(fd.get('points_per_set') as string, 10) || 11,
+      win_by: winBy,
+      deuce_cap: deuceCap ? parseInt(deuceCap, 10) : null,
     };
 
     let result: { error?: string } | undefined;
@@ -330,6 +339,15 @@ export function TournamentForm({
             <p className="text-xs text-slate-500">Points needed to win a set (e.g. 11, 15, 21)</p>
           </div>
         </div>
+
+        {/* Win-by / deuce cap */}
+        <WinByDeuceFields
+          winBy={winBy}
+          deuceCapValue={deuceCap}
+          onWinByChange={setWinBy}
+          onDeuceCapChange={setDeuceCap}
+          size="md"
+        />
       </div>
 
       {/* Auto-approve toggle */}

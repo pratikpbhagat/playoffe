@@ -32,6 +32,8 @@ export async function createCategoryAction(
     scoring_format?: 'rally' | 'traditional';
     num_sets?: 1 | 3 | 5;
     points_per_set?: number;
+    win_by?: 1 | 2;
+    deuce_cap?: number | null;
   },
 ) {
   const supabase = await createClient();
@@ -41,7 +43,7 @@ export async function createCategoryAction(
   if (!user) return { error: 'Not authenticated' };
 
   // Destructure scoring override fields before schema validation
-  const { scoring_override, scoring_format, num_sets, points_per_set, ...rest } = input;
+  const { scoring_override, scoring_format, num_sets, points_per_set, win_by, deuce_cap, ...rest } = input;
 
   const parsed = createCategorySchema.safeParse(rest);
   if (!parsed.success) return { error: parsed.error.issues[0].message };
@@ -59,6 +61,8 @@ export async function createCategoryAction(
       scoring_format: scoring_format ?? null,
       num_sets: num_sets ?? null,
       points_per_set: points_per_set ?? null,
+      win_by: win_by ?? null,
+      deuce_cap: deuce_cap ?? null,
     }),
   });
 
@@ -82,6 +86,8 @@ export async function updateCategoryAction(
     scoring_format?: 'rally' | 'traditional';
     num_sets?: 1 | 3 | 5;
     points_per_set?: number;
+    win_by?: 1 | 2;
+    deuce_cap?: number | null;
   },
 ) {
   const supabase = await createClient();
@@ -119,15 +125,19 @@ export async function updateCategoryAction(
   if (input.scoring_override !== undefined) {
     update.scoring_override = input.scoring_override;
     if (!input.scoring_override) {
-      // Clear the override values when disabling
+      // Clear all override values when disabling
       update.scoring_format = null;
       update.num_sets = null;
       update.points_per_set = null;
+      update.win_by = null;
+      update.deuce_cap = null;
     }
   }
   if (input.scoring_format !== undefined) update.scoring_format = input.scoring_format;
   if (input.num_sets !== undefined) update.num_sets = input.num_sets;
   if (input.points_per_set !== undefined) update.points_per_set = input.points_per_set;
+  if (input.win_by !== undefined) update.win_by = input.win_by;
+  if ('deuce_cap' in input) update.deuce_cap = input.deuce_cap ?? null;
 
   if (Object.keys(update).length === 0) return { error: 'No changes provided' };
 
@@ -141,6 +151,103 @@ export async function updateCategoryAction(
   const tSlug = (cat.tournaments as { slug: string } | null)?.slug ?? t.slug;
   revalidatePath(`/tournaments/${tSlug}/categories/${cat.slug}`);
   revalidatePath(`/tournaments/${tSlug}`);
+  return { success: true };
+}
+
+// ── Stage scoring CRUD ────────────────────────────────────────────────────────
+
+export type StageKey = 'group_stage' | 'knockout' | 'semifinal' | 'final';
+
+export interface StageScoringRow {
+  id: string;
+  category_id: string;
+  stage: StageKey;
+  num_sets: 1 | 3 | 5 | null;
+  points_per_set: number | null;
+  win_by: 1 | 2 | null;
+  deuce_cap: number | null;
+}
+
+/** Fetch all stage scoring rows for a category (returns empty array if none). */
+export async function getStageScoringAction(categoryId: string): Promise<StageScoringRow[]> {
+  const admin = createAdminClient();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data } = await (admin as any)
+    .from('category_stage_scoring')
+    .select('*')
+    .eq('category_id', categoryId)
+    .order('stage');
+  return ((data ?? []) as unknown) as StageScoringRow[];
+}
+
+/** Upsert a stage scoring override. Pass null values to clear individual fields. */
+export async function upsertStageScoringAction(
+  categoryId: string,
+  stage: StageKey,
+  config: {
+    num_sets?: 1 | 3 | 5 | null;
+    points_per_set?: number | null;
+    win_by?: 1 | 2 | null;
+    deuce_cap?: number | null;
+  },
+) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: 'Not authenticated' };
+
+  const admin = createAdminClient();
+
+  // Verify permission via tournament manager check
+  const { data: cat } = await admin
+    .from('tournament_categories')
+    .select('tournament_id')
+    .eq('id', categoryId)
+    .single();
+  if (!cat) return { error: 'Category not found' };
+
+  const t = await assertTournamentManager(cat.tournament_id, user.id);
+  if (!t) return { error: 'Permission denied' };
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (admin as any)
+    .from('category_stage_scoring')
+    .upsert(
+      { category_id: categoryId, stage, ...config },
+      { onConflict: 'category_id,stage' },
+    );
+
+  if (error) return { error: 'Failed to save stage scoring.' };
+
+  revalidatePath(`/tournaments/${t.slug}`);
+  return { success: true };
+}
+
+/** Delete a stage scoring override (reverts to category/tournament default). */
+export async function deleteStageScoringAction(categoryId: string, stage: StageKey) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: 'Not authenticated' };
+
+  const admin = createAdminClient();
+
+  const { data: cat } = await admin
+    .from('tournament_categories')
+    .select('tournament_id')
+    .eq('id', categoryId)
+    .single();
+  if (!cat) return { error: 'Category not found' };
+
+  const t = await assertTournamentManager(cat.tournament_id, user.id);
+  if (!t) return { error: 'Permission denied' };
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await (admin as any)
+    .from('category_stage_scoring')
+    .delete()
+    .eq('category_id', categoryId)
+    .eq('stage', stage);
+
+  revalidatePath(`/tournaments/${t.slug}`);
   return { success: true };
 }
 
