@@ -98,17 +98,15 @@ export function ScheduleEditor({ tournamentSlug, startDate, matches }: Props) {
   // ── Auto-fill for a single group ──────────────────────────────────────────────
   function handleGroupAutoFill(catId: string, groupKey: string, groupMatches: MatchForScheduling[]) {
     const gf = getGf(catId, groupKey);
-    const unscheduled = groupMatches.filter(
-      (m) => m.status === 'scheduled' && !edits[m.id]?.time,
-    );
-    if (unscheduled.length === 0) {
-      setSaveMsg({ err: 'No unscheduled matches to fill in this group.' });
+    const fillable = groupMatches.filter((m) => m.status === 'scheduled');
+    if (fillable.length === 0) {
+      setSaveMsg({ err: 'No schedulable matches in this group.' });
       return;
     }
     const base = new Date(gf.datetime);
     if (isNaN(base.getTime())) { setSaveMsg({ err: 'Invalid start date/time.' }); return; }
 
-    const sorted = [...unscheduled].sort((a, b) => a.round - b.round);
+    const sorted = [...fillable].sort((a, b) => a.round - b.round);
     setEdits((prev) => {
       const next = { ...prev };
       sorted.forEach((m, i) => {
@@ -292,7 +290,6 @@ export function ScheduleEditor({ tournamentSlug, startDate, matches }: Props) {
                     <th className="px-4 py-2 text-xs font-medium text-slate-500">Match</th>
                     <th className="px-4 py-2 text-xs font-medium text-slate-500 w-48">Date &amp; time</th>
                     <th className="px-4 py-2 text-xs font-medium text-slate-500 w-20 text-center">Court</th>
-                    <th className="px-4 py-2 text-xs font-medium text-slate-500 w-20 text-center">Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-surface-border">
@@ -341,19 +338,6 @@ export function ScheduleEditor({ tournamentSlug, startDate, matches }: Props) {
                           />
                         </td>
 
-                        <td className="px-4 py-2.5 text-center">
-                          {isLocked ? (
-                            <span className="rounded-full bg-slate-700/50 px-2 py-0.5 text-[10px] font-medium text-slate-400 capitalize">
-                              {m.status}
-                            </span>
-                          ) : isDirty ? (
-                            <span className="text-xs text-brand-400">unsaved</span>
-                          ) : edit.time ? (
-                            <span className="text-xs text-accent-500">✓</span>
-                          ) : (
-                            <span className="text-xs text-slate-700">—</span>
-                          )}
-                        </td>
                       </tr>
                     );
                   })}
