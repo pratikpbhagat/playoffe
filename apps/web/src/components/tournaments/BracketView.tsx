@@ -51,20 +51,28 @@ function MatchCard({ match, tournamentSlug, readOnly }: { match: MatchWithPlayer
         {/* Name(s) — stacked for doubles, same style for both names */}
         <span className="flex-1 min-w-0">
           {(() => {
+            const isWithdrawn = entry?.entry_status === 'withdrawn';
             const nameClass = `block text-xs leading-tight ${
               isBye
                 ? 'italic text-slate-600'
-                : isWinner
-                  ? 'font-semibold text-white'
-                  : isCompleted
-                    ? 'text-slate-500'
-                    : 'text-slate-300'
+                : isWithdrawn
+                  ? 'text-slate-500 line-through'
+                  : isWinner
+                    ? 'font-semibold text-white'
+                    : isCompleted
+                      ? 'text-slate-500'
+                      : 'text-slate-300'
             }`;
             return (
               <>
                 <span className={nameClass}>{isBye ? 'BYE' : entry.player_name}</span>
                 {!isBye && entry.partner_name && (
                   <span className={`${nameClass} mt-0.5`}>{entry.partner_name}</span>
+                )}
+                {isWithdrawn && (
+                  <span className="block text-[9px] font-semibold uppercase tracking-wide text-red-500/80 leading-tight mt-0.5">
+                    Withdrawn
+                  </span>
                 )}
               </>
             );
@@ -449,7 +457,7 @@ function GroupSection({
   readOnly?: boolean;
 }) {
   // Extract unique participants from the match entries (dedupe by entry id)
-  const participantMap = new Map<string, { id: string; playerName: string; partnerName: string | null; seed: number | null; wins: number; losses: number }>();
+  const participantMap = new Map<string, { id: string; playerName: string; partnerName: string | null; seed: number | null; wins: number; losses: number; withdrawn: boolean }>();
   for (const m of groupMatches) {
     const isDone = m.status === 'completed' || m.status === 'walkover';
     for (const entry of [m.entry_a, m.entry_b]) {
@@ -462,6 +470,7 @@ function GroupSection({
           seed: entry.seed ?? null,
           wins: 0,
           losses: 0,
+          withdrawn: entry.entry_status === 'withdrawn',
         });
       }
       if (isDone && m.winner_entry_id) {
@@ -519,9 +528,18 @@ function GroupSection({
                   <span className="text-[10px] font-bold text-brand-400 w-4 shrink-0">[{p.seed}]</span>
                 )}
                 <span className={`flex-1 text-xs ${
-                  anyResultsIn && i === 0 ? 'font-semibold text-white' : 'text-slate-300'
+                  p.withdrawn
+                    ? 'line-through text-slate-600'
+                    : anyResultsIn && i === 0
+                      ? 'font-semibold text-white'
+                      : 'text-slate-300'
                 }`}>
                   {p.partnerName ? `${p.playerName} / ${p.partnerName}` : p.playerName}
+                  {p.withdrawn && (
+                    <span className="ml-1.5 no-underline text-[9px] font-semibold uppercase tracking-wide text-red-500/70">
+                      WD
+                    </span>
+                  )}
                 </span>
                 {/* W/L record */}
                 {anyResultsIn && (
@@ -671,13 +689,16 @@ function PlayerChip({
   setScores?: number[];
 }) {
   const isWinner = entry !== null && winnerId === entry.id;
+  const isWithdrawn = entry?.entry_status === 'withdrawn';
   const nameClass = entry === null
     ? 'italic text-slate-600'
-    : isWinner
-      ? 'font-semibold text-white'
-      : winnerId
-        ? 'text-slate-500'
-        : 'text-slate-300';
+    : isWithdrawn
+      ? 'text-slate-500 line-through'
+      : isWinner
+        ? 'font-semibold text-white'
+        : winnerId
+          ? 'text-slate-500'
+          : 'text-slate-300';
 
   return (
     <span className="flex flex-1 items-start gap-1.5 min-w-0">
@@ -690,6 +711,11 @@ function PlayerChip({
         {entry?.partner_name && (
           <span className={`text-sm leading-tight mt-0.5 ${nameClass}`}>
             {entry.partner_name}
+          </span>
+        )}
+        {isWithdrawn && (
+          <span className="text-[9px] font-semibold uppercase tracking-wide text-red-500/80 leading-tight mt-0.5">
+            Withdrawn
           </span>
         )}
       </span>

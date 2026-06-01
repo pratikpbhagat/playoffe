@@ -302,17 +302,24 @@ export function ScheduleEditor({ tournamentSlug, startDate, matches }: Props) {
                     const isLocked = m.status !== 'scheduled';
 
                     return (
-                      <tr key={m.id} className={isDirty ? 'bg-brand-900/20' : ''}>
+                      <tr key={m.id} className={`${isDirty ? 'bg-brand-900/20' : ''} ${m.status === 'walkover' ? 'opacity-50' : ''}`}>
                         <td className="px-4 py-2.5 text-xs font-medium text-slate-500 text-center tabular-nums">
                           {globalMatchNum}
                         </td>
 
                         <td className="px-4 py-2.5">
-                          <p className="text-sm text-white whitespace-nowrap">
-                            {m.player_a}
-                            <span className="mx-2 text-slate-600">vs</span>
-                            {m.player_b}
-                          </p>
+                          <div className="flex items-center gap-2 whitespace-nowrap">
+                            <p className="text-sm text-white">
+                              {m.player_a}
+                              <span className="mx-2 text-slate-600">vs</span>
+                              {m.player_b}
+                            </p>
+                            {m.status === 'walkover' && (
+                              <span className="shrink-0 rounded-full bg-red-900/40 px-2 py-0.5 text-[10px] font-bold text-red-400">
+                                W/O
+                              </span>
+                            )}
+                          </div>
                         </td>
 
                         <td className="px-4 py-2.5">

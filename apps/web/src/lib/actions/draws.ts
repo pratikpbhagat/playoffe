@@ -488,6 +488,7 @@ export type MatchWithPlayers = {
   sets: unknown;
   court: number | null;
   entry_a: {
+    entry_status?: string; // 'active' | 'withdrawn' | etc.
     id: string;
     seed: number | null;
     player_name: string;
@@ -500,6 +501,7 @@ export type MatchWithPlayers = {
     player_name: string;
     partner_name: string | null;
     player_username: string;
+    entry_status?: string;
   } | null;
 };
 
@@ -510,8 +512,8 @@ export async function getMatchesForCategory(categoryId: string): Promise<MatchWi
     .from('matches')
     .select(
       `id, round, round_name, group_name, bracket_type, status, winner_entry_id, sets, court,
-       ea:tournament_entries!entry_a_id(id, seed, players!player_id(full_name, username), partner:players!partner_id(full_name)),
-       eb:tournament_entries!entry_b_id(id, seed, players!player_id(full_name, username), partner:players!partner_id(full_name))`,
+       ea:tournament_entries!entry_a_id(id, seed, status, players!player_id(full_name, username), partner:players!partner_id(full_name)),
+       eb:tournament_entries!entry_b_id(id, seed, status, players!player_id(full_name, username), partner:players!partner_id(full_name))`,
     )
     .eq('category_id', categoryId)
     .order('round', { ascending: true })
@@ -522,6 +524,7 @@ export async function getMatchesForCategory(categoryId: string): Promise<MatchWi
   type EntryRaw = {
     id: string;
     seed: number | null;
+    status: string;
     players: { full_name: string; username: string } | null;
     partner: { full_name: string } | null;
   } | null;
@@ -547,6 +550,7 @@ export async function getMatchesForCategory(categoryId: string): Promise<MatchWi
             player_name: ea.players?.full_name ?? 'Unknown',
             partner_name: ea.partner?.full_name ?? null,
             player_username: ea.players?.username ?? '',
+            entry_status: ea.status,
           }
         : null,
       entry_b: eb
@@ -556,6 +560,7 @@ export async function getMatchesForCategory(categoryId: string): Promise<MatchWi
             player_name: eb.players?.full_name ?? 'Unknown',
             partner_name: eb.partner?.full_name ?? null,
             player_username: eb.players?.username ?? '',
+            entry_status: eb.status,
           }
         : null,
     };
