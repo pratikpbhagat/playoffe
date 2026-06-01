@@ -427,6 +427,151 @@ function RoundRobinMatchList({
   );
 }
 
+// ── Group section (group_stage_knockout) ─────────────────────────────────────
+function GroupSection({
+  groupName,
+  groupMatches,
+  tournamentSlug,
+  readOnly,
+}: {
+  groupName: string;
+  groupMatches: MatchWithPlayers[];
+  tournamentSlug: string;
+  readOnly?: boolean;
+}) {
+  // Extract unique participants from the match entries (dedupe by entry id)
+  const participantMap = new Map<string, { id: string; playerName: string; partnerName: string | null; seed: number | null; wins: number; losses: number }>();
+  for (const m of groupMatches) {
+    const isDone = m.status === 'completed' || m.status === 'walkover';
+    for (const entry of [m.entry_a, m.entry_b]) {
+      if (!entry) continue;
+      if (!participantMap.has(entry.id)) {
+        participantMap.set(entry.id, {
+          id: entry.id,
+          playerName: entry.player_name,
+          partnerName: entry.partner_name ?? null,
+          seed: entry.seed ?? null,
+          wins: 0,
+          losses: 0,
+        });
+      }
+      if (isDone && m.winner_entry_id) {
+        const p = participantMap.get(entry.id)!;
+        if (m.winner_entry_id === entry.id) p.wins++;
+        else p.losses++;
+      }
+    }
+  }
+  const participants = Array.from(participantMap.values()).sort((a, b) => {
+    // Sort by wins desc, then seed asc
+    if (b.wins !== a.wins) return b.wins - a.wins;
+    return (a.seed ?? 999) - (b.seed ?? 999);
+  });
+
+  const anyResultsIn = participants.some((p) => p.wins > 0 || p.losses > 0);
+
+  // Group matches by round
+  const roundMap = new Map<number, MatchWithPlayers[]>();
+  for (const m of groupMatches) {
+    const list = roundMap.get(m.round) ?? [];
+    list.push(m);
+    roundMap.set(m.round, list);
+  }
+  const rounds = Array.from(roundMap.entries()).sort(([a], [b]) => a - b);
+
+  const rowClass = `flex items-center gap-3 rounded-lg bg-surface-card px-4 py-2.5 ring-1 ring-surface-border transition-all ${
+    readOnly ? '' : 'hover:ring-brand-500/40'
+  }`;
+
+  return (
+    <div className="rounded-xl border border-surface-border overflow-hidden">
+      {/* Group header */}
+      <div className="bg-surface-card px-4 py-3 border-b border-surface-border">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-sm font-bold text-white tracking-wide">{groupName}</p>
+          <span className="text-[11px] text-slate-500">{participants.length} players</span>
+        </div>
+
+        {/* Participant list */}
+        <div className="space-y-1.5">
+          {participants.map((p, i) => {
+            const displayName = p.partnerName ? `${p.playerName} / ${p.partnerName}` : p.playerName;
+            return (
+              <div key={p.id} className="flex items-center gap-2.5">
+                {/* Standing position (only meaningful once games played) */}
+                <span className={`w-4 shrink-0 text-center text-[11px] font-bold ${
+                  anyResultsIn
+                    ? i === 0 ? 'text-amber-400' : 'text-slate-500'
+                    : 'text-slate-600'
+                }`}>
+                  {anyResultsIn ? (i + 1) : '·'}
+                </span>
+                {/* Seed */}
+                {p.seed && (
+                  <span className="text-[10px] font-bold text-brand-400 w-4 shrink-0">[{p.seed}]</span>
+                )}
+                <span className={`flex-1 truncate text-xs ${
+                  anyResultsIn && i === 0 ? 'font-semibold text-white' : 'text-slate-300'
+                }`}>
+                  {displayName}
+                </span>
+                {/* W/L record */}
+                {anyResultsIn && (
+                  <span className="shrink-0 text-[11px] text-slate-500 font-mono">
+                    {p.wins}W&nbsp;{p.losses}L
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Matches, grouped by round */}
+      <div className="px-4 py-3 space-y-3 bg-surface/30">
+        {rounds.map(([round, roundMatches]) => (
+          <div key={round}>
+            <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-slate-600">
+              {roundMatches[0].round_name ?? `Round ${round}`}
+            </p>
+            <div className="space-y-1.5">
+              {roundMatches.map((m) => {
+                const matchSets = Array.isArray(m.sets)
+                  ? (m.sets as { score_a: number; score_b: number }[])
+                  : [];
+                const isDone = m.status === 'completed' || m.status === 'walkover';
+                const aScores = isDone ? matchSets.map((s) => s.score_a) : undefined;
+                const bScores = isDone ? matchSets.map((s) => s.score_b) : undefined;
+
+                const rowContent = (
+                  <>
+                    <PlayerChip entry={m.entry_a} winnerId={m.winner_entry_id} setScores={aScores} />
+                    <span className="shrink-0 text-xs font-bold text-slate-600">vs</span>
+                    <PlayerChip entry={m.entry_b} winnerId={m.winner_entry_id} setScores={bScores} />
+                    {!isDone && <StatusBadge status={m.status} />}
+                  </>
+                );
+
+                return readOnly ? (
+                  <div key={m.id} className={rowClass}>{rowContent}</div>
+                ) : (
+                  <Link
+                    key={m.id}
+                    href={`/tournaments/${tournamentSlug}/scoring/${m.id}`}
+                    className={rowClass}
+                  >
+                    {rowContent}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function RoundRobinBracket({ matches, tournamentSlug, readOnly, format }: { matches: MatchWithPlayers[]; tournamentSlug: string; readOnly?: boolean; format?: string }) {
   // For group_stage_knockout: group by group_name first (alphabetical), then knockout (null) last
   if (format === 'group_stage_knockout') {
@@ -446,24 +591,39 @@ function RoundRobinBracket({ matches, tournamentSlug, readOnly, format }: { matc
     const sortedGroupNames = Array.from(groupMap.keys()).sort();
 
     return (
-      <div className="space-y-6">
-        {sortedGroupNames.map((groupName) => (
-          <RoundRobinMatchList
-            key={groupName}
-            sectionMatches={groupMap.get(groupName)!}
-            sectionLabel={groupName}
-            tournamentSlug={tournamentSlug}
-            readOnly={readOnly}
-          />
-        ))}
+      <div className="space-y-5">
+        {/* Group stage — one card per group with participants + rounds */}
+        {sortedGroupNames.length > 0 && (
+          <div>
+            <p className="mb-3 text-[11px] font-bold uppercase tracking-widest text-slate-500">
+              Group Stage
+            </p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {sortedGroupNames.map((groupName) => (
+                <GroupSection
+                  key={groupName}
+                  groupName={groupName}
+                  groupMatches={groupMap.get(groupName)!}
+                  tournamentSlug={tournamentSlug}
+                  readOnly={readOnly}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Knockout stage — uses same match-list style */}
         {knockoutMatches.length > 0 && (
-          <RoundRobinMatchList
-            key="knockout"
-            sectionMatches={knockoutMatches}
-            sectionLabel="Knockout Stage"
-            tournamentSlug={tournamentSlug}
-            readOnly={readOnly}
-          />
+          <div>
+            <p className="mb-3 text-[11px] font-bold uppercase tracking-widest text-slate-500">
+              Knockout Stage
+            </p>
+            <EliminationBracket
+              matches={knockoutMatches}
+              tournamentSlug={tournamentSlug}
+              readOnly={readOnly}
+            />
+          </div>
         )}
       </div>
     );
