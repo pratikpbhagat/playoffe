@@ -268,7 +268,7 @@ export async function getCategoryWithEntries(categoryId: string) {
   const { data: entries } = await admin
     .from('tournament_entries')
     .select(
-      'id, seed, status, registered_at, players!player_id(id, full_name, username, photo_url, global_stats(current_rating))',
+      'id, seed, status, registered_at, players!player_id(id, full_name, username, photo_url, global_stats(current_rating)), partner:players!partner_id(id, full_name, username)',
     )
     .eq('category_id', categoryId)
     .eq('status', 'active')

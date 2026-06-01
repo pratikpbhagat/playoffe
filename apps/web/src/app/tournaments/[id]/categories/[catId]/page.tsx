@@ -130,6 +130,11 @@ export default async function CategoryPage({ params }: Props) {
       photo_url: string | null;
       global_stats: { current_rating: number } | null;
     } | null;
+    partner: {
+      id: string;
+      full_name: string;
+      username: string;
+    } | null;
   };
   const typedEntries = entries as unknown as EntryRow[];
 
@@ -238,7 +243,11 @@ export default async function CategoryPage({ params }: Props) {
               <h2 className="mb-3 text-sm font-semibold text-slate-400 uppercase tracking-wide">
                 Entries
               </h2>
-              <EntryList entries={typedEntries} tournamentId={tournament.id} />
+              <EntryList
+                entries={typedEntries}
+                tournamentId={tournament.id}
+                playFormat={(category as { play_format: string }).play_format as 'singles' | 'doubles' | 'mixed_doubles'}
+              />
             </>
           )}
         </section>
