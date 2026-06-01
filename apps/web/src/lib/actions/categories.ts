@@ -406,11 +406,12 @@ export async function addPlayerByEmailAction(
 
     if (!partner) return { error: 'No PLAYOFFE account found for the partner email address' };
 
-    // Check partner not already in the category (as main player or as partner)
+    // Check partner not already in the category as an ACTIVE entry
     const { data: partnerEntry } = await admin
       .from('tournament_entries')
       .select('id')
       .eq('category_id', categoryId)
+      .neq('status', 'withdrawn')
       .or(`player_id.eq.${partner.id},partner_id.eq.${partner.id}`)
       .maybeSingle();
 
@@ -419,17 +420,64 @@ export async function addPlayerByEmailAction(
     partnerId = partner.id;
   }
 
-  // ── Check main player not already in category ────────────────────────────
+  // ── Check main player not already in category (exclude withdrawn) ────────
   const { data: existing } = await admin
     .from('tournament_entries')
     .select('id')
     .eq('category_id', categoryId)
+    .neq('status', 'withdrawn')
     .or(`player_id.eq.${player.id},partner_id.eq.${player.id}`)
     .maybeSingle();
 
   if (existing) return { error: 'Player is already entered in this category' };
 
-  // ── Insert entry ─────────────────────────────────────────────────────────
+  // ── If a draw has been generated, replace a withdrawn entry ───────────────
+  // Instead of inserting a fresh row (which has no bracket slot), reuse the
+  // oldest withdrawn entry and reset its matches so the replacement player
+  // takes over that bracket position automatically.
+  const { data: catRow } = await admin
+    .from('tournament_categories')
+    .select('status')
+    .eq('id', categoryId)
+    .single();
+
+  const isDrawn = ['draw_generated', 'in_progress', 'completed'].includes(catRow?.status ?? '');
+
+  if (isDrawn) {
+    const { data: withdrawnEntry } = await admin
+      .from('tournament_entries')
+      .select('id')
+      .eq('category_id', categoryId)
+      .eq('status', 'withdrawn')
+      .order('registered_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (withdrawnEntry) {
+      // Update the withdrawn entry to point to the new player(s)
+      await admin.from('tournament_entries').update({
+        player_id: player.id,
+        partner_id: partnerId ?? null,
+        status: 'active',
+      }).eq('id', withdrawnEntry.id);
+
+      // Reset walkover matches for this entry back to scheduled so the
+      // replacement player can play them. (Matches that were already
+      // completed before the withdrawal remain untouched.)
+      await admin.from('matches').update({
+        status: 'scheduled',
+        winner_entry_id: null,
+        sets: [],
+      }).eq('category_id', categoryId)
+        .eq('status', 'walkover')
+        .or(`entry_a_id.eq.${withdrawnEntry.id},entry_b_id.eq.${withdrawnEntry.id}`);
+
+      revalidatePath(`/tournaments/${t.slug}`);
+      return { success: true, replaced: true };
+    }
+  }
+
+  // ── Normal insert (no draw yet, or no withdrawn slot available) ──────────
   const { error } = await admin.from('tournament_entries').insert({
     tournament_id: tournamentId,
     category_id: categoryId,

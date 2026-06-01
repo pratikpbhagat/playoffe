@@ -164,7 +164,16 @@ export function AddPlayerByEmail({ tournamentId, categoryId, playFormat = 'singl
     if (result.error) {
       setError(result.error);
     } else {
-      setSuccess(isDoubles ? 'Pair added successfully.' : 'Player added successfully.');
+      const replaced = 'replaced' in result && result.replaced;
+      setSuccess(
+        replaced
+          ? isDoubles
+            ? 'Pair replaced the withdrawn slot and their matches have been reset.'
+            : 'Player replaced the withdrawn slot and their matches have been reset.'
+          : isDoubles
+            ? 'Pair added successfully.'
+            : 'Player added successfully.',
+      );
       setPlayer1('');
       setPlayer2('');
       router.refresh();
