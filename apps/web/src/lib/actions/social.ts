@@ -6,9 +6,6 @@ import type {
   SocialConnectionPublic,
   SocialPostPrefs,
   OAuthPlatform,
-  SocialPlatform,
-  SocialPostTriggers,
-  PlatformPostPrefs,
 } from '@/lib/social-types';
 import { DEFAULT_SOCIAL_POST_PREFS } from '@/lib/social-types';
 
@@ -173,26 +170,4 @@ export async function getPlayerSocialConfigAction(playerId: string): Promise<{
   return { connections, prefs };
 }
 
-/** Platforms that should receive a post for the given trigger. */
-export function getEnabledPlatformsForTrigger(
-  prefs: SocialPostPrefs,
-  connections: SocialConnectionPublic[],
-  trigger: keyof SocialPostTriggers,
-): SocialPlatform[] {
-  if (prefs.paused) return [];
-  const connectedOAuth = new Set(connections.map((c) => c.platform));
-  const result: SocialPlatform[] = [];
-
-  for (const [platform, platformPrefs] of Object.entries(prefs.platforms) as [
-    SocialPlatform,
-    PlatformPostPrefs,
-  ][]) {
-    if (!platformPrefs.enabled) continue;
-    if (!platformPrefs.triggers[trigger]) continue;
-    // WhatsApp needs no OAuth connection; OAuth platforms must be connected
-    if (platform !== 'whatsapp' && !connectedOAuth.has(platform as OAuthPlatform)) continue;
-    result.push(platform);
-  }
-
-  return result;
-}
+// getEnabledPlatformsForTrigger is a pure utility — see @/lib/social-types

@@ -165,3 +165,34 @@ export const CAPTION_PLACEHOLDERS: { key: string; description: string }[] = [
   { key: '{rank}',       description: 'Your current global rank' },
   { key: '{streak}',     description: 'Current win streak' },
 ];
+
+// ── Pure utility (safe to import from client and server) ──────────────────────
+
+/**
+ * Returns which platforms should receive a post for the given trigger,
+ * respecting the global pause, per-platform enabled flags, trigger settings,
+ * and whether an OAuth connection exists for that platform.
+ * Used by Phase 11B Fargate workers and can also be called client-side for previews.
+ */
+export function getEnabledPlatformsForTrigger(
+  prefs: SocialPostPrefs,
+  connections: SocialConnectionPublic[],
+  trigger: keyof SocialPostTriggers,
+): SocialPlatform[] {
+  if (prefs.paused) return [];
+  const connectedOAuth = new Set(connections.map((c) => c.platform));
+  const result: SocialPlatform[] = [];
+
+  for (const [platform, platformPrefs] of Object.entries(prefs.platforms) as [
+    SocialPlatform,
+    PlatformPostPrefs,
+  ][]) {
+    if (!platformPrefs.enabled) continue;
+    if (!platformPrefs.triggers[trigger]) continue;
+    // WhatsApp uses share-link — no stored connection needed
+    if (platform !== 'whatsapp' && !connectedOAuth.has(platform as OAuthPlatform)) continue;
+    result.push(platform);
+  }
+
+  return result;
+}
