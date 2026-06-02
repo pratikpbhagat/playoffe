@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react';
 import { PendingEntriesPanel } from './PendingEntriesPanel';
 import { AddPlayerByEmail } from './AddPlayerByEmail';
+import { ImportPlayersPanel } from './ImportPlayersPanel';
 
 interface EntryRow {
   id: string;
@@ -163,6 +164,14 @@ export function RegistrationsClient({ tournamentSlug, tournamentId, categories, 
           tournamentId={tournamentId}
           categoryId={activeCategory.id}
           playFormat={activeCategory.play_format as 'singles' | 'doubles' | 'mixed_doubles'}
+        />
+      )}
+
+      {/* ── CSV import ───────────────────────────────────────────────────────── */}
+      {activeCategory && (
+        <ImportPlayersPanel
+          tournamentId={tournamentId}
+          categoryId={activeCategory.id}
         />
       )}
     </div>
