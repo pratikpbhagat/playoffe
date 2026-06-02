@@ -209,10 +209,9 @@ export function ScheduledMatchCard({
         </div>
 
         <div className="flex items-center gap-1 shrink-0">
-          <span className="text-xs text-brand-400 font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+          <span className="text-xs text-brand-400 font-medium">
             Score →
           </span>
-          <span className="text-slate-600 group-hover:text-slate-400 transition-colors text-sm">›</span>
         </div>
       </Link>
 

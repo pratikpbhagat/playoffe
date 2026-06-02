@@ -56,12 +56,13 @@ export default async function PublicDrawPage({ params }: Props) {
   }
 
   // Look up category by slug + tournament_id
-  const { data: cat } = await admin
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: cat } = await (admin as any)
     .from('tournament_categories')
-    .select('id, name, draw_format, status, tournament_id')
+    .select('id, name, draw_format, status, tournament_id, advance_per_group')
     .eq('slug', catSlug)
     .eq('tournament_id', tournament.id)
-    .single();
+    .single() as { data: { id: string; name: string; draw_format: string; status: string; tournament_id: string; advance_per_group: number } | null };
 
   if (!cat) notFound();
 
@@ -139,7 +140,15 @@ export default async function PublicDrawPage({ params }: Props) {
           </div>
         ) : (
           <>
-            <StandingsTable matches={matches} format={cat.draw_format} />
+            <StandingsTable
+              matches={matches}
+              format={cat.draw_format}
+              advancePerGroup={
+                cat.draw_format === 'group_stage_knockout'
+                  ? ((cat as { advance_per_group?: number }).advance_per_group ?? 2)
+                  : undefined
+              }
+            />
             <div className="mt-8">
               <h2 className="mb-4 text-sm font-semibold uppercase tracking-widest text-slate-500">
                 {cat.draw_format === 'group_stage_knockout' ? 'Bracket' : 'Draw'}

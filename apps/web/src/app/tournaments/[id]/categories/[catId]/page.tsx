@@ -240,7 +240,15 @@ export default async function CategoryPage({ params }: Props) {
           {showGroupStandings ? (
             // StandingsTable renders its own section header ("Groups" / "Standings")
             // and shows all players even before matches are played.
-            <StandingsTable matches={matches} format={drawFormat} />
+            <StandingsTable
+              matches={matches}
+              format={drawFormat}
+              advancePerGroup={
+                drawFormat === 'group_stage_knockout'
+                  ? ((category as { advance_per_group?: number }).advance_per_group ?? 2)
+                  : undefined
+              }
+            />
           ) : (
             <>
               <h2 className="mb-3 text-sm font-semibold text-slate-400 uppercase tracking-wide">

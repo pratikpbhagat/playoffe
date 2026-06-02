@@ -15,6 +15,7 @@ interface MatchRow {
 interface CategoryRow {
   id: string; name: string; play_format: string; draw_format: string; status: string;
   winner_entry_id: string | null; runner_up_entry_id: string | null; third_place_entry_id: string | null;
+  advance_per_group: number;
 }
 
 interface EntryPlayer { entryId: string; playerName: string; partnerName: string | null; }
@@ -66,12 +67,14 @@ export function DisplayScreen({ tournament, initialDisplayState }: Props) {
       supabase.from('matches')
         .select('id,status,court,round,round_name,group_name,category_id,entry_a_id,entry_b_id,winner_entry_id,sets,scheduled_time,started_at,completed_at,bracket_position,bracket_type')
         .eq('tournament_id', tournament.id).order('scheduled_time', { ascending: true }),
-      supabase.from('tournament_categories')
-        .select('id,name,play_format,draw_format,status,winner_entry_id,runner_up_entry_id,third_place_entry_id')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase as any).from('tournament_categories')
+        .select('id,name,play_format,draw_format,status,winner_entry_id,runner_up_entry_id,third_place_entry_id,advance_per_group')
         .eq('tournament_id', tournament.id),
     ]);
     const fetchedMatches = (matchesRes.data ?? []) as MatchRow[];
-    const fetchedCategories = (categoriesRes.data ?? []) as CategoryRow[];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fetchedCategories = ((categoriesRes as any).data ?? []) as CategoryRow[];
     setMatches(fetchedMatches);
     setCategories(fetchedCategories);
     const entryIds = new Set<string>();
@@ -481,14 +484,18 @@ function GroupStandingsSlide({ matches, categories, entryLabel, categoryFilter }
               <span style={{ width: '3.5vw', textAlign: 'center' }}>PL</span>
               <span style={{ width: '4vw',  textAlign: 'center' }}>PD</span>
             </div>
-            {panel.rows.map((row) => {
-              const isFirst = row.rank === 1;
+            {panel.rows.flatMap((row, i) => {
+              const isGroupStage = panel.cat.draw_format === 'group_stage_knockout';
+              const cutAt = isGroupStage ? (panel.cat.advance_per_group ?? 2) : null;
+              const qualifies = cutAt !== null && row.rank <= cutAt;
+              // Insert cut line between last qualifying and first non-qualifying row
+              const showCutLine = cutAt !== null && row.rank === cutAt && i < panel.rows.length - 1;
               const pd = row.pointsFor - row.pointsAgainst;
               const pdColor = pd > 0 ? '#22c55e' : pd < 0 ? '#ef4444' : '#64748b';
-              return (
-                <div key={row.entryId} style={{ display: 'flex', alignItems: 'center', gap: '0.6vw', padding: '0.85vh 0.8vw', background: isFirst ? 'rgba(99,102,241,0.15)' : row.rank % 2 === 0 ? '#0f172a' : '#1e293b', borderRadius: '0.5vw', border: isFirst ? '1px solid #4f46e5' : '1px solid transparent' }}>
-                  <span style={{ fontSize: '1.2vw', color: isFirst ? '#a5b4fc' : '#475569', minWidth: '2vw', fontWeight: isFirst ? 700 : 400 }}>{row.rank}</span>
-                  <span style={{ flex: 1, fontSize: '1.5vw', fontWeight: 600, color: isFirst ? '#a5b4fc' : '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entryLabel(row.entryId)}</span>
+              const rowEl = (
+                <div key={row.entryId} style={{ display: 'flex', alignItems: 'center', gap: '0.6vw', padding: '0.85vh 0.8vw', background: qualifies ? 'rgba(34,197,94,0.12)' : row.rank % 2 === 0 ? '#0f172a' : '#1e293b', borderRadius: '0.5vw', border: qualifies ? '1px solid rgba(34,197,94,0.35)' : '1px solid transparent' }}>
+                  <span style={{ fontSize: '1.2vw', color: qualifies ? '#4ade80' : '#475569', minWidth: '2vw', fontWeight: qualifies ? 700 : 400 }}>{row.rank}</span>
+                  <span style={{ flex: 1, fontSize: '1.5vw', fontWeight: 600, color: qualifies ? '#f0fdf4' : '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entryLabel(row.entryId)}</span>
                   <span style={{ width: '2.6vw', textAlign: 'center', fontSize: '1.3vw', color: '#64748b',  fontVariantNumeric: 'tabular-nums' }}>{row.played}</span>
                   <span style={{ width: '2.6vw', textAlign: 'center', fontSize: '1.3vw', fontWeight: 700, color: '#22c55e', fontVariantNumeric: 'tabular-nums' }}>{row.wins}</span>
                   <span style={{ width: '2.6vw', textAlign: 'center', fontSize: '1.3vw', color: '#ef4444', fontVariantNumeric: 'tabular-nums' }}>{row.losses}</span>
@@ -499,6 +506,13 @@ function GroupStandingsSlide({ matches, categories, entryLabel, categoryFilter }
                   </span>
                 </div>
               );
+              if (showCutLine) {
+                return [
+                  rowEl,
+                  <div key={`cut-${row.entryId}`} style={{ height: '1px', background: 'rgba(34,197,94,0.3)', margin: '0.1vh 0', borderTop: '1px dashed rgba(34,197,94,0.4)' }} />,
+                ];
+              }
+              return [rowEl];
             })}
           </div>
         ))}

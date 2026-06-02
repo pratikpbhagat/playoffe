@@ -12,6 +12,8 @@ import type { MatchWithPlayers } from '@/lib/actions/draws';
 interface Props {
   matches: MatchWithPlayers[];
   format: string; // 'round_robin' | 'swiss' | 'group_stage_knockout'
+  /** How many teams advance from each group — used to highlight qualifying rows. Only meaningful for group_stage_knockout. */
+  advancePerGroup?: number;
 }
 
 interface Standing {
@@ -107,15 +109,16 @@ function sortStandings(standings: Standing[]): Standing[] {
   });
 }
 
-export function StandingsTable({ matches, format }: Props) {
+export function StandingsTable({ matches, format, advancePerGroup }: Props) {
   // Only show for formats where standings are meaningful
   if (format !== 'round_robin' && format !== 'swiss' && format !== 'group_stage_knockout') {
     return null;
   }
 
-  // For group_stage_knockout, only count group-stage matches (no round_name "Knockout")
+  // For group_stage_knockout, only count group-stage matches.
+  // Group stage matches have group_name set; knockout matches have group_name=null.
   const relevantMatches = format === 'group_stage_knockout'
-    ? matches.filter((m) => m.round_name?.includes('Group'))
+    ? matches.filter((m) => m.group_name !== null)
     : matches;
 
   const completed = relevantMatches.filter(
@@ -136,23 +139,24 @@ export function StandingsTable({ matches, format }: Props) {
     return (
       <section className="mt-8">
         <div className="mb-3 flex items-center gap-2">
-          <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wide">Groups</h3>
-          {completed > 0 && (
-            <span className="text-xs text-slate-600">{completed}/{total} matches done</span>
-          )}
+          <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wide">Group Standings</h3>
+          <span className="text-xs text-slate-600">{completed}/{total} matches done</span>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
           {groupNames.map((groupName) => {
-            const groupMatches = relevantMatches.filter((m) => m.group_name === groupName);
+            const gMatches = relevantMatches.filter((m) => m.group_name === groupName);
+            const gCompleted = gMatches.filter((m) => m.status === 'completed' || m.status === 'walkover').length;
+            const gTotal = gMatches.filter((m) => m.entry_a !== null && m.entry_b !== null).length;
             // includeAll=true so every player in the group appears even before play starts
-            const groupStandings = buildStandings(groupMatches, true);
+            const groupStandings = buildStandings(gMatches, true);
             const sorted = sortStandings([...groupStandings.values()]);
             return (
               <div key={groupName} className="rounded-xl bg-surface-card ring-1 ring-surface-border overflow-hidden">
-                <div className="border-b border-surface-border px-4 py-2">
-                  <p className="text-xs font-bold uppercase tracking-widest text-slate-400">{groupName}</p>
+                <div className="border-b border-surface-border px-4 py-2.5 flex items-center justify-between">
+                  <p className="text-xs font-bold uppercase tracking-widest text-slate-300">{groupName}</p>
+                  <span className="text-[11px] text-slate-600">{gCompleted}/{gTotal} played</span>
                 </div>
-                <StandingsRows standings={sorted} />
+                <StandingsRows standings={sorted} advancePerGroup={advancePerGroup} />
               </div>
             );
           })}
@@ -176,42 +180,66 @@ export function StandingsTable({ matches, format }: Props) {
   );
 }
 
-function StandingsRows({ standings }: { standings: Standing[] }) {
+/** Renders a single player name or stacked doubles pair. */
+function PlayerNameCell({ name }: { name: string }) {
+  const parts = name.split(' / ');
+  if (parts.length === 2) {
+    return (
+      <div className="flex flex-col leading-snug">
+        <span className="text-slate-200">{parts[0]}</span>
+        <span className="text-slate-400">{parts[1]}</span>
+      </div>
+    );
+  }
+  return <span>{name}</span>;
+}
+
+function StandingsRows({ standings, advancePerGroup }: { standings: Standing[]; advancePerGroup?: number }) {
+  const cutAt = (advancePerGroup != null && advancePerGroup > 0) ? advancePerGroup : null;
+
   return (
     <table className="w-full text-xs">
       <thead>
         <tr className="border-b border-surface-border text-slate-500">
           <th className="px-4 py-2 text-left font-medium w-6">#</th>
           <th className="px-2 py-2 text-left font-medium">Player</th>
-          <th className="px-2 py-2 text-center font-medium w-10">P</th>
-          <th className="px-2 py-2 text-center font-medium w-10">W</th>
-          <th className="px-2 py-2 text-center font-medium w-10">L</th>
-          <th className="px-2 py-2 text-center font-medium w-12" title="Points scored">PF</th>
-          <th className="px-2 py-2 text-center font-medium w-12 hidden sm:table-cell" title="Points against">PA</th>
-          <th className="px-2 py-2 text-center font-medium w-14" title="Point difference">+/−</th>
+          <th className="px-2 py-2 text-center font-medium w-10" title="Matches played">MP</th>
+          <th className="px-2 py-2 text-center font-medium w-10" title="Matches won">W</th>
+          <th className="px-2 py-2 text-center font-medium w-10" title="Matches lost">L</th>
+          <th className="px-2 py-2 text-center font-medium w-12" title="Points scored">PS</th>
+          <th className="px-2 py-2 text-center font-medium w-12" title="Points against">PL</th>
+          <th className="px-2 py-2 text-center font-medium w-14" title="Points difference">PD</th>
         </tr>
       </thead>
-      <tbody className="divide-y divide-surface-border">
+      <tbody>
         {standings.map((s, idx) => {
+          const qualifies = cutAt !== null && idx < cutAt;
+          // Draw a dashed cut-line after the last qualifying row
+          const isCutRow = cutAt !== null && idx === cutAt - 1 && cutAt < standings.length;
           const diff = s.pointsWon - s.pointsLost;
           const diffStr = diff > 0 ? `+${diff}` : `${diff}`;
           return (
             <tr
               key={s.entryId}
-              className={idx === 0 && standings.length > 1 ? 'bg-brand-600/5' : ''}
+              className={[
+                qualifies ? 'bg-accent-500/10' : '',
+                isCutRow
+                  ? 'border-b-2 border-dashed border-accent-500/40'
+                  : 'border-b border-surface-border',
+              ].join(' ')}
             >
-              <td className="px-4 py-2.5 text-slate-500">{idx + 1}</td>
-              <td className="px-2 py-2.5 font-medium text-slate-200 truncate max-w-[140px]">
-                {s.playerName}
-                {idx === 0 && standings.length > 1 && (
-                  <span className="ml-1.5 text-[10px] text-brand-400">●</span>
-                )}
+              {/* Rank — green for qualified, normal otherwise */}
+              <td className={`px-4 py-2.5 font-semibold ${qualifies ? 'text-accent-400' : 'text-slate-500'}`}>
+                {idx + 1}
+              </td>
+              <td className="px-2 py-2 font-medium text-slate-200">
+                <PlayerNameCell name={s.playerName} />
               </td>
               <td className="px-2 py-2.5 text-center text-slate-400">{s.played}</td>
               <td className="px-2 py-2.5 text-center font-semibold text-white">{s.wins}</td>
               <td className="px-2 py-2.5 text-center text-slate-500">{s.losses}</td>
               <td className="px-2 py-2.5 text-center text-slate-300">{s.pointsWon}</td>
-              <td className="px-2 py-2.5 text-center text-slate-500 hidden sm:table-cell">{s.pointsLost}</td>
+              <td className="px-2 py-2.5 text-center text-slate-500">{s.pointsLost}</td>
               <td className={`px-2 py-2.5 text-center font-medium ${
                 diff > 0 ? 'text-accent-400' : diff < 0 ? 'text-red-400' : 'text-slate-500'
               }`}>
