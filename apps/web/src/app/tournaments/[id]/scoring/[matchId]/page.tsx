@@ -130,10 +130,6 @@ export default async function MatchScoringPage({ params }: Props) {
           <Link href={`/tournaments/${slug}/scoring`} className="hover:text-slate-300 transition-colors">
             Scoring
           </Link>
-          <span>/</span>
-          <span className="text-slate-400">
-            {[tc?.name, match.round_name, match.group_name].filter(Boolean).join(' · ') || 'Match'}
-          </span>
         </nav>
 
         <div className="mb-6">
