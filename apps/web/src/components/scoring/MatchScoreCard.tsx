@@ -33,6 +33,10 @@ interface Props {
   entryB: EntryInfo | null;
   /** Entry ID of the team that serves first (null = not set) */
   initialServingEntryId?: string | null;
+  /** Points needed to win a set (from category/tournament config). Default 11. */
+  pointsPerSet?: number;
+  /** Points lead required to win a set (e.g. 2 for win-by-2). Default 2. */
+  winBy?: number;
   // Player self-report (optional)
   playerReportedWinnerId?: string | null;
   playerReportedSets?: SetScore[] | null;
@@ -61,6 +65,8 @@ export function MatchScoreCard({
   entryA,
   entryB,
   initialServingEntryId = null,
+  pointsPerSet = 11,
+  winBy = 2,
   playerReportedWinnerId,
   playerReportedSets,
   pausedForReassignment = false,
@@ -582,7 +588,7 @@ export function MatchScoreCard({
       {/* Serving team picker (only before match starts) */}
       {status === 'scheduled' && entryA && entryB && (
         <div className="rounded-xl bg-surface-card px-5 py-4 ring-1 ring-surface-border">
-          <p className="mb-3 text-xs font-medium text-slate-400">Who serves first?</p>
+          <p className="mb-3 text-xs font-medium text-slate-400">Serving Team</p>
           <div className="flex gap-3">
             {[entryA, entryB].map((entry) => {
               const isSelected = servingEntryId === entry.id;
@@ -629,51 +635,110 @@ export function MatchScoreCard({
               </span>
             )}
           </div>
-          <div className="flex items-center gap-2 text-xs font-bold tabular-nums">
-            <span className="text-2xl text-white">{aWins}</span>
-            <span className="text-slate-500">—</span>
-            <span className="text-2xl text-white">{bWins}</span>
-            <span className="ml-2 text-slate-500">sets</span>
+          <div className="flex items-center gap-3">
+            <span className="text-[11px] text-slate-600">First to {pointsPerSet} · win by {winBy}</span>
+            <div className="flex items-center gap-2 text-xs font-bold tabular-nums">
+              <span className="text-2xl text-white">{aWins}</span>
+              <span className="text-slate-500">—</span>
+              <span className="text-2xl text-white">{bWins}</span>
+              <span className="ml-1 text-slate-500">sets</span>
+            </div>
           </div>
         </div>
 
         {/* Set rows */}
         <div className="divide-y divide-surface-border">
-          {/* Header */}
-          <div className="grid grid-cols-[3rem_1fr_2rem_1fr] items-center gap-3 px-5 py-2">
+          {/* Column header */}
+          <div className="grid grid-cols-[2.5rem_1fr_2.5rem_1fr] items-center gap-2 px-5 py-2">
             <span className="text-xs text-slate-600">Set</span>
             <span className="text-xs text-slate-500 text-center">{entryA?.player_name ?? 'A'}</span>
             <span />
             <span className="text-xs text-slate-500 text-center">{entryB?.player_name ?? 'B'}</span>
           </div>
 
-          {sets.map((set, i) => (
-            <div key={i} className="grid grid-cols-[3rem_1fr_2rem_1fr] items-center gap-3 px-5 py-3">
-              <span className="text-xs font-bold text-slate-500">{set.set_number}</span>
+          {sets.map((set, i) => {
+            // Determine if this set has a winner (for coloring)
+            const aLeads = set.score_a - set.score_b;
+            const bLeads = set.score_b - set.score_a;
+            const aWonSet = set.score_a >= pointsPerSet && aLeads >= winBy;
+            const bWonSet = set.score_b >= pointsPerSet && bLeads >= winBy;
 
-              <input
-                type="number"
-                min={0}
-                max={99}
-                value={set.score_a}
-                onChange={(e) => updateSet(i, 'score_a', parseInt(e.target.value) || 0)}
-                disabled={!isEditable}
-                className="block w-full rounded-lg border border-slate-600 bg-surface px-3 py-2 text-center text-lg font-bold text-white outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 disabled:opacity-60 transition"
-              />
+            return (
+              <div key={i} className="grid grid-cols-[2.5rem_1fr_2.5rem_1fr] items-center gap-2 px-5 py-3">
+                <span className="text-xs font-bold text-slate-500">{set.set_number}</span>
 
-              <span className="text-center text-slate-600 font-bold">–</span>
+                {/* Team A score + buttons */}
+                <div className="flex items-center gap-1.5">
+                  {isEditable && (
+                    <button
+                      onClick={() => updateSet(i, 'score_a', set.score_a - 1)}
+                      disabled={set.score_a <= 0}
+                      className="h-9 w-9 shrink-0 rounded-lg bg-surface ring-1 ring-surface-border text-slate-400 hover:text-white hover:ring-slate-500 disabled:opacity-25 transition-colors text-base font-bold"
+                    >
+                      −
+                    </button>
+                  )}
+                  <input
+                    type="number"
+                    min={0}
+                    max={99}
+                    value={set.score_a}
+                    onChange={(e) => updateSet(i, 'score_a', parseInt(e.target.value) || 0)}
+                    disabled={!isEditable}
+                    className={`flex-1 min-w-0 block rounded-lg border px-2 py-2 text-center text-lg font-bold outline-none transition disabled:opacity-60 ${
+                      aWonSet ? 'border-accent-500/60 bg-accent-500/10 text-accent-300'
+                      : bWonSet ? 'border-red-900/30 bg-red-950/20 text-slate-500'
+                      : 'border-slate-600 bg-surface text-white focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30'
+                    }`}
+                  />
+                  {isEditable && (
+                    <button
+                      onClick={() => updateSet(i, 'score_a', set.score_a + 1)}
+                      className="h-9 w-9 shrink-0 rounded-lg bg-brand-600 text-white hover:bg-brand-500 transition-colors text-base font-bold"
+                    >
+                      +
+                    </button>
+                  )}
+                </div>
 
-              <input
-                type="number"
-                min={0}
-                max={99}
-                value={set.score_b}
-                onChange={(e) => updateSet(i, 'score_b', parseInt(e.target.value) || 0)}
-                disabled={!isEditable}
-                className="block w-full rounded-lg border border-slate-600 bg-surface px-3 py-2 text-center text-lg font-bold text-white outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 disabled:opacity-60 transition"
-              />
-            </div>
-          ))}
+                <span className="text-center text-slate-600 font-bold text-sm">–</span>
+
+                {/* Team B score + buttons */}
+                <div className="flex items-center gap-1.5">
+                  {isEditable && (
+                    <button
+                      onClick={() => updateSet(i, 'score_b', set.score_b - 1)}
+                      disabled={set.score_b <= 0}
+                      className="h-9 w-9 shrink-0 rounded-lg bg-surface ring-1 ring-surface-border text-slate-400 hover:text-white hover:ring-slate-500 disabled:opacity-25 transition-colors text-base font-bold"
+                    >
+                      −
+                    </button>
+                  )}
+                  <input
+                    type="number"
+                    min={0}
+                    max={99}
+                    value={set.score_b}
+                    onChange={(e) => updateSet(i, 'score_b', parseInt(e.target.value) || 0)}
+                    disabled={!isEditable}
+                    className={`flex-1 min-w-0 block rounded-lg border px-2 py-2 text-center text-lg font-bold outline-none transition disabled:opacity-60 ${
+                      bWonSet ? 'border-accent-500/60 bg-accent-500/10 text-accent-300'
+                      : aWonSet ? 'border-red-900/30 bg-red-950/20 text-slate-500'
+                      : 'border-slate-600 bg-surface text-white focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30'
+                    }`}
+                  />
+                  {isEditable && (
+                    <button
+                      onClick={() => updateSet(i, 'score_b', set.score_b + 1)}
+                      className="h-9 w-9 shrink-0 rounded-lg bg-brand-600 text-white hover:bg-brand-500 transition-colors text-base font-bold"
+                    >
+                      +
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
 
         {/* Add/remove set */}

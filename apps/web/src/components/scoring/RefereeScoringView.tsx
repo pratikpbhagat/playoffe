@@ -37,6 +37,10 @@ interface Match {
   completed_at: string | null;
   entry_a: Entry | null;
   entry_b: Entry | null;
+  /** Points to win a set (from category/tournament config) */
+  points_per_set: number;
+  /** Lead required to win a set (win-by) */
+  win_by: number;
 }
 
 type AutoSaveStatus = 'idle' | 'pending' | 'saving' | 'saved' | 'error';
@@ -360,50 +364,107 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
     const isInProgress =
       locallyStarted.has(match.id) || match.status === 'in_progress';
 
+    const pointsPerSet = match.points_per_set ?? 11;
+    const winBy = match.win_by ?? 2;
+
     return (
       <div className="border-t border-surface-border px-5 pb-5 pt-4 space-y-4">
-        {/* Set rows */}
-        <div className="space-y-3">
-          {editingSets.map((set, i) => (
-            <div key={i} className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <p className="text-xs text-slate-500">Set {i + 1}</p>
-                {editingSets.length > 1 && (
-                  <button
-                    onClick={() => removeSet(i)}
-                    className="text-[10px] text-slate-600 hover:text-red-400 transition-colors"
-                  >
-                    ✕
-                  </button>
-                )}
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="flex-1">
-                  <p className="text-[10px] text-slate-600 mb-1 truncate">{entryLabel(match.entry_a)}</p>
-                  <input
-                    type="number"
-                    min={0}
-                    max={99}
-                    value={set.score_a}
-                    onChange={(e) => updateSet(i, 'score_a', parseInt(e.target.value) || 0)}
-                    className="w-full rounded-lg border border-slate-700 bg-surface px-3 py-3 text-center text-lg font-bold text-white focus:border-brand-500 focus:outline-none"
-                  />
+        {/* Target score indicator */}
+        <p className="text-[11px] text-slate-600 text-center">
+          First to <span className="text-slate-400 font-semibold">{pointsPerSet}</span> pts · win by {winBy}
+        </p>
+
+        {/* Set rows — large +/− touch buttons */}
+        <div className="space-y-4">
+          {editingSets.map((set, i) => {
+            const aLeads = set.score_a - set.score_b;
+            const bLeads = set.score_b - set.score_a;
+            const aWonSet = set.score_a >= pointsPerSet && aLeads >= winBy;
+            const bWonSet = set.score_b >= pointsPerSet && bLeads >= winBy;
+
+            return (
+              <div key={i} className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-slate-500">Set {i + 1}</p>
+                  {editingSets.length > 1 && (
+                    <button
+                      onClick={() => removeSet(i)}
+                      className="text-[10px] text-slate-600 hover:text-red-400 transition-colors"
+                    >
+                      ✕
+                    </button>
+                  )}
                 </div>
-                <span className="text-slate-600 font-bold text-sm">–</span>
-                <div className="flex-1">
-                  <p className="text-[10px] text-slate-600 mb-1 truncate">{entryLabel(match.entry_b)}</p>
-                  <input
-                    type="number"
-                    min={0}
-                    max={99}
-                    value={set.score_b}
-                    onChange={(e) => updateSet(i, 'score_b', parseInt(e.target.value) || 0)}
-                    className="w-full rounded-lg border border-slate-700 bg-surface px-3 py-3 text-center text-lg font-bold text-white focus:border-brand-500 focus:outline-none"
-                  />
+                <div className="flex items-center gap-3">
+                  {/* Team A */}
+                  <div className="flex-1 space-y-1">
+                    <p className="text-[10px] text-slate-600 text-center truncate">{entryLabel(match.entry_a)}</p>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => updateSet(i, 'score_a', set.score_a - 1)}
+                        disabled={set.score_a <= 0}
+                        className="h-11 w-11 shrink-0 rounded-xl bg-surface ring-1 ring-surface-border text-slate-400 hover:text-white hover:ring-slate-500 disabled:opacity-25 transition-colors text-xl font-bold"
+                      >
+                        −
+                      </button>
+                      <input
+                        type="number"
+                        min={0}
+                        max={99}
+                        value={set.score_a}
+                        onChange={(e) => updateSet(i, 'score_a', parseInt(e.target.value) || 0)}
+                        className={`flex-1 min-w-0 rounded-xl border px-2 py-2.5 text-center text-xl font-bold outline-none transition ${
+                          aWonSet ? 'border-accent-500/60 bg-accent-500/10 text-accent-300'
+                          : bWonSet ? 'border-red-900/30 bg-red-950/20 text-slate-500'
+                          : 'border-slate-700 bg-surface text-white focus:border-brand-500'
+                        }`}
+                      />
+                      <button
+                        onClick={() => updateSet(i, 'score_a', set.score_a + 1)}
+                        className="h-11 w-11 shrink-0 rounded-xl bg-brand-600 text-white hover:bg-brand-500 transition-colors text-xl font-bold"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+
+                  <span className="text-slate-600 font-bold text-sm shrink-0">–</span>
+
+                  {/* Team B */}
+                  <div className="flex-1 space-y-1">
+                    <p className="text-[10px] text-slate-600 text-center truncate">{entryLabel(match.entry_b)}</p>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => updateSet(i, 'score_b', set.score_b - 1)}
+                        disabled={set.score_b <= 0}
+                        className="h-11 w-11 shrink-0 rounded-xl bg-surface ring-1 ring-surface-border text-slate-400 hover:text-white hover:ring-slate-500 disabled:opacity-25 transition-colors text-xl font-bold"
+                      >
+                        −
+                      </button>
+                      <input
+                        type="number"
+                        min={0}
+                        max={99}
+                        value={set.score_b}
+                        onChange={(e) => updateSet(i, 'score_b', parseInt(e.target.value) || 0)}
+                        className={`flex-1 min-w-0 rounded-xl border px-2 py-2.5 text-center text-xl font-bold outline-none transition ${
+                          bWonSet ? 'border-accent-500/60 bg-accent-500/10 text-accent-300'
+                          : aWonSet ? 'border-red-900/30 bg-red-950/20 text-slate-500'
+                          : 'border-slate-700 bg-surface text-white focus:border-brand-500'
+                        }`}
+                      />
+                      <button
+                        onClick={() => updateSet(i, 'score_b', set.score_b + 1)}
+                        className="h-11 w-11 shrink-0 rounded-xl bg-brand-600 text-white hover:bg-brand-500 transition-colors text-xl font-bold"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* Add set */}
@@ -445,7 +506,7 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
         {/* Serving team picker — shown before match starts */}
         {!isInProgress && match.entry_a && match.entry_b && (
           <div className="rounded-xl bg-surface ring-1 ring-surface-border p-3 space-y-2">
-            <p className="text-xs font-medium text-slate-400">Who serves first?</p>
+            <p className="text-xs font-medium text-slate-400">Serving Team</p>
             <div className="flex gap-2">
               {[match.entry_a, match.entry_b].map((entry) => {
                 const isSelected = servingEntryId === entry.id;
