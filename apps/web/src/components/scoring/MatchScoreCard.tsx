@@ -412,17 +412,12 @@ export function MatchScoreCard({
           </p>
           {isWinner && <span className="text-accent-400 text-lg">🏆</span>}
         </div>
-        <div className="flex items-center gap-2 mt-0.5">
-          <p className="text-xs text-slate-500">
-            @{entry.player_username} · {entry.rating.toFixed(2)}
-          </p>
-          {isServing && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-400 ring-1 ring-amber-500/30">
-              <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-              Serving
-            </span>
-          )}
-        </div>
+        {isServing && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-400 ring-1 ring-amber-500/30 mt-0.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+            Serving
+          </span>
+        )}
       </div>
     );
   }
