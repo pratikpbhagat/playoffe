@@ -4,14 +4,13 @@ import Link from 'next/link';
 import { cookies } from 'next/headers';
 import { createClient, createAdminClient, getUserRoles } from '@/lib/supabase/server';
 import { AppNav } from '@/components/layout/AppNav';
-import { RefereePinsPanel } from '@/components/tournaments/RefereePinsPanel';
 import { PrintButton } from '@/components/ui/PrintButton';
 import { DisputeQueue } from '@/components/scoring/DisputeQueue';
 import { CategoryFilter } from '@/components/scoring/CategoryFilter';
 import { ScoringHubRealtime } from '@/components/scoring/ScoringHubRealtime';
 import { ActiveRefereesProvider } from '@/components/scoring/ActiveRefereesProvider';
-import { ActiveRefereesStrip } from '@/components/scoring/ActiveRefereesStrip';
 import { ScoringMatchList } from '@/components/scoring/ScoringMatchList';
+import { RefereePinsSection } from '@/components/scoring/RefereePinsSection';
 import type { ScoringMatch } from '@/components/scoring/ScoringMatchList';
 
 export const metadata: Metadata = { title: 'Scoring' };
@@ -267,26 +266,12 @@ export default async function ScoringHubPage({ params, searchParams }: Props) {
           </div>
         </div>
 
-        {/* Category filter */}
-        {categories.length > 1 && (
-          <div className="mb-5">
-            <CategoryFilter categories={categories} activeCategoryId={categoryFilter ?? null} />
-          </div>
-        )}
-
-        {/* Referee slots strip + PIN management — grouped together so generating
-            a PIN doesn't require scrolling to the bottom of the match list */}
-        <div className="mb-6 space-y-4" data-print-hide>
-          <div className="rounded-xl bg-surface-card ring-1 ring-surface-border px-5 py-4">
-            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
-              Referee slots
-            </p>
-            <ActiveRefereesStrip />
-          </div>
-          <RefereePinsPanel
+        {/* Referee slots (always visible) + collapsible PIN management */}
+        <div className="mb-6" data-print-hide>
+          <RefereePinsSection
             tournamentId={t.id}
             pins={(refPins ?? []).map((p) => ({
-              id: p.id,
+              id: p.id as string,
               label: p.label as string | null,
               expires_at: p.expires_at as string,
               is_revoked: p.is_revoked as boolean,
@@ -294,6 +279,13 @@ export default async function ScoringHubPage({ params, searchParams }: Props) {
             initialSessions={activeReferees}
           />
         </div>
+
+        {/* Category filter — below referee section */}
+        {categories.length > 1 && (
+          <div className="mb-5">
+            <CategoryFilter categories={categories} activeCategoryId={categoryFilter ?? null} />
+          </div>
+        )}
 
         {/* Multi-day date picker */}
         {isMultiDay && (

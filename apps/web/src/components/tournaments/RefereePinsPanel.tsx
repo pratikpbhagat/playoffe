@@ -23,9 +23,11 @@ interface Props {
     last_active_at: string | null;
     matches_scored_count: number;
   }>;
+  /** Override the root section className (e.g. to embed without the default mt-8). */
+  className?: string;
 }
 
-export function RefereePinsPanel({ tournamentId, pins, initialSessions }: Props) {
+export function RefereePinsPanel({ tournamentId, pins, initialSessions, className }: Props) {
   const router = useRouter();
   const { confirm } = useConfirm();
   const [label, setLabel] = useState('');
@@ -146,7 +148,7 @@ export function RefereePinsPanel({ tournamentId, pins, initialSessions }: Props)
   const activePins = pins.filter((p) => !p.is_revoked && new Date(p.expires_at) > new Date());
 
   return (
-    <section className="mt-8 rounded-xl bg-surface-card ring-1 ring-surface-border overflow-hidden">
+    <section className={className ?? 'mt-8 rounded-xl bg-surface-card ring-1 ring-surface-border overflow-hidden'}>
       <div className="border-b border-surface-border px-5 py-4">
         <h3 className="text-sm font-semibold text-white">Referee PINs</h3>
         <p className="mt-0.5 text-xs text-slate-500">
