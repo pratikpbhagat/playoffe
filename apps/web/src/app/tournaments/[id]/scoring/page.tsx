@@ -274,19 +274,25 @@ export default async function ScoringHubPage({ params, searchParams }: Props) {
           </div>
         )}
 
-        {/* Referee slots strip — shows active PINs (assignable referees) */}
-        <div className="mb-6 rounded-xl bg-surface-card ring-1 ring-surface-border px-5 py-4">
-          <div className="flex items-center justify-between gap-4 flex-wrap">
-            <div className="flex-1">
-              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
-                Referee slots
-              </p>
-              <ActiveRefereesStrip />
-            </div>
-            <a href="#referee-pins" className="text-xs text-brand-400 hover:text-brand-300 transition-colors shrink-0">
-              Manage PINs ↓
-            </a>
+        {/* Referee slots strip + PIN management — grouped together so generating
+            a PIN doesn't require scrolling to the bottom of the match list */}
+        <div className="mb-6 space-y-4" data-print-hide>
+          <div className="rounded-xl bg-surface-card ring-1 ring-surface-border px-5 py-4">
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
+              Referee slots
+            </p>
+            <ActiveRefereesStrip />
           </div>
+          <RefereePinsPanel
+            tournamentId={t.id}
+            pins={(refPins ?? []).map((p) => ({
+              id: p.id,
+              label: p.label as string | null,
+              expires_at: p.expires_at as string,
+              is_revoked: p.is_revoked as boolean,
+            }))}
+            initialSessions={activeReferees}
+          />
         </div>
 
         {/* Multi-day date picker */}
@@ -329,20 +335,6 @@ export default async function ScoringHubPage({ params, searchParams }: Props) {
           maxCourts={maxCourts}
           activeReferees={activeReferees}
         />
-
-        {/* Referee PIN management */}
-        <div id="referee-pins" className="mt-10" data-print-hide>
-          <RefereePinsPanel
-            tournamentId={t.id}
-            pins={(refPins ?? []).map((p) => ({
-              id: p.id,
-              label: p.label as string | null,
-              expires_at: p.expires_at as string,
-              is_revoked: p.is_revoked as boolean,
-            }))}
-            initialSessions={activeReferees}
-          />
-        </div>
       </main>
       </ActiveRefereesProvider>
     </div>
