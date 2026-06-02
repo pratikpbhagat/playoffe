@@ -162,19 +162,34 @@ export function MobileNav({ isLoggedIn, username, fullName, email, isSuperAdmin,
               </form>
             </div>
           ) : isLoggedIn && username ? (
-            <div className="flex items-center gap-3">
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-900 text-sm font-bold text-brand-300">
-                {fullName?.charAt(0).toUpperCase()}
-              </span>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-white truncate">{fullName}</p>
-                <p className="text-xs text-slate-500 truncate">@{username}</p>
+            <div className="space-y-3">
+              {/* Identity */}
+              <div className="flex items-center gap-3">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-900 text-sm font-bold text-brand-300">
+                  {fullName?.charAt(0).toUpperCase()}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-white truncate">{fullName}</p>
+                  <p className="text-xs text-slate-500 truncate">@{username}</p>
+                </div>
               </div>
-              <form action="/api/auth/signout" method="POST">
-                <button type="submit" className="text-xs text-slate-500 hover:text-white transition-colors">
-                  Sign out
-                </button>
-              </form>
+              {/* Settings + Sign out */}
+              <div className="flex items-center gap-2">
+                <Link
+                  href="/settings/profile"
+                  className="flex-1 rounded-lg border border-surface-border px-3 py-1.5 text-center text-xs font-medium text-slate-300 hover:text-white hover:border-slate-500 transition-colors"
+                >
+                  Settings
+                </Link>
+                <form action="/api/auth/signout" method="POST" className="flex-1">
+                  <button
+                    type="submit"
+                    className="w-full rounded-lg border border-surface-border px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-white hover:border-slate-500 transition-colors"
+                  >
+                    Sign out
+                  </button>
+                </form>
+              </div>
             </div>
           ) : (
             <div className="flex gap-3">

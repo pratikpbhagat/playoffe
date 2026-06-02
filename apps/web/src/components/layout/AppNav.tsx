@@ -5,6 +5,7 @@ import { NotificationBell } from './NotificationBell';
 import { NavLink } from './NavLink';
 import { MobileNav } from './MobileNav';
 import { RoleToggle } from './RoleToggle';
+import { UserMenu } from './UserMenu';
 import type { Notification } from '@/lib/actions/notifications';
 
 export async function AppNav() {
@@ -135,26 +136,12 @@ export async function AppNav() {
                     userId={user!.id}
                   />
 
-                  {/* Avatar / username */}
-                  <Link
-                    href={`/p/${player.username}`}
-                    className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm text-slate-400 hover:bg-surface hover:text-white transition-colors"
-                  >
-                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-brand-900 text-xs font-bold text-brand-300">
-                      {player.full_name?.charAt(0).toUpperCase()}
-                    </span>
-                    <span className="hidden sm:block">@{player.username}</span>
-                  </Link>
-
-                  {/* Sign out */}
-                  <form action="/api/auth/signout" method="POST">
-                    <button
-                      type="submit"
-                      className="text-xs text-slate-400 hover:text-white transition-colors"
-                    >
-                      Sign out
-                    </button>
-                  </form>
+                  {/* Avatar dropdown — profile, settings, sign out */}
+                  <UserMenu
+                    username={player.username ?? ''}
+                    fullName={player.full_name ?? ''}
+                    settingsHref="/settings/profile"
+                  />
                 </>
               ) : (
                 <div className="flex items-center gap-3">
