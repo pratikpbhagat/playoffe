@@ -43,6 +43,10 @@ interface Match {
   win_by: number;
   /** 'rally' = serve switches when non-serving team wins a point */
   scoring_format: 'rally' | 'traditional';
+  /** Current server number within the serving team (1 or 2). Traditional only. */
+  server_number: number | null;
+  /** Entry ID of the currently assigned server (may be pre-set from DB) */
+  serving_entry_id: string | null;
 }
 
 type AutoSaveStatus = 'idle' | 'pending' | 'saving' | 'saved' | 'error';
@@ -171,8 +175,10 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
   const [manualWinnerId, setManualWinnerId] = useState<string | null>(null);
   /** Entry ID selected as first server for the currently open match */
   const [servingEntryId, setServingEntryId] = useState<string | null>(null);
-  // Keep a ref so the debounced auto-save closure always reads the latest serve
   const servingEntryIdRef = useRef<string | null>(null);
+  /** Server number within the serving team (1 or 2). Traditional scoring only. */
+  const [serverNumber, setServerNumber] = useState<number | null>(null);
+  const serverNumberRef = useRef<number | null>(null);
 
   // ── Per-match score cache: persists the last saved score so closed tiles
   //    and paused cards still show it (keyed by matchId)
@@ -226,8 +232,14 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
     setAutoSaveStatus('idle');
     setManualWinnerId(null);
-    setServingEntryId(null); // reset serving selection for new match
-    servingEntryIdRef.current = null;
+    // Seed serve state from the match's current DB values (covers already-started matches)
+    const openedMatch = matches.find((m) => m.id === matchId);
+    const seedServing = openedMatch?.serving_entry_id ?? null;
+    const seedServerNum = openedMatch?.server_number ?? null;
+    setServingEntryId(seedServing);
+    servingEntryIdRef.current = seedServing;
+    setServerNumber(seedServerNum);
+    serverNumberRef.current = seedServerNum;
     setActiveMatchId(matchId);
     setEditingSets(bestSets.length > 0 ? bestSets : [{ score_a: 0, score_b: 0 }]);
     setError(null);
@@ -261,7 +273,7 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
       autoSaveTimer.current = setTimeout(async () => {
         setAutoSaveStatus('saving');
         // Pass the latest serving team so the display screen always sees the correct server
-        const result = await saveScoreAsRefereeAction(matchId, pin, pendingSets.current, servingEntryIdRef.current);
+        const result = await saveScoreAsRefereeAction(matchId, pin, pendingSets.current, servingEntryIdRef.current, serverNumberRef.current);
         if (result?.error) {
           setAutoSaveStatus('error');
         } else {
@@ -296,10 +308,19 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
   async function handleStart(matchId: string) {
     setStartingMatch(matchId);
     setError(null);
-    const result = await startMatchAsRefereeAction(matchId, pin, servingEntryId);
+    // Traditional: first serve always starts at server 2
+    const openedMatch = matches.find((m) => m.id === matchId);
+    const isTraditional = openedMatch?.scoring_format === 'traditional';
+    const startingServerNum: 1 | 2 | null = isTraditional ? 2 : null;
+    const result = await startMatchAsRefereeAction(matchId, pin, servingEntryId, startingServerNum);
     if (result?.error) {
       setError(result.error);
     } else {
+      // Seed server number state for traditional scoring
+      if (isTraditional) {
+        setServerNumber(2);
+        serverNumberRef.current = 2;
+      }
       setLocallyStarted((prev) => new Set([...prev, matchId]));
       // Open the scoring panel immediately
       const match = matches.find((m) => m.id === matchId);
@@ -375,30 +396,85 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
     const isRally = match.scoring_format === 'rally';
 
     /** Increment score AND auto-switch serve in rally mode.
-     *  The new server is immediately written to the DB so the display screen
-     *  reflects it on the very next Realtime event — no waiting for the debounce. */
+     *  Traditional: only the serving team's + increments score.
+     *  Side-out is handled by the dedicated ↩ button. */
     function handlePlusClick(setIndex: number, field: 'score_a' | 'score_b') {
+      // Traditional: block receiving team from scoring via +
+      if (!isRally && servingEntryId !== null) {
+        const servingField = servingEntryId === match.entry_a?.id ? 'score_a' : 'score_b';
+        if (field !== servingField) return;
+      }
+
       updateSet(setIndex, field, editingSets[setIndex][field] + 1);
+
       if (isRally && servingEntryId !== null) {
         const scoringEntryId = field === 'score_a' ? match.entry_a?.id : match.entry_b?.id;
         if (scoringEntryId && scoringEntryId !== servingEntryId) {
           setServingEntryId(scoringEntryId);
           servingEntryIdRef.current = scoringEntryId;
-          // Save immediately — don't wait for the 1500 ms debounce
-          void saveScoreAsRefereeAction(match.id, pin, editingSets, scoringEntryId);
+          void saveScoreAsRefereeAction(match.id, pin, editingSets, scoringEntryId, serverNumberRef.current);
         }
+      }
+    }
+
+    /** Side-out for traditional scoring. */
+    function handleSideOut() {
+      if (isRally || servingEntryId === null) return;
+
+      let newServingId: string | null = servingEntryId;
+      let newServerNum: number;
+
+      if (serverNumber === 1) {
+        newServerNum = 2; // same team, server 2
+      } else {
+        // server 2 faulted → pass to opponent at server 1
+        newServingId = servingEntryId === match.entry_a?.id
+          ? (match.entry_b?.id ?? null)
+          : (match.entry_a?.id ?? null);
+        newServerNum = 1;
+      }
+
+      setServingEntryId(newServingId);
+      servingEntryIdRef.current = newServingId;
+      setServerNumber(newServerNum);
+      serverNumberRef.current = newServerNum;
+      void saveScoreAsRefereeAction(match.id, pin, editingSets, newServingId, newServerNum);
+    }
+
+    /** Reset server number to 2 when a new set begins (traditional). */
+    function handleAddSetTraditional() {
+      addSet();
+      if (!isRally) {
+        setServerNumber(2);
+        serverNumberRef.current = 2;
+        void saveScoreAsRefereeAction(match.id, pin, editingSets, servingEntryIdRef.current, 2);
       }
     }
 
     return (
       <div className="border-t border-surface-border px-5 pb-5 pt-4 space-y-4">
-        {/* Target score indicator */}
-        <div className="text-center space-y-0.5">
+        {/* Target score indicator + announcement format for traditional */}
+        <div className="text-center space-y-1">
           <p className="text-[11px] text-slate-600">
             First to <span className="text-slate-400 font-semibold">{pointsPerSet}</span> pts · win by {winBy}
           </p>
           {isRally && servingEntryId !== null && (
             <p className="text-[10px] text-amber-500/80">Rally scoring — serve switches automatically</p>
+          )}
+          {!isRally && servingEntryId !== null && serverNumber !== null && (
+            <div className="inline-flex items-center gap-1 rounded-lg bg-amber-500/10 ring-1 ring-amber-500/30 px-3 py-1">
+              <span className="text-sm font-black tabular-nums text-white">
+                {servingEntryId === match.entry_a?.id
+                  ? editingSets[editingSets.length - 1]?.score_a ?? 0
+                  : editingSets[editingSets.length - 1]?.score_b ?? 0}
+                <span className="text-slate-500 mx-1">–</span>
+                {servingEntryId === match.entry_a?.id
+                  ? editingSets[editingSets.length - 1]?.score_b ?? 0
+                  : editingSets[editingSets.length - 1]?.score_a ?? 0}
+                <span className="text-slate-500 mx-1">–</span>
+                <span className="text-amber-400">{serverNumber}</span>
+              </span>
+            </div>
           )}
         </div>
 
@@ -497,11 +573,29 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
 
         {/* Add set */}
         <button
-          onClick={addSet}
+          onClick={isRally ? addSet : handleAddSetTraditional}
           className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
         >
           + Add set
         </button>
+
+        {/* Side-out button — traditional scoring only */}
+        {!isRally && servingEntryId !== null && (
+          <div className="rounded-xl bg-amber-950/20 ring-1 ring-amber-700/30 px-4 py-3 space-y-1.5">
+            <p className="text-[10px] font-semibold text-amber-400">Side-out</p>
+            <p className="text-[10px] text-slate-500">
+              {serverNumber === 1
+                ? `Server 1 → Server 2 · same team keeps serve`
+                : `Server 2 → Opponent serves at Server 1`}
+            </p>
+            <button
+              onClick={handleSideOut}
+              className="w-full rounded-lg border border-amber-700/50 bg-amber-950/40 py-2 text-sm font-semibold text-amber-400 hover:bg-amber-900/40 transition-colors"
+            >
+              ↩ Side-out
+            </button>
+          </div>
+        )}
 
         {/* Winner selector */}
         <div>

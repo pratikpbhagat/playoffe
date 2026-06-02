@@ -33,6 +33,8 @@ interface Props {
   entryB: EntryInfo | null;
   /** Entry ID of the team that serves first (null = not set) */
   initialServingEntryId?: string | null;
+  /** Current server number (1 or 2) within the serving team. Only used in traditional scoring. */
+  initialServerNumber?: number | null;
   /** Points needed to win a set (from category/tournament config). Default 11. */
   pointsPerSet?: number;
   /** Points lead required to win a set (e.g. 2 for win-by-2). Default 2. */
@@ -67,6 +69,7 @@ export function MatchScoreCard({
   entryA,
   entryB,
   initialServingEntryId = null,
+  initialServerNumber = null,
   pointsPerSet = 11,
   winBy = 2,
   scoringFormat = 'traditional',
@@ -88,6 +91,9 @@ export function MatchScoreCard({
   const [servingEntryId, setServingEntryId] = useState<string | null>(initialServingEntryId);
   // Keep a ref so the debounced auto-save closure always reads the latest serve
   const servingEntryIdRef = useRef<string | null>(initialServingEntryId);
+  /** Server number within the serving team (1 or 2). Traditional scoring only. */
+  const [serverNumber, setServerNumber] = useState<number | null>(initialServerNumber);
+  const serverNumberRef = useRef<number | null>(initialServerNumber);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -108,7 +114,7 @@ export function MatchScoreCard({
     autoSaveTimer.current = setTimeout(async () => {
       setAutoSaveStatus('saving');
       // Pass the latest serving team so the display screen always sees the correct server
-      const result = await saveScoreAction(matchId, pendingSets.current, servingEntryIdRef.current);
+      const result = await saveScoreAction(matchId, pendingSets.current, servingEntryIdRef.current, serverNumberRef.current);
       if (result?.error) {
         setAutoSaveStatus('error');
       } else {
@@ -167,12 +173,18 @@ export function MatchScoreCard({
   }
 
   /**
-   * Handles a + button click: increments the score AND, in rally scoring,
-   * automatically switches the serve when the non-serving team wins the point.
-   * The new serving team is immediately persisted to the DB so the display
-   * screen reflects it as soon as the next Realtime event fires.
+   * Handles a + button click.
+   * • Rally: increments score; auto-switches serve when non-serving team scores.
+   * • Traditional: only the serving team's + increments score; receiving team's +
+   *   is intentionally not wired to this (use the Side-out button instead).
    */
   function handleScoreIncrement(index: number, field: 'score_a' | 'score_b') {
+    // Traditional: only serving team can score — silently ignore if receiving team's + is clicked
+    if (scoringFormat === 'traditional' && servingEntryId !== null) {
+      const servingField = servingEntryId === entryA?.id ? 'score_a' : 'score_b';
+      if (field !== servingField) return; // receiving team cannot score directly
+    }
+
     updateSet(index, field, sets[index][field] + 1);
 
     if (scoringFormat === 'rally' && status === 'in_progress' && servingEntryId !== null) {
@@ -182,9 +194,51 @@ export function MatchScoreCard({
         setServingEntryId(scoringEntryId);
         servingEntryIdRef.current = scoringEntryId;
         // Save immediately — don't wait for the 1500 ms debounce
-        void saveScoreAction(matchId, sets, scoringEntryId);
+        void saveScoreAction(matchId, sets, scoringEntryId, null);
       }
     }
+  }
+
+  /**
+   * Side-out (traditional scoring only): receiving team wins the rally.
+   * No score change. Serve rotation:
+   *   Server 1 → Server 2 (same team)
+   *   Server 2 → Side-out (opponent gets serve at Server 1)
+   * Each new set resets to Server 2.
+   */
+  function handleSideOut() {
+    if (scoringFormat !== 'traditional' || status !== 'in_progress') return;
+
+    let newServingId = servingEntryId;
+    let newServerNum: number;
+
+    if (serverNumber === 1) {
+      // Same team, move to server 2
+      newServerNum = 2;
+    } else {
+      // Server 2 faulted → side-out to the other team at server 1
+      newServingId = servingEntryId === entryA?.id ? (entryB?.id ?? null) : (entryA?.id ?? null);
+      newServerNum = 1;
+    }
+
+    setServingEntryId(newServingId);
+    servingEntryIdRef.current = newServingId;
+    setServerNumber(newServerNum);
+    serverNumberRef.current = newServerNum;
+    // Persist immediately so the display screen reflects the side-out
+    void saveScoreAction(matchId, sets, newServingId, newServerNum);
+  }
+
+  /**
+   * Reset server number to 2 when a new set begins (traditional scoring).
+   * Called from the addSet function.
+   */
+  function resetServerForNewSet() {
+    if (scoringFormat !== 'traditional') return;
+    setServerNumber(2);
+    serverNumberRef.current = 2;
+    // Persist
+    void saveScoreAction(matchId, sets, servingEntryIdRef.current, 2);
   }
 
   function addSet() {
@@ -192,6 +246,8 @@ export function MatchScoreCard({
       ...prev,
       { set_number: prev.length + 1, score_a: 0, score_b: 0 },
     ]);
+    // Traditional scoring: each new set starts at server 2
+    resetServerForNewSet();
   }
 
   function removeLastSet() {
@@ -202,10 +258,16 @@ export function MatchScoreCard({
   async function handleStart() {
     setLoading(true);
     setError(null);
-    const result = await startMatchAction(matchId, court, undefined, servingEntryId);
+    // Traditional scoring: first serve always starts at server 2 (pickleball rule)
+    const startingServerNum = scoringFormat === 'traditional' ? 2 : null;
+    const result = await startMatchAction(matchId, court, undefined, servingEntryId, startingServerNum as 1 | 2 | null);
     if (result.error) {
       setError(result.error);
     } else {
+      if (scoringFormat === 'traditional') {
+        setServerNumber(2);
+        serverNumberRef.current = 2;
+      }
       setStatus('in_progress');
       router.refresh();
     }
@@ -668,6 +730,18 @@ export function MatchScoreCard({
           </div>
           <div className="flex items-center gap-3">
             <span className="text-[11px] text-slate-600">First to {pointsPerSet} · win by {winBy}</span>
+            {/* Traditional: show live announcement format X-Y-Z next to the sets counter */}
+            {scoringFormat === 'traditional' && servingEntryId !== null && serverNumber !== null && (
+              <div className="flex items-center gap-1 rounded-lg bg-amber-500/10 ring-1 ring-amber-500/30 px-3 py-1">
+                <span className="text-base font-black tabular-nums text-white">
+                  {servingEntryId === entryA?.id ? sets[sets.length - 1]?.score_a ?? 0 : sets[sets.length - 1]?.score_b ?? 0}
+                  <span className="text-slate-500 mx-1">–</span>
+                  {servingEntryId === entryA?.id ? sets[sets.length - 1]?.score_b ?? 0 : sets[sets.length - 1]?.score_a ?? 0}
+                  <span className="text-slate-500 mx-1">–</span>
+                  <span className="text-amber-400">{serverNumber}</span>
+                </span>
+              </div>
+            )}
             <div className="flex items-center gap-2 text-xs font-bold tabular-nums">
               <span className="text-2xl text-white">{aWins}</span>
               <span className="text-slate-500">—</span>
@@ -792,6 +866,29 @@ export function MatchScoreCard({
           </div>
         )}
       </div>
+
+      {/* ── Side-out button (traditional scoring only) ─────────────────────── */}
+      {isEditable && scoringFormat === 'traditional' && servingEntryId !== null && (
+        <div className="rounded-xl bg-amber-950/20 ring-1 ring-amber-700/30 px-5 py-4">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold text-amber-400 mb-0.5">Side-out</p>
+              <p className="text-[11px] text-slate-500">
+                {serverNumber === 1
+                  ? `Server 1 → Server 2 · serve stays with ${servingEntryId === entryA?.id ? entryA?.player_name : entryB?.player_name}`
+                  : `Server 2 → Side-out · serve passes to ${servingEntryId === entryA?.id ? entryB?.player_name : entryA?.player_name}`}
+              </p>
+            </div>
+            <button
+              onClick={handleSideOut}
+              disabled={!status || status !== 'in_progress'}
+              className="shrink-0 rounded-lg border border-amber-700/50 bg-amber-950/40 px-4 py-2 text-sm font-semibold text-amber-400 hover:bg-amber-900/40 hover:border-amber-600/60 transition-colors disabled:opacity-40"
+            >
+              ↩ Side-out
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Winner selector (when tied or editable) */}
       {isEditable && (

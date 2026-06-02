@@ -8,7 +8,7 @@ interface MatchRow {
   id: string; status: string; court: number | null; round: number;
   round_name: string | null; group_name: string | null; category_id: string;
   entry_a_id: string | null; entry_b_id: string | null; winner_entry_id: string | null;
-  serving_entry_id: string | null;
+  serving_entry_id: string | null; server_number: number | null;
   sets: unknown; scheduled_time: string | null; started_at: string | null;
   completed_at: string | null; bracket_position: number | null; bracket_type: string | null;
 }
@@ -17,6 +17,7 @@ interface CategoryRow {
   id: string; name: string; play_format: string; draw_format: string; status: string;
   winner_entry_id: string | null; runner_up_entry_id: string | null; third_place_entry_id: string | null;
   advance_per_group: number;
+  scoring_format: string; // 'rally' | 'traditional'
 }
 
 interface EntryPlayer { entryId: string; playerName: string; partnerName: string | null; }
@@ -67,11 +68,11 @@ export function DisplayScreen({ tournament, initialDisplayState }: Props) {
     const [matchesRes, categoriesRes] = await Promise.all([
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (supabase as any).from('matches')
-        .select('id,status,court,round,round_name,group_name,category_id,entry_a_id,entry_b_id,winner_entry_id,serving_entry_id,sets,scheduled_time,started_at,completed_at,bracket_position,bracket_type')
+        .select('id,status,court,round,round_name,group_name,category_id,entry_a_id,entry_b_id,winner_entry_id,serving_entry_id,server_number,sets,scheduled_time,started_at,completed_at,bracket_position,bracket_type')
         .eq('tournament_id', tournament.id).order('scheduled_time', { ascending: true }),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (supabase as any).from('tournament_categories')
-        .select('id,name,play_format,draw_format,status,winner_entry_id,runner_up_entry_id,third_place_entry_id,advance_per_group')
+        .select('id,name,play_format,draw_format,status,winner_entry_id,runner_up_entry_id,third_place_entry_id,advance_per_group,scoring_format')
         .eq('tournament_id', tournament.id),
     ]);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -148,7 +149,7 @@ export function DisplayScreen({ tournament, initialDisplayState }: Props) {
 
   const renderSlide = () => {
     switch (effectiveSlide) {
-      case 'live_scores': return <LiveScoresSlide matches={liveMatches} entryLabel={entryLabel} entryPlayers={entryPlayers} parseSets={parseSets} catName={catName} />;
+      case 'live_scores': return <LiveScoresSlide matches={liveMatches} categories={categories} entryLabel={entryLabel} entryPlayers={entryPlayers} parseSets={parseSets} catName={catName} />;
       case 'group_standings': return <GroupStandingsSlide matches={completedMatches} categories={categories} entryLabel={entryLabel} categoryFilter={displayState.active_category_filter} />;
       case 'live_bracket': return <LiveBracketSlide matches={matches} categories={categories} entryLabel={entryLabel} entryPlayers={entryPlayers} categoryFilter={displayState.active_category_filter} />;
       case 'upcoming_matches': return <UpcomingMatchesSlide matches={upcomingMatches} entryLabel={entryLabel} entryPlayers={entryPlayers} formatTime={formatTime} catName={catName} />;
@@ -156,7 +157,7 @@ export function DisplayScreen({ tournament, initialDisplayState }: Props) {
       case 'category_podium': return <CategoryPodiumSlide categories={categories} entryLabel={entryLabel} categoryFilter={displayState.active_category_filter} />;
       case 'announcement': return <AnnouncementSlide announcement={activeAnnouncement} tournamentName={tournament.name} />;
       case 'wrap_up': return <WrapUpSlide categories={categories} entryLabel={entryLabel} tournamentName={tournament.name} />;
-      default: return <LiveScoresSlide matches={liveMatches} entryLabel={entryLabel} entryPlayers={entryPlayers} parseSets={parseSets} catName={catName} />;
+      default: return <LiveScoresSlide matches={liveMatches} categories={categories} entryLabel={entryLabel} entryPlayers={entryPlayers} parseSets={parseSets} catName={catName} />;
     }
   };
 
@@ -248,8 +249,8 @@ function PlayerNameCell({ id, isWinner = false, entryPlayers, fontSize = '2vw', 
   );
 }
 
-function LiveScoresSlide({ matches, entryLabel, entryPlayers, parseSets, catName }: {
-  matches: MatchRow[]; entryLabel: (id: string | null) => string;
+function LiveScoresSlide({ matches, categories, entryLabel, entryPlayers, parseSets, catName }: {
+  matches: MatchRow[]; categories: CategoryRow[]; entryLabel: (id: string | null) => string;
   entryPlayers: Map<string, EntryPlayer>;
   parseSets: (s: unknown) => SetScore[]; catName: (id: string) => string;
 }) {
@@ -261,20 +262,40 @@ function LiveScoresSlide({ matches, entryLabel, entryPlayers, parseSets, catName
           const sets = parseSets(m.sets);
           const aWins = sets.filter((s) => s.score_a > s.score_b).length;
           const bWins = sets.filter((s) => s.score_b > s.score_a).length;
+          const cat = categories.find((c) => c.id === m.category_id);
+          const isTraditional = (cat?.scoring_format ?? 'rally') === 'traditional';
+          // For traditional: announcement-format score from serving team's perspective
+          const servingIsA = m.serving_entry_id === m.entry_a_id;
+          const latestSet = sets[sets.length - 1];
+          const servingScore = latestSet ? (servingIsA ? latestSet.score_a : latestSet.score_b) : 0;
+          const receivingScore = latestSet ? (servingIsA ? latestSet.score_b : latestSet.score_a) : 0;
           return (
             <div key={m.id} style={{ background: 'linear-gradient(135deg,#1e293b,#0f172a)', border: '1px solid #334155', borderRadius: '1.5vw', padding: '2.5vh 2.5vw', display: 'flex', flexDirection: 'column', gap: '1.5vh' }}>
               <div className="flex items-center justify-between">
                 <span style={{ fontSize: '1.4vw', fontWeight: 700, color: '#6366f1', background: '#312e81', borderRadius: '0.4vw', padding: '0.2vh 0.8vw' }}>{m.court != null ? 'Court ' + m.court : 'Live'}</span>
-                <span style={{ fontSize: '1.2vw', color: '#64748b' }}>{catName(m.category_id)} · {m.round_name ?? 'R' + m.round}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1vw' }}>
+                  {/* Traditional: show X-Y-Z announcement format */}
+                  {isTraditional && m.serving_entry_id && m.server_number != null && (
+                    <span style={{ fontSize: '1.4vw', fontWeight: 800, color: '#f59e0b', background: 'rgba(245,158,11,0.12)', borderRadius: '0.4vw', padding: '0.2vh 0.8vw', letterSpacing: '0.04em', fontVariantNumeric: 'tabular-nums' }}>
+                      {servingScore}–{receivingScore}–{m.server_number}
+                    </span>
+                  )}
+                  <span style={{ fontSize: '1.2vw', color: '#64748b' }}>{catName(m.category_id)} · {m.round_name ?? 'R' + m.round}</span>
+                </div>
               </div>
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '1.5vh' }}>
                 {/* Team A row */}
                 <div className="flex items-center justify-between">
                   <div style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 0 }}>
                     <PlayerNameCell id={m.entry_a_id} isWinner={aWins > bWins} entryPlayers={entryPlayers} />
-                    {/* Dot always occupies the same space — transparent when not serving so
-                        neither the name nor the scores ever shift position */}
+                    {/* Serving dot — always same width so names never shift */}
                     <span title={m.serving_entry_id === m.entry_a_id ? 'Serving' : undefined} style={{ marginLeft: '0.6vw', flexShrink: 0, width: '0.75vw', height: '0.75vw', borderRadius: '50%', background: m.serving_entry_id === m.entry_a_id ? '#f59e0b' : 'transparent', boxShadow: m.serving_entry_id === m.entry_a_id ? '0 0 0.4vw rgba(245,158,11,0.5)' : 'none' }} />
+                    {/* S1/S2 badge — traditional only, right of dot */}
+                    {isTraditional && m.serving_entry_id === m.entry_a_id && m.server_number != null && (
+                      <span style={{ marginLeft: '0.4vw', fontSize: '0.9vw', fontWeight: 700, color: '#f59e0b', background: 'rgba(245,158,11,0.15)', borderRadius: '0.3vw', padding: '0.1vh 0.4vw', flexShrink: 0 }}>
+                        S{m.server_number}
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-[1vw]">
                     {sets.map((s, i) => <span key={i} style={{ fontSize: '2.5vw', fontWeight: 700, color: s.score_a > s.score_b ? '#ffffff' : '#64748b', minWidth: '2vw', textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>{s.score_a}</span>)}
@@ -287,6 +308,11 @@ function LiveScoresSlide({ matches, entryLabel, entryPlayers, parseSets, catName
                   <div style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 0 }}>
                     <PlayerNameCell id={m.entry_b_id} isWinner={bWins > aWins} entryPlayers={entryPlayers} />
                     <span title={m.serving_entry_id === m.entry_b_id ? 'Serving' : undefined} style={{ marginLeft: '0.6vw', flexShrink: 0, width: '0.75vw', height: '0.75vw', borderRadius: '50%', background: m.serving_entry_id === m.entry_b_id ? '#f59e0b' : 'transparent', boxShadow: m.serving_entry_id === m.entry_b_id ? '0 0 0.4vw rgba(245,158,11,0.5)' : 'none' }} />
+                    {isTraditional && m.serving_entry_id === m.entry_b_id && m.server_number != null && (
+                      <span style={{ marginLeft: '0.4vw', fontSize: '0.9vw', fontWeight: 700, color: '#f59e0b', background: 'rgba(245,158,11,0.15)', borderRadius: '0.3vw', padding: '0.1vh 0.4vw', flexShrink: 0 }}>
+                        S{m.server_number}
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-[1vw]">
                     {sets.map((s, i) => <span key={i} style={{ fontSize: '2.5vw', fontWeight: 700, color: s.score_b > s.score_a ? '#ffffff' : '#64748b', minWidth: '2vw', textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>{s.score_b}</span>)}

@@ -155,6 +155,9 @@ export async function startMatchAction(
   court: number,
   refereeName?: string,
   servingEntryId?: string | null,
+  /** For traditional scoring, pass 2 (first server starts at 2 per pickleball rules).
+   *  For rally scoring, pass null. */
+  serverNumber?: 1 | 2 | null,
 ) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -176,6 +179,7 @@ export async function startMatchAction(
   };
   if (refereeName) patch.assigned_referee_name = refereeName;
   if (servingEntryId) patch.serving_entry_id = servingEntryId;
+  if (serverNumber !== undefined) patch.server_number = serverNumber;
 
   const { error } = await admin.from('matches').update(patch).eq('id', matchId);
   if (error) return { error: 'Failed to start match' };
@@ -192,6 +196,7 @@ export async function saveScoreAction(
   matchId: string,
   sets: SetScore[],
   servingEntryId?: string | null,
+  serverNumber?: number | null,
 ) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -207,8 +212,9 @@ export async function saveScoreAction(
   const patch: Record<string, any> = {
     sets: sets.map((s, i) => ({ set_number: i + 1, score_a: s.score_a, score_b: s.score_b })),
   };
-  // Always persist the current server — keeps the display screen in sync
+  // Always persist serving state so the display screen stays in sync
   if (servingEntryId !== undefined) patch.serving_entry_id = servingEntryId;
+  if (serverNumber !== undefined) patch.server_number = serverNumber;
 
   const { error } = await admin.from('matches').update(patch).eq('id', matchId);
 

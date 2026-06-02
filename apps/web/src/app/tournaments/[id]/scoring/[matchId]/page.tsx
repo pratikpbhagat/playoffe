@@ -64,7 +64,7 @@ export default async function MatchScoringPage({ params }: Props) {
     .select(`
       id, round, round_name, group_name, status, court, sets,
       assigned_referee_name, paused_for_reassignment,
-      started_at, completed_at, winner_entry_id, serving_entry_id,
+      started_at, completed_at, winner_entry_id, serving_entry_id, server_number,
       player_reported_winner_id, player_reported_sets,
       ea:tournament_entries!entry_a_id(
         id, seed,
@@ -180,6 +180,7 @@ export default async function MatchScoringPage({ params }: Props) {
           initialSets={(match.sets as { set_number: number; score_a: number; score_b: number }[]) ?? []}
           winnerEntryId={match.winner_entry_id}
           initialServingEntryId={(match as any).serving_entry_id ?? null}
+          initialServerNumber={(match as any).server_number ?? null}
           pointsPerSet={effectivePointsPerSet}
           winBy={effectiveWinBy}
           scoringFormat={effectiveScoringFormat}

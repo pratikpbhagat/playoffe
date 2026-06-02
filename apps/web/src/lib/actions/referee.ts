@@ -269,7 +269,7 @@ export async function getRefereeMatchesAction(pin: string, refereeName?: string)
   const SELECT = `
     id, round, round_name, group_name, court, status, sets, winner_entry_id,
     assigned_referee_name, paused_for_reassignment, restart_requested, restart_requested_reason,
-    assigned_at, completed_at,
+    assigned_at, completed_at, serving_entry_id, server_number,
     ea:tournament_entries!entry_a_id(id, seed, players!player_id(full_name, username), partner:players!partner_id(full_name)),
     eb:tournament_entries!entry_b_id(id, seed, players!player_id(full_name, username), partner:players!partner_id(full_name)),
     tc:tournament_categories!category_id(scoring_override, scoring_format, points_per_set, win_by)
@@ -380,13 +380,17 @@ export async function getRefereeMatchesAction(pin: string, refereeName?: string)
       points_per_set: pointsPerSet,
       win_by: winBy,
       scoring_format: scoringFormat,
+      serving_entry_id: (m.serving_entry_id ?? null) as string | null,
+      server_number: (m.server_number ?? null) as number | null,
     };
   }
 
   return {
     success: true,
-    matches: (activeRaw ?? []).map(formatMatch),
-    completedMatches: (completedRaw ?? []).map(formatMatch),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    matches: ((activeRaw ?? []) as any[]).map(formatMatch),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    completedMatches: ((completedRaw ?? []) as any[]).map(formatMatch),
     tournament: validated.tournament,
   };
 }
@@ -460,7 +464,7 @@ export async function pauseMatchAsRefereeAction(matchId: string, pin: string) {
 }
 
 // ── Start a match as referee (PIN-authenticated) ───────────────────────────────
-export async function startMatchAsRefereeAction(matchId: string, pin: string, servingEntryId?: string | null) {
+export async function startMatchAsRefereeAction(matchId: string, pin: string, servingEntryId?: string | null, serverNumber?: 1 | 2 | null) {
   const validated = await validateRefereePinAction(pin);
   if (!validated.success || !validated.tournament) {
     return { error: validated.error ?? 'Invalid PIN' };
@@ -485,6 +489,7 @@ export async function startMatchAsRefereeAction(matchId: string, pin: string, se
     paused_for_reassignment: false,
   };
   if (servingEntryId) patch.serving_entry_id = servingEntryId;
+  if (serverNumber !== undefined) patch.server_number = serverNumber;
 
   const { error } = await admin.from('matches').update(patch).eq('id', matchId);
 
@@ -501,6 +506,7 @@ export async function saveScoreAsRefereeAction(
   pin: string,
   sets: { score_a: number; score_b: number }[],
   servingEntryId?: string | null,
+  serverNumber?: number | null,
 ) {
   const validated = await validateRefereePinAction(pin);
   if (!validated.success) return { error: validated.error ?? 'Invalid PIN' };
@@ -522,6 +528,7 @@ export async function saveScoreAsRefereeAction(
     sets: sets.map((s, i) => ({ set_number: i + 1, score_a: s.score_a, score_b: s.score_b })),
   };
   if (servingEntryId !== undefined) patch.serving_entry_id = servingEntryId;
+  if (serverNumber !== undefined) patch.server_number = serverNumber;
 
   const { error } = await admin.from('matches').update(patch).eq('id', matchId);
 
