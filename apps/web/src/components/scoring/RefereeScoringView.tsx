@@ -453,6 +453,40 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
 
     return (
       <div className="border-t border-surface-border px-5 pb-5 pt-4 space-y-4">
+
+        {/* Serving Team picker — first so referee selects server before anything else */}
+        {!isInProgress && match.entry_a && match.entry_b && (
+          <div className="rounded-xl bg-surface ring-1 ring-surface-border p-3 space-y-2">
+            <p className="text-xs font-medium text-slate-400">Serving Team</p>
+            <div className="flex gap-2">
+              {[match.entry_a, match.entry_b].map((entry) => {
+                const isSelected = servingEntryId === entry.id;
+                return (
+                  <button
+                    key={entry.id}
+                    onClick={() => {
+                      const next = isSelected ? null : entry.id;
+                      setServingEntryId(next);
+                      servingEntryIdRef.current = next;
+                    }}
+                    className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-semibold transition-colors ${
+                      isSelected
+                        ? 'bg-amber-500/20 text-amber-300 ring-2 ring-amber-500/40'
+                        : 'bg-surface-card text-slate-400 hover:text-white ring-1 ring-surface-border'
+                    }`}
+                  >
+                    {isSelected && <span className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />}
+                    {entryLabel(entry)}
+                  </button>
+                );
+              })}
+            </div>
+            {!servingEntryId && (
+              <p className="text-[10px] text-slate-600">Optional — tap to mark the first server</p>
+            )}
+          </div>
+        )}
+
         {/* Target score indicator + announcement format for traditional */}
         <div className="text-center space-y-1">
           <p className="text-[11px] text-slate-600">
@@ -502,7 +536,15 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
                 <div className="flex items-center gap-3">
                   {/* Team A */}
                   <div className="flex-1 space-y-1">
-                    <p className="text-[10px] text-slate-600 text-center truncate">{entryLabel(match.entry_a)}</p>
+                    <div className="flex items-center justify-center gap-1">
+                      {isInProgress && servingEntryId === match.entry_a?.id && (
+                        <span className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />
+                      )}
+                      <p className="text-[10px] text-slate-600 text-center truncate">{entryLabel(match.entry_a)}</p>
+                      {isInProgress && !isRally && servingEntryId === match.entry_a?.id && serverNumber !== null && (
+                        <span className="text-[9px] font-bold text-amber-400 shrink-0">S{serverNumber}</span>
+                      )}
+                    </div>
                     <div className="flex items-center gap-1">
                       <button
                         onClick={() => updateSet(i, 'score_a', set.score_a - 1)}
@@ -536,7 +578,15 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
 
                   {/* Team B */}
                   <div className="flex-1 space-y-1">
-                    <p className="text-[10px] text-slate-600 text-center truncate">{entryLabel(match.entry_b)}</p>
+                    <div className="flex items-center justify-center gap-1">
+                      {isInProgress && servingEntryId === match.entry_b?.id && (
+                        <span className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />
+                      )}
+                      <p className="text-[10px] text-slate-600 text-center truncate">{entryLabel(match.entry_b)}</p>
+                      {isInProgress && !isRally && servingEntryId === match.entry_b?.id && serverNumber !== null && (
+                        <span className="text-[9px] font-bold text-amber-400 shrink-0">S{serverNumber}</span>
+                      )}
+                    </div>
                     <div className="flex items-center gap-1">
                       <button
                         onClick={() => updateSet(i, 'score_b', set.score_b - 1)}
@@ -626,39 +676,6 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
             })}
           </div>
         </div>
-
-        {/* Serving team picker — shown before match starts */}
-        {!isInProgress && match.entry_a && match.entry_b && (
-          <div className="rounded-xl bg-surface ring-1 ring-surface-border p-3 space-y-2">
-            <p className="text-xs font-medium text-slate-400">Serving Team</p>
-            <div className="flex gap-2">
-              {[match.entry_a, match.entry_b].map((entry) => {
-                const isSelected = servingEntryId === entry.id;
-                return (
-                  <button
-                    key={entry.id}
-                    onClick={() => {
-                      const next = isSelected ? null : entry.id;
-                      setServingEntryId(next);
-                      servingEntryIdRef.current = next;
-                    }}
-                    className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-semibold transition-colors ${
-                      isSelected
-                        ? 'bg-amber-500/20 text-amber-300 ring-2 ring-amber-500/40'
-                        : 'bg-surface-card text-slate-400 hover:text-white ring-1 ring-surface-border'
-                    }`}
-                  >
-                    {isSelected && <span className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />}
-                    {entryLabel(entry)}
-                  </button>
-                );
-              })}
-            </div>
-            {!servingEntryId && (
-              <p className="text-[10px] text-slate-600">Optional — tap to mark the first server</p>
-            )}
-          </div>
-        )}
 
         {error && <p className="text-sm text-red-400">{error}</p>}
 
@@ -842,6 +859,16 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
 
     // savedScores is more up-to-date than match.sets (which is server-fetched at page load)
     const displaySets = savedScores.get(match.id) ?? match.sets;
+    const isTraditionalMatch = match.scoring_format === 'traditional';
+    const latestSet = displaySets[displaySets.length - 1];
+    // For traditional scoring: show the announcement format X-Y-Z in the status strip
+    const announcementScore =
+      isStarted && isTraditionalMatch && match.serving_entry_id && match.server_number != null && latestSet
+        ? (() => {
+            const servingIsA = match.serving_entry_id === match.entry_a?.id;
+            return `${servingIsA ? latestSet.score_a : latestSet.score_b}–${servingIsA ? latestSet.score_b : latestSet.score_a}–${match.server_number}`;
+          })()
+        : null;
     const liveScore =
       isStarted && displaySets.length > 0
         ? displaySets.map((s) => `${s.score_a}–${s.score_b}`).join('  ')
@@ -858,10 +885,17 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
           <div className="flex items-center gap-2 border-b border-surface-border/40 bg-accent-950/20 px-5 py-1.5">
             <span className="h-1.5 w-1.5 rounded-full bg-accent-400 animate-pulse shrink-0" />
             <span className="text-[11px] font-semibold text-accent-400">In progress</span>
-            {liveScore
-              ? <span className="ml-auto text-sm font-mono font-bold text-accent-300">{liveScore}</span>
-              : <span className="ml-auto text-[11px] text-slate-600">no score yet</span>
-            }
+            <div className="ml-auto flex items-center gap-2">
+              {announcementScore && (
+                <span className="text-sm font-mono font-bold text-amber-400">{announcementScore}</span>
+              )}
+              {liveScore && !announcementScore && (
+                <span className="text-sm font-mono font-bold text-accent-300">{liveScore}</span>
+              )}
+              {!liveScore && !announcementScore && (
+                <span className="text-[11px] text-slate-600">no score yet</span>
+              )}
+            </div>
           </div>
         )}
 
@@ -877,9 +911,31 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
                 {match.court ? ` · Court ${match.court}` : ''}
               </p>
               <div className="space-y-0.5">
-                <p className="text-sm font-semibold text-white truncate">{entryLabel(match.entry_a)}</p>
+                {/* Team A — amber dot + S1/S2 badge when this team is serving */}
+                <div className="flex items-center gap-1.5 truncate">
+                  <p className="text-sm font-semibold text-white truncate">{entryLabel(match.entry_a)}</p>
+                  {isStarted && match.serving_entry_id === match.entry_a?.id && (
+                    <>
+                      <span className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />
+                      {isTraditionalMatch && match.server_number != null && (
+                        <span className="text-[10px] font-bold text-amber-400 shrink-0">S{match.server_number}</span>
+                      )}
+                    </>
+                  )}
+                </div>
                 <p className="text-xs text-slate-500">vs</p>
-                <p className="text-sm font-semibold text-white truncate">{entryLabel(match.entry_b)}</p>
+                {/* Team B — amber dot + S1/S2 badge when this team is serving */}
+                <div className="flex items-center gap-1.5 truncate">
+                  <p className="text-sm font-semibold text-white truncate">{entryLabel(match.entry_b)}</p>
+                  {isStarted && match.serving_entry_id === match.entry_b?.id && (
+                    <>
+                      <span className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />
+                      {isTraditionalMatch && match.server_number != null && (
+                        <span className="text-[10px] font-bold text-amber-400 shrink-0">S{match.server_number}</span>
+                      )}
+                    </>
+                  )}
+                </div>
               </div>
             </div>
             <div className="shrink-0 text-right">
