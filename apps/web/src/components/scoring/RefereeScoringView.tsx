@@ -225,17 +225,25 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
 
   // ── Score entry helpers ───────────────────────────────────────────────────
 
-  function openMatch(matchId: string, serverSets: { score_a: number; score_b: number }[]) {
+  function openMatch(
+    matchId: string,
+    serverSets: { score_a: number; score_b: number }[],
+    /** Override the serving team — required right after handleStart because
+     *  the matches prop is still stale (router.refresh hasn't resolved yet). */
+    servingIdOverride?: string | null,
+    /** Override the server number — same reason. */
+    serverNumOverride?: number | null,
+  ) {
     // savedScores may be more up-to-date than the server prop if this session
     // has already auto-saved some scores for this match
     const bestSets = savedScores.get(matchId) ?? serverSets;
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
     setAutoSaveStatus('idle');
     setManualWinnerId(null);
-    // Seed serve state from the match's current DB values (covers already-started matches)
+    // Prefer caller-supplied overrides; fall back to DB values from the matches prop.
     const openedMatch = matches.find((m) => m.id === matchId);
-    const seedServing = openedMatch?.serving_entry_id ?? null;
-    const seedServerNum = openedMatch?.server_number ?? null;
+    const seedServing = servingIdOverride !== undefined ? servingIdOverride : (openedMatch?.serving_entry_id ?? null);
+    const seedServerNum = serverNumOverride !== undefined ? serverNumOverride : (openedMatch?.server_number ?? null);
     setServingEntryId(seedServing);
     servingEntryIdRef.current = seedServing;
     setServerNumber(seedServerNum);
@@ -316,15 +324,15 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
     if (result?.error) {
       setError(result.error);
     } else {
-      // Seed server number state for traditional scoring
-      if (isTraditional) {
-        setServerNumber(2);
-        serverNumberRef.current = 2;
-      }
       setLocallyStarted((prev) => new Set([...prev, matchId]));
-      // Open the scoring panel immediately
+      // Open the scoring panel immediately.
+      // Pass serving state as overrides — the matches prop is stale at this
+      // point (router.refresh hasn't resolved yet) so openMatch must not read
+      // from it. Without overrides it would reset servingEntryId → null and
+      // hide the Second Serve / Side-out button and the X–Y–Z score badge.
       const match = matches.find((m) => m.id === matchId);
-      openMatch(matchId, match?.sets ?? []);
+      const startingServerNum = isTraditional ? 2 : null;
+      openMatch(matchId, match?.sets ?? [], servingEntryId, startingServerNum);
       router.refresh();
     }
     setStartingMatch(null);
