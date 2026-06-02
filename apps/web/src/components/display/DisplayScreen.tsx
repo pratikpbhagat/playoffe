@@ -8,6 +8,7 @@ interface MatchRow {
   id: string; status: string; court: number | null; round: number;
   round_name: string | null; group_name: string | null; category_id: string;
   entry_a_id: string | null; entry_b_id: string | null; winner_entry_id: string | null;
+  serving_entry_id: string | null;
   sets: unknown; scheduled_time: string | null; started_at: string | null;
   completed_at: string | null; bracket_position: number | null; bracket_type: string | null;
 }
@@ -64,15 +65,17 @@ export function DisplayScreen({ tournament, initialDisplayState }: Props) {
 
   const fetchData = useCallback(async () => {
     const [matchesRes, categoriesRes] = await Promise.all([
-      supabase.from('matches')
-        .select('id,status,court,round,round_name,group_name,category_id,entry_a_id,entry_b_id,winner_entry_id,sets,scheduled_time,started_at,completed_at,bracket_position,bracket_type')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase as any).from('matches')
+        .select('id,status,court,round,round_name,group_name,category_id,entry_a_id,entry_b_id,winner_entry_id,serving_entry_id,sets,scheduled_time,started_at,completed_at,bracket_position,bracket_type')
         .eq('tournament_id', tournament.id).order('scheduled_time', { ascending: true }),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (supabase as any).from('tournament_categories')
         .select('id,name,play_format,draw_format,status,winner_entry_id,runner_up_entry_id,third_place_entry_id,advance_per_group')
         .eq('tournament_id', tournament.id),
     ]);
-    const fetchedMatches = (matchesRes.data ?? []) as MatchRow[];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fetchedMatches = ((matchesRes as any).data ?? []) as MatchRow[];
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const fetchedCategories = ((categoriesRes as any).data ?? []) as CategoryRow[];
     setMatches(fetchedMatches);
@@ -265,16 +268,28 @@ function LiveScoresSlide({ matches, entryLabel, entryPlayers, parseSets, catName
                 <span style={{ fontSize: '1.2vw', color: '#64748b' }}>{catName(m.category_id)} · {m.round_name ?? 'R' + m.round}</span>
               </div>
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '1.5vh' }}>
+                {/* Team A row */}
                 <div className="flex items-center justify-between">
-                  <PlayerNameCell id={m.entry_a_id} isWinner={aWins > bWins} entryPlayers={entryPlayers} />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6vw', flex: 1, minWidth: 0 }}>
+                    {m.serving_entry_id === m.entry_a_id && (
+                      <span title="Serving" style={{ width: '0.75vw', height: '0.75vw', borderRadius: '50%', background: '#f59e0b', flexShrink: 0, boxShadow: '0 0 0.4vw rgba(245,158,11,0.5)' }} />
+                    )}
+                    <PlayerNameCell id={m.entry_a_id} isWinner={aWins > bWins} entryPlayers={entryPlayers} />
+                  </div>
                   <div className="flex items-center gap-[1vw]">
                     {sets.map((s, i) => <span key={i} style={{ fontSize: '2.5vw', fontWeight: 700, color: s.score_a > s.score_b ? '#ffffff' : '#64748b', minWidth: '2vw', textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>{s.score_a}</span>)}
                     <span style={{ fontSize: '3.5vw', fontWeight: 900, color: aWins > bWins ? '#6366f1' : '#1e293b', minWidth: '3vw', textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>{aWins}</span>
                   </div>
                 </div>
                 <div style={{ height: '1px', background: '#1e293b' }} />
+                {/* Team B row */}
                 <div className="flex items-center justify-between">
-                  <PlayerNameCell id={m.entry_b_id} isWinner={bWins > aWins} entryPlayers={entryPlayers} />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6vw', flex: 1, minWidth: 0 }}>
+                    {m.serving_entry_id === m.entry_b_id && (
+                      <span title="Serving" style={{ width: '0.75vw', height: '0.75vw', borderRadius: '50%', background: '#f59e0b', flexShrink: 0, boxShadow: '0 0 0.4vw rgba(245,158,11,0.5)' }} />
+                    )}
+                    <PlayerNameCell id={m.entry_b_id} isWinner={bWins > aWins} entryPlayers={entryPlayers} />
+                  </div>
                   <div className="flex items-center gap-[1vw]">
                     {sets.map((s, i) => <span key={i} style={{ fontSize: '2.5vw', fontWeight: 700, color: s.score_b > s.score_a ? '#ffffff' : '#64748b', minWidth: '2vw', textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>{s.score_b}</span>)}
                     <span style={{ fontSize: '3.5vw', fontWeight: 900, color: bWins > aWins ? '#6366f1' : '#1e293b', minWidth: '3vw', textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>{bWins}</span>

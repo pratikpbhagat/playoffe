@@ -825,13 +825,20 @@ export function MatchScoreCard({
       {!isCompleted && (
         <div className="flex flex-wrap gap-3">
           {status === 'scheduled' && (
-            <button
-              onClick={handleStart}
-              disabled={loading}
-              className="flex-1 rounded-lg bg-accent-600 px-5 py-3 text-sm font-semibold text-white hover:bg-accent-700 transition-colors disabled:opacity-50"
-            >
-              {loading ? 'Starting…' : '▶ Start match'}
-            </button>
+            <div className="flex-1 space-y-1.5">
+              <button
+                onClick={handleStart}
+                disabled={loading || !servingEntryId}
+                className="w-full rounded-lg bg-accent-600 px-5 py-3 text-sm font-semibold text-white hover:bg-accent-700 transition-colors disabled:opacity-50"
+              >
+                {loading ? 'Starting…' : '▶ Start match'}
+              </button>
+              {!servingEntryId && (
+                <p className="text-center text-[11px] text-amber-500/80">
+                  Select a serving team above before starting
+                </p>
+              )}
+            </div>
           )}
 
           {status === 'in_progress' && (

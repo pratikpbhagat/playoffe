@@ -564,13 +564,20 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
               {submitting ? 'Saving…' : '■ End match'}
             </button>
           ) : (
-            <button
-              onClick={() => handleStart(match.id)}
-              disabled={startingMatch === match.id}
-              className="flex-1 rounded-xl bg-accent-600 py-3 text-sm font-semibold text-white hover:bg-accent-700 transition-colors disabled:opacity-40"
-            >
-              {startingMatch === match.id ? 'Starting…' : '▶ Start match'}
-            </button>
+            <div className="flex-1 space-y-1.5">
+              <button
+                onClick={() => handleStart(match.id)}
+                disabled={startingMatch === match.id || !servingEntryId}
+                className="w-full rounded-xl bg-accent-600 py-3 text-sm font-semibold text-white hover:bg-accent-700 transition-colors disabled:opacity-40"
+              >
+                {startingMatch === match.id ? 'Starting…' : '▶ Start match'}
+              </button>
+              {!servingEntryId && (
+                <p className="text-center text-[10px] text-amber-500/80">
+                  Select a serving team above to start
+                </p>
+              )}
+            </div>
           )}
           <button
             onClick={closeMatch}
