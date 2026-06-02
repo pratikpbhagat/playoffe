@@ -163,6 +163,8 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
     { score_a: 0, score_b: 0 },
   ]);
   const [manualWinnerId, setManualWinnerId] = useState<string | null>(null);
+  /** Entry ID selected as first server for the currently open match */
+  const [servingEntryId, setServingEntryId] = useState<string | null>(null);
 
   // ── Per-match score cache: persists the last saved score so closed tiles
   //    and paused cards still show it (keyed by matchId)
@@ -216,6 +218,7 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
     setAutoSaveStatus('idle');
     setManualWinnerId(null);
+    setServingEntryId(null); // reset serving selection for new match
     setActiveMatchId(matchId);
     setEditingSets(bestSets.length > 0 ? bestSets : [{ score_a: 0, score_b: 0 }]);
     setError(null);
@@ -283,7 +286,7 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
   async function handleStart(matchId: string) {
     setStartingMatch(matchId);
     setError(null);
-    const result = await startMatchAsRefereeAction(matchId, pin);
+    const result = await startMatchAsRefereeAction(matchId, pin, servingEntryId);
     if (result?.error) {
       setError(result.error);
     } else {
@@ -438,6 +441,35 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
             })}
           </div>
         </div>
+
+        {/* Serving team picker — shown before match starts */}
+        {!isInProgress && match.entry_a && match.entry_b && (
+          <div className="rounded-xl bg-surface ring-1 ring-surface-border p-3 space-y-2">
+            <p className="text-xs font-medium text-slate-400">Who serves first?</p>
+            <div className="flex gap-2">
+              {[match.entry_a, match.entry_b].map((entry) => {
+                const isSelected = servingEntryId === entry.id;
+                return (
+                  <button
+                    key={entry.id}
+                    onClick={() => setServingEntryId(isSelected ? null : entry.id)}
+                    className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-semibold transition-colors ${
+                      isSelected
+                        ? 'bg-amber-500/20 text-amber-300 ring-2 ring-amber-500/40'
+                        : 'bg-surface-card text-slate-400 hover:text-white ring-1 ring-surface-border'
+                    }`}
+                  >
+                    {isSelected && <span className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />}
+                    {entryLabel(entry)}
+                  </button>
+                );
+              })}
+            </div>
+            {!servingEntryId && (
+              <p className="text-[10px] text-slate-600">Optional — tap to mark the first server</p>
+            )}
+          </div>
+        )}
 
         {error && <p className="text-sm text-red-400">{error}</p>}
 

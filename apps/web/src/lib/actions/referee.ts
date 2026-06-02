@@ -443,7 +443,7 @@ export async function pauseMatchAsRefereeAction(matchId: string, pin: string) {
 }
 
 // ── Start a match as referee (PIN-authenticated) ───────────────────────────────
-export async function startMatchAsRefereeAction(matchId: string, pin: string) {
+export async function startMatchAsRefereeAction(matchId: string, pin: string, servingEntryId?: string | null) {
   const validated = await validateRefereePinAction(pin);
   if (!validated.success || !validated.tournament) {
     return { error: validated.error ?? 'Invalid PIN' };
@@ -461,14 +461,15 @@ export async function startMatchAsRefereeAction(matchId: string, pin: string) {
   if (!match) return { error: 'Match not found' };
   if (match.status !== 'scheduled') return { error: 'Match is not in scheduled state' };
 
-  const { error } = await admin
-    .from('matches')
-    .update({
-      status: 'in_progress',
-      started_at: new Date().toISOString(),
-      paused_for_reassignment: false,
-    })
-    .eq('id', matchId);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const patch: Record<string, any> = {
+    status: 'in_progress',
+    started_at: new Date().toISOString(),
+    paused_for_reassignment: false,
+  };
+  if (servingEntryId) patch.serving_entry_id = servingEntryId;
+
+  const { error } = await admin.from('matches').update(patch).eq('id', matchId);
 
   if (error) return { error: 'Failed to start match' };
 

@@ -50,12 +50,13 @@ export default async function MatchScoringPage({ params }: Props) {
     : isAdminRole ? 'admin' : 'player';
   if (activeMode === 'player') redirect(`/events/${slug}`);
 
-  const { data: match } = await admin
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: match } = await (admin as any)
     .from('matches')
     .select(`
       id, round, round_name, group_name, status, court, sets,
       assigned_referee_name, paused_for_reassignment,
-      started_at, completed_at, winner_entry_id,
+      started_at, completed_at, winner_entry_id, serving_entry_id,
       player_reported_winner_id, player_reported_sets,
       ea:tournament_entries!entry_a_id(
         id, seed,
@@ -70,7 +71,7 @@ export default async function MatchScoringPage({ params }: Props) {
       tc:tournament_categories!category_id(id, name, play_format)
     `)
     .eq('id', matchId)
-    .single();
+    .single() as { data: Record<string, any> | null };
 
   if (!match) notFound();
 
@@ -161,6 +162,7 @@ export default async function MatchScoringPage({ params }: Props) {
           maxCourts={t.court_count}
           initialSets={(match.sets as { set_number: number; score_a: number; score_b: number }[]) ?? []}
           winnerEntryId={match.winner_entry_id}
+          initialServingEntryId={(match as any).serving_entry_id ?? null}
           entryA={ea ? {
             id: ea.id,
             seed: ea.seed,

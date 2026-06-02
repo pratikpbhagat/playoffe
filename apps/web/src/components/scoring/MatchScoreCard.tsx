@@ -31,6 +31,8 @@ interface Props {
   winnerEntryId: string | null;
   entryA: EntryInfo | null;
   entryB: EntryInfo | null;
+  /** Entry ID of the team that serves first (null = not set) */
+  initialServingEntryId?: string | null;
   // Player self-report (optional)
   playerReportedWinnerId?: string | null;
   playerReportedSets?: SetScore[] | null;
@@ -58,6 +60,7 @@ export function MatchScoreCard({
   winnerEntryId: initialWinner,
   entryA,
   entryB,
+  initialServingEntryId = null,
   playerReportedWinnerId,
   playerReportedSets,
   pausedForReassignment = false,
@@ -73,6 +76,7 @@ export function MatchScoreCard({
   );
   const [winnerEntryId, setWinnerEntryId] = useState<string | null>(initialWinner);
   const [manualWinner, setManualWinner] = useState<string | null>(null);
+  const [servingEntryId, setServingEntryId] = useState<string | null>(initialServingEntryId);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -165,7 +169,7 @@ export function MatchScoreCard({
   async function handleStart() {
     setLoading(true);
     setError(null);
-    const result = await startMatchAction(matchId, court);
+    const result = await startMatchAction(matchId, court, undefined, servingEntryId);
     if (result.error) {
       setError(result.error);
     } else {
@@ -299,9 +303,10 @@ export function MatchScoreCard({
   // ── Player header ──────────────────────────────────────────────────────────
   function PlayerHeader({ entry, isWinner }: { entry: EntryInfo | null; isWinner: boolean }) {
     if (!entry) return <div className="flex-1 text-slate-600 italic text-sm">TBD</div>;
+    const isServing = status === 'in_progress' && servingEntryId === entry.id;
     return (
       <div className={`flex-1 ${isWinner ? '' : isCompleted ? 'opacity-50' : ''}`}>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {entry.seed && (
             <span className="rounded bg-brand-900 px-1.5 py-0.5 text-xs font-bold text-brand-300">
               #{entry.seed}
@@ -312,9 +317,17 @@ export function MatchScoreCard({
           </p>
           {isWinner && <span className="text-accent-400 text-lg">🏆</span>}
         </div>
-        <p className="text-xs text-slate-500 mt-0.5">
-          @{entry.player_username} · {entry.rating.toFixed(2)}
-        </p>
+        <div className="flex items-center gap-2 mt-0.5">
+          <p className="text-xs text-slate-500">
+            @{entry.player_username} · {entry.rating.toFixed(2)}
+          </p>
+          {isServing && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-400 ring-1 ring-amber-500/30">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+              Serving
+            </span>
+          )}
+        </div>
       </div>
     );
   }
@@ -544,7 +557,7 @@ export function MatchScoreCard({
         <PlayerHeader entry={entryB} isWinner={winnerEntryId === entryB?.id} />
       </div>
 
-      {/* Court selector (only before/during match) */}
+      {/* Court selector (only before match starts) */}
       {status === 'scheduled' && (
         <div className="rounded-xl bg-surface-card px-5 py-4 ring-1 ring-surface-border">
           <label className="mb-2 block text-xs font-medium text-slate-400">Court assignment</label>
@@ -563,6 +576,37 @@ export function MatchScoreCard({
               </button>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Serving team picker (only before match starts) */}
+      {status === 'scheduled' && entryA && entryB && (
+        <div className="rounded-xl bg-surface-card px-5 py-4 ring-1 ring-surface-border">
+          <p className="mb-3 text-xs font-medium text-slate-400">Who serves first?</p>
+          <div className="flex gap-3">
+            {[entryA, entryB].map((entry) => {
+              const isSelected = servingEntryId === entry.id;
+              return (
+                <button
+                  key={entry.id}
+                  onClick={() => setServingEntryId(isSelected ? null : entry.id)}
+                  className={`flex-1 flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold transition-colors ${
+                    isSelected
+                      ? 'bg-amber-500/20 text-amber-300 ring-2 ring-amber-500/50'
+                      : 'bg-surface text-slate-400 hover:text-white ring-1 ring-surface-border'
+                  }`}
+                >
+                  {isSelected && (
+                    <span className="h-2 w-2 rounded-full bg-amber-400 shrink-0" />
+                  )}
+                  {entry.player_name}
+                </button>
+              );
+            })}
+          </div>
+          {!servingEntryId && (
+            <p className="mt-2 text-[11px] text-slate-600">Optional — tap a team to mark the first server</p>
+          )}
         </div>
       )}
 

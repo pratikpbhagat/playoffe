@@ -154,6 +154,7 @@ export async function startMatchAction(
   matchId: string,
   court: number,
   refereeName?: string,
+  servingEntryId?: string | null,
 ) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -174,6 +175,7 @@ export async function startMatchAction(
     court,
   };
   if (refereeName) patch.assigned_referee_name = refereeName;
+  if (servingEntryId) patch.serving_entry_id = servingEntryId;
 
   const { error } = await admin.from('matches').update(patch).eq('id', matchId);
   if (error) return { error: 'Failed to start match' };
