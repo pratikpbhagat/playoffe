@@ -662,6 +662,9 @@ export async function updateFeatureFlagAction(flagId: string, isEnabled: boolean
   });
 
   revalidatePath('/superadmin/flags');
+  // Bust the entire layout cache so feature-gated tabs (e.g. Social media in
+  // /settings) appear/disappear immediately without a manual hard-refresh.
+  revalidatePath('/', 'layout');
   return { success: true };
 }
 

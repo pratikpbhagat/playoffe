@@ -1,4 +1,5 @@
 import { cache } from 'react';
+import { unstable_noStore as noStore } from 'next/cache';
 import { createAdminClient } from '@/lib/supabase/server';
 
 /**
@@ -10,6 +11,9 @@ import { createAdminClient } from '@/lib/supabase/server';
  * Defaults to `true` if the row is missing (safe — unknown flags don't block features).
  */
 export const isFeatureEnabled = cache(async (module: string): Promise<boolean> => {
+  // Opt out of Next.js data cache — feature flags must always reflect the live
+  // DB value, not a stale fetch response cached from a previous request.
+  noStore();
   try {
     const admin = createAdminClient();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
