@@ -16,7 +16,10 @@ function text(content: string, style: Record<string, unknown>): Node {
   return { type: 'span', props: { style, children: content } };
 }
 function div(style: Record<string, unknown>, ...children: Node[]): Node {
-  return { type: 'div', props: { style, children } };
+  const mergedStyle = children.length > 0 && !('display' in style)
+    ? { display: 'flex', ...style }
+    : style;
+  return { type: 'div', props: { style: mergedStyle, children: children.length === 0 ? undefined : children } };
 }
 
 const POSITION_LABEL: Record<number, string> = {

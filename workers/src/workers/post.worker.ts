@@ -14,65 +14,64 @@ import { postToPlatform } from '../platforms/index.js';
 
 const CONCURRENCY = parseInt(process.env.POST_WORKER_CONCURRENCY ?? '10', 10);
 
+// ── Exported processor (called directly in tests) ─────────────────────────────
+
+export interface PostJobResult {
+  success: boolean;
+  platformPostId?: string;
+}
+
+export async function processPostJob(data: PostJobData, jobId = 'direct'): Promise<PostJobResult> {
+  const { postLogId, playerId, platform, graphicUrl, caption } = data;
+  console.log(`[post] Job ${jobId}: ${platform} for log ${postLogId}`);
+
+  // Mark as 'posting'
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await supabase.from('social_post_log' as any).update({ status: 'posting' }).eq('id', postLogId);
+
+  // For X, download the PNG buffer so we can re-upload to Twitter's CDN
+  let imageBuffer: Buffer | undefined;
+  if (platform === 'x') {
+    try {
+      const res = await fetch(graphicUrl);
+      if (!res.ok) throw new Error(`Failed to fetch graphic: ${res.statusText}`);
+      imageBuffer = Buffer.from(await res.arrayBuffer());
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      await markFailed(postLogId, `Image download failed: ${msg}`);
+      return { success: false };
+    }
+  }
+
+  // Post to platform
+  const result = await postToPlatform({ platform, playerId, graphicUrl, imageBuffer, caption });
+
+  if (result.success) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await supabase.from('social_post_log' as any).update({
+      status:           'posted',
+      platform_post_id: result.platformPostId,
+      posted_at:        new Date().toISOString(),
+    }).eq('id', postLogId);
+    console.log(`[post] Job ${jobId}: ✓ ${platform} id=${result.platformPostId}`);
+    return { success: true, platformPostId: result.platformPostId };
+  } else {
+    await markFailed(postLogId, result.error ?? 'Unknown error');
+    console.error(`[post] Job ${jobId}: ✗ ${platform}: ${result.error}`);
+    throw new Error(result.error ?? 'Platform post failed');
+  }
+}
+
+// ── BullMQ Worker (production) ─────────────────────────────────────────────────
+
 export function startPostWorker() {
   const worker = new Worker<PostJobData>(
     QUEUE_NAMES.POST,
-    async (job) => {
-      const { postLogId, playerId, platform, graphicUrl, caption } = job.data;
-      console.log(`[post] Processing job ${job.id}: ${platform} for log ${postLogId}`);
-
-      // Mark as 'posting'
-      await supabase
-        .from('social_post_log' as 'social_post_log')
-        .update({ status: 'posting' })
-        .eq('id', postLogId);
-
-      // For X, download the PNG buffer so we can re-upload to Twitter's CDN
-      let imageBuffer: Buffer | undefined;
-      if (platform === 'x') {
-        try {
-          const res = await fetch(graphicUrl);
-          if (!res.ok) throw new Error(`Failed to fetch graphic: ${res.statusText}`);
-          imageBuffer = Buffer.from(await res.arrayBuffer());
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          await markFailed(postLogId, `Image download failed: ${msg}`);
-          return { success: false };
-        }
-      }
-
-      // Post to platform
-      const result = await postToPlatform({
-        platform,
-        playerId,
-        graphicUrl,
-        imageBuffer,
-        caption,
-      });
-
-      if (result.success) {
-        await supabase
-          .from('social_post_log' as 'social_post_log')
-          .update({
-            status: 'posted',
-            platform_post_id: result.platformPostId,
-            posted_at: new Date().toISOString(),
-          })
-          .eq('id', postLogId);
-        console.log(`[post] Job ${job.id}: ✓ posted to ${platform}, id=${result.platformPostId}`);
-        return { success: true, platformPostId: result.platformPostId };
-      } else {
-        await markFailed(postLogId, result.error ?? 'Unknown error');
-        console.error(`[post] Job ${job.id}: ✗ failed on ${platform}: ${result.error}`);
-        // Throw so BullMQ can apply retry policy (3 attempts with exponential backoff)
-        throw new Error(result.error ?? 'Platform post failed');
-      }
-    },
+    (job) => processPostJob(job.data, job.id),
     { connection, concurrency: CONCURRENCY },
   );
 
   worker.on('failed', (job, err) => {
-    // On final failure (all retries exhausted), mark as failed in the log
     if (job?.data?.postLogId) {
       void markFailed(job.data.postLogId, err.message);
     }
@@ -84,8 +83,10 @@ export function startPostWorker() {
 }
 
 async function markFailed(postLogId: string, errorMessage: string) {
-  await supabase
-    .from('social_post_log' as 'social_post_log')
+  const { error } = await supabase
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .from('social_post_log' as any)
     .update({ status: 'failed', error_message: errorMessage })
     .eq('id', postLogId);
+  if (error) console.error('[post] markFailed DB error:', error.message, '| postLogId:', postLogId);
 }

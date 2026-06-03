@@ -35,8 +35,13 @@ function text(content: string, style: Record<string, unknown>): Node {
   return { type: 'span', props: { style, children: content } };
 }
 
+// Satori requires every div with children to have display:flex.
+// Default to flex so individual styles only need to override when necessary.
 function div(style: Record<string, unknown>, ...children: Node[]): Node {
-  return { type: 'div', props: { style, children } };
+  const mergedStyle = children.length > 0 && !('display' in style)
+    ? { display: 'flex', ...style }
+    : style;
+  return { type: 'div', props: { style: mergedStyle, children: children.length === 0 ? undefined : children } };
 }
 
 /** Returns the root Satori element for a 1080×1080 match-win graphic */

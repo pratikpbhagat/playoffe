@@ -8,9 +8,11 @@ type SatoriFont = {
   style: 'normal';
 };
 
+// satori@0.10.x bundles @shuding/opentype.js@1.4.0-beta.0 which does NOT
+// support WOFF2 ("wOF2" signature).  Use plain WOFF or OTF instead.
 const INTER_BASE = 'https://cdn.jsdelivr.net/npm/@fontsource/inter@5.1.1/files';
-const INTER_400_URL = `${INTER_BASE}/inter-latin-400-normal.woff2`;
-const INTER_700_URL = `${INTER_BASE}/inter-latin-700-normal.woff2`;
+const INTER_400_URL = `${INTER_BASE}/inter-latin-400-normal.woff`;
+const INTER_700_URL = `${INTER_BASE}/inter-latin-700-normal.woff`;
 
 let cached: SatoriFont[] | null = null;
 
