@@ -52,7 +52,7 @@ function getGraphicQueue(): Queue {
       process.env.REDIS_URL ?? 'redis://localhost:6379',
     );
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    g.__graphicQueue = new Queue('social:graphic', { connection: connection as any });
+    g.__graphicQueue = new Queue('social.graphic', { connection: connection as any });
   }
   return g.__graphicQueue;
 }

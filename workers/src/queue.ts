@@ -11,9 +11,9 @@ export const connection = new IORedis(
 
 // ── Queue names ───────────────────────────────────────────────────────────────
 export const QUEUE_NAMES = {
-  GRAPHIC: 'social:graphic',
-  POST:    'social:post',
-  PODIUM:  'social:podium',
+  GRAPHIC: 'social.graphic',
+  POST:    'social.post',
+  PODIUM:  'social.podium',
 } as const;
 
 // ── Job data contracts ────────────────────────────────────────────────────────
