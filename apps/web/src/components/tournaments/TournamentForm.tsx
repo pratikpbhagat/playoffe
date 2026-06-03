@@ -25,6 +25,10 @@ interface DefaultValues {
   points_per_set?: number;
   win_by?: 1 | 2;
   deuce_cap?: number | null;
+  // Scheduling defaults
+  default_match_duration_mins?: number;
+  default_changeover_mins?: number;
+  default_start_time?: string;  // "HH:MM:SS" or "HH:MM"
 }
 
 interface Props {
@@ -65,6 +69,15 @@ export function TournamentForm({
   const [deuceCap, setDeuceCap] = useState(
     defaultValues?.deuce_cap != null ? String(defaultValues.deuce_cap) : '',
   );
+  // Scheduling defaults
+  const [schedStartTime, setSchedStartTime] = useState(
+    defaultValues?.default_start_time
+      ? String(defaultValues.default_start_time).slice(0, 5)
+      : '09:00',
+  );
+  const [schedChangeover, setSchedChangeover] = useState(
+    defaultValues?.default_changeover_mins ?? 5,
+  );
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -85,12 +98,14 @@ export function TournamentForm({
       max_participants: fd.get('max_participants')
         ? parseInt(fd.get('max_participants') as string, 10)
         : undefined,
-      auto_approve_entries: autoApprove,
-      scoring_format: scoringFormat,
-      num_sets: numSets,
-      points_per_set: parseInt(fd.get('points_per_set') as string, 10) || 11,
-      win_by: winBy,
-      deuce_cap: deuceCap ? parseInt(deuceCap, 10) : null,
+      auto_approve_entries:         autoApprove,
+      scoring_format:               scoringFormat,
+      num_sets:                     numSets,
+      points_per_set:               parseInt(fd.get('points_per_set') as string, 10) || 11,
+      win_by:                       winBy,
+      deuce_cap:                    deuceCap ? parseInt(deuceCap, 10) : null,
+      default_changeover_mins:      schedChangeover,
+      default_start_time:           schedStartTime,
     };
 
     let result: { error?: string } | undefined;
@@ -224,6 +239,42 @@ export function TournamentForm({
             defaultValue={defaultValues?.court_count ?? 2}
             className={inputClass}
           />
+        </div>
+      </div>
+
+      {/* Scheduling defaults */}
+      <div className="rounded-xl bg-surface-card p-4 ring-1 ring-surface-border space-y-3">
+        <p className="text-sm font-semibold text-slate-300">Schedule defaults</p>
+        <p className="text-xs text-slate-500">
+          Pre-fill the "Schedule all matches" modal on the schedule page. Match duration is
+          derived from the scoring format but can be adjusted per session.
+        </p>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label className={labelClass}>Default start time</label>
+            <input
+              type="time"
+              value={schedStartTime}
+              onChange={(e) => setSchedStartTime(e.target.value)}
+              className={inputClass}
+            />
+            <p className="mt-1 text-xs text-slate-500">When the first match starts each day</p>
+          </div>
+          <div>
+            <label className={labelClass}>Changeover between matches (min)</label>
+            <input
+              type="number"
+              min={0}
+              max={60}
+              value={schedChangeover}
+              onChange={(e) => setSchedChangeover(parseInt(e.target.value) || 0)}
+              className={inputClass}
+            />
+            <p className="mt-1 text-xs text-slate-500">Dead time between consecutive matches on same court</p>
+          </div>
+        </div>
+        <div className="rounded-lg bg-brand-950/30 border border-brand-800/30 px-3 py-2 text-xs text-brand-300/70">
+          Match duration auto-calculated: Rally 1-set ≈ 15 min · Rally 3-set ≈ 45 min · Traditional 1-set ≈ 25 min
         </div>
       </div>
 

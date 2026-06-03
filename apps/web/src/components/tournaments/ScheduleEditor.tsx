@@ -1,7 +1,16 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
-import { batchScheduleMatchesAction } from '@/lib/actions/scheduling';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import {
+  batchScheduleMatchesAction,
+  generateSmartScheduleAction,
+  updateCourtCountAction,
+  detectConflictsFromUpdates,
+} from '@/lib/actions/scheduling';
+import type { ScheduleUpdate, ConflictInfo } from '@/lib/actions/scheduling';
+import { ScheduleSettingsModal } from './ScheduleSettingsModal';
+import type { ScheduleSettings } from './ScheduleSettingsModal';
+import { ScheduleAIPanel } from './ScheduleAIPanel';
 
 export interface MatchForScheduling {
   id: string;
@@ -20,10 +29,15 @@ export interface MatchForScheduling {
 interface Props {
   tournamentSlug: string;
   startDate: string;
+  courtCount: number;
+  matchDurationMins: number;
+  changeoverMins: number;
+  defaultStartTime: string;  // "09:00"
   matches: MatchForScheduling[];
+  aiEnabled?: boolean;
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function pad(n: number) { return String(n).padStart(2, '0'); }
 
@@ -43,25 +57,75 @@ function toTimeString(base: Date, minuteOffset: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-// ── Component ──────────────────────────────────────────────────────────────────
+// ── Component ─────────────────────────────────────────────────────────────────
 
-export function ScheduleEditor({ tournamentSlug, startDate, matches }: Props) {
-  // Per-match edits: { time, court }
+export function ScheduleEditor({
+  tournamentSlug,
+  startDate,
+  courtCount: initialCourtCount,
+  matchDurationMins,
+  changeoverMins,
+  defaultStartTime,
+  matches,
+  aiEnabled = false,
+}: Props) {
+  // ── Core edit state ────────────────────────────────────────────────────────
   const [edits, setEdits] = useState<Record<string, { time: string; court: string }>>(() => {
     const init: Record<string, { time: string; court: string }> = {};
     for (const m of matches) {
       init[m.id] = {
-        time: toLocalInput(m.scheduled_time),
+        time:  toLocalInput(m.scheduled_time),
         court: m.court != null ? String(m.court) : '',
       };
     }
     return init;
   });
 
-  const [saving, setSaving] = useState(false);
+  // ── Dynamic court count ───────────────────────────────────────────────────
+  const [courtCount, setCourtCount]               = useState(initialCourtCount);
+  const [courtUpdateLoading, setCourtUpdateLoading] = useState(false);
+  const [invalidatedByCourtChange, setInvalidatedByCourtChange] = useState<Set<string>>(new Set());
+
+  async function handleCourtCountChange(newCount: number) {
+    if (newCount < 1 || newCount === courtCount) return;
+    setCourtUpdateLoading(true);
+    const result = await updateCourtCountAction(tournamentSlug, newCount);
+    setCourtUpdateLoading(false);
+    if ('error' in result) return;
+    setCourtCount(newCount);
+    setInvalidatedByCourtChange(new Set(result.invalidatedMatchIds));
+  }
+
+  const availableCourts = Array.from({ length: courtCount }, (_, i) => i + 1);
+
+  // ── Conflict detection (derived) ──────────────────────────────────────────
+  const conflicts = useMemo<ConflictInfo[]>(() => {
+    const updates: ScheduleUpdate[] = matches
+      .filter((m) => m.status === 'scheduled')
+      .map((m) => ({
+        matchId:       m.id,
+        scheduledTime: fromLocalInput(edits[m.id]?.time ?? '') ?? null,
+        court:         edits[m.id]?.court ? parseInt(edits[m.id].court) : null,
+      }));
+    return detectConflictsFromUpdates(updates, matchDurationMins, availableCourts);
+  }, [edits, matches, matchDurationMins, availableCourts]);
+
+  const conflictById = useMemo(
+    () => new Map(conflicts.map((c) => [c.matchId, c.message])),
+    [conflicts],
+  );
+
+  // ── Save state ─────────────────────────────────────────────────────────────
+  const [saving, setSaving]   = useState(false);
   const [saveMsg, setSaveMsg] = useState<{ ok?: string; err?: string } | null>(null);
 
-  // ── Category list ─────────────────────────────────────────────────────────────
+  // ── UI state ──────────────────────────────────────────────────────────────
+  const [showModal, setShowModal]         = useState(false);
+  const [generating, setGenerating]       = useState(false);
+  const [showAI, setShowAI]               = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+
+  // ── Category list ─────────────────────────────────────────────────────────
   const categories = useMemo(() => {
     const seen = new Map<string, { id: string; name: string }>();
     for (const m of matches) {
@@ -70,97 +134,127 @@ export function ScheduleEditor({ tournamentSlug, startDate, matches }: Props) {
     return Array.from(seen.values());
   }, [matches]);
 
-  const [activeCatId, setActiveCatId] = useState<string>(categories[0]?.id ?? '');
+  const [activeCatId, setActiveCatId] = useState(categories[0]?.id ?? '');
 
-  // ── Per-group auto-fill state ─────────────────────────────────────────────────
-  // Key: `${categoryId}::${groupKey}` where groupKey = group_name or '__ko__'
+  // ── Per-group legacy auto-fill state ─────────────────────────────────────
   const [groupFill, setGroupFill] = useState<Record<string, { datetime: string; interval: number; court: string }>>({});
 
   function gfKey(catId: string, groupKey: string) { return `${catId}::${groupKey}`; }
-
   function getGf(catId: string, groupKey: string) {
-    return groupFill[gfKey(catId, groupKey)] ?? { datetime: `${startDate}T09:00`, interval: 30, court: '' };
+    return groupFill[gfKey(catId, groupKey)] ?? {
+      datetime: `${startDate}T${defaultStartTime.slice(0, 5)}`,
+      interval: matchDurationMins + changeoverMins,
+      court: '',
+    };
   }
-
   function setGf(catId: string, groupKey: string, patch: Partial<{ datetime: string; interval: number; court: string }>) {
-    setGroupFill((prev) => {
-      const key = gfKey(catId, groupKey);
-      return { ...prev, [key]: { ...getGf(catId, groupKey), ...patch } };
-    });
+    setGroupFill((prev) => ({ ...prev, [gfKey(catId, groupKey)]: { ...getGf(catId, groupKey), ...patch } }));
   }
 
-  // ── Edit helpers ──────────────────────────────────────────────────────────────
   function updateEdit(id: string, patch: Partial<{ time: string; court: string }>) {
     setEdits((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
     setSaveMsg(null);
   }
 
-  // ── Auto-fill for a single group ──────────────────────────────────────────────
   function handleGroupAutoFill(catId: string, groupKey: string, groupMatches: MatchForScheduling[]) {
     const gf = getGf(catId, groupKey);
     const fillable = groupMatches.filter((m) => m.status === 'scheduled');
-    if (fillable.length === 0) {
-      setSaveMsg({ err: 'No schedulable matches in this group.' });
-      return;
-    }
+    if (!fillable.length) return;
     const base = new Date(gf.datetime);
-    if (isNaN(base.getTime())) { setSaveMsg({ err: 'Invalid start date/time.' }); return; }
-
+    if (isNaN(base.getTime())) return;
     const sorted = [...fillable].sort((a, b) => a.round - b.round);
     setEdits((prev) => {
       const next = { ...prev };
       sorted.forEach((m, i) => {
-        next[m.id] = {
-          time: toTimeString(base, i * gf.interval),
-          court: gf.court || prev[m.id]?.court || '',
-        };
+        next[m.id] = { time: toTimeString(base, i * gf.interval), court: gf.court || prev[m.id]?.court || '' };
       });
       return next;
     });
     setSaveMsg(null);
   }
 
-  // ── Save all ──────────────────────────────────────────────────────────────────
+  // ── Smart generate ─────────────────────────────────────────────────────────
+  async function handleGenerate(settings: ScheduleSettings) {
+    setGenerating(true);
+    const result = await generateSmartScheduleAction(tournamentSlug, settings);
+    setGenerating(false);
+    setShowModal(false);
+
+    if ('error' in result) {
+      setSaveMsg({ err: result.error });
+      return;
+    }
+
+    // Apply generated schedule to edits (preview — not yet saved)
+    setEdits((prev) => {
+      const next = { ...prev };
+      for (const u of result.updates) {
+        if (!next[u.matchId]) continue;
+        next[u.matchId] = {
+          time:  u.scheduledTime ? toLocalInput(u.scheduledTime) : '',
+          court: u.court != null ? String(u.court) : '',
+        };
+      }
+      return next;
+    });
+
+    if (result.conflicts.length > 0) {
+      setSaveMsg({ err: `Schedule generated with ${result.conflicts.length} conflict(s) — check highlighted rows.` });
+    } else {
+      setSaveMsg({ ok: `Schedule generated for ${result.updates.length} matches — review and save.` });
+    }
+  }
+
+  // ── Apply AI updates ──────────────────────────────────────────────────────
+  const handleApplyAI = useCallback((updates: ScheduleUpdate[]) => {
+    setEdits((prev) => {
+      const next = { ...prev };
+      for (const u of updates) {
+        if (!next[u.matchId]) continue;
+        next[u.matchId] = {
+          time:  u.scheduledTime ? toLocalInput(u.scheduledTime) : '',
+          court: u.court != null ? String(u.court) : '',
+        };
+      }
+      return next;
+    });
+    setSaveMsg({ ok: `AI applied ${updates.length} change(s) — review and save.` });
+  }, []);
+
+  // ── Save ──────────────────────────────────────────────────────────────────
   async function handleSave() {
     setSaving(true);
     setSaveMsg(null);
-
     const updates = matches
       .filter((m) => m.status === 'scheduled')
       .map((m) => ({
-        matchId: m.id,
+        matchId:       m.id,
         scheduledTime: fromLocalInput(edits[m.id]?.time ?? ''),
-        court: edits[m.id]?.court ? parseInt(edits[m.id].court) : null,
+        court:         edits[m.id]?.court ? parseInt(edits[m.id].court) : null,
       }));
-
     const result = await batchScheduleMatchesAction(tournamentSlug, updates);
+    setSaving(false);
     if (result.error) {
       setSaveMsg({ err: result.error });
     } else {
       setSaveMsg({ ok: `Saved ${result.count} match${result.count !== 1 ? 'es' : ''}.` });
     }
-    setSaving(false);
   }
 
-  // ── Dirty count ───────────────────────────────────────────────────────────────
-  const dirtyCountByCat = useMemo(() => {
-    const counts: Record<string, number> = {};
+  // ── Dirty count ───────────────────────────────────────────────────────────
+  const totalDirty = useMemo(() => {
+    let count = 0;
     for (const m of matches) {
       if (m.status !== 'scheduled') continue;
-      const origTime = toLocalInput(m.scheduled_time);
+      const origTime  = toLocalInput(m.scheduled_time);
       const origCourt = m.court != null ? String(m.court) : '';
       const e = edits[m.id];
-      if (!e) continue;
-      if (e.time !== origTime || e.court !== origCourt) {
-        counts[m.category_id] = (counts[m.category_id] ?? 0) + 1;
-      }
+      if (e && (e.time !== origTime || e.court !== origCourt)) count++;
     }
-    return counts;
+    return count;
   }, [matches, edits]);
 
-  const totalDirty = Object.values(dirtyCountByCat).reduce((a, b) => a + b, 0);
-
-  // ── Active category — sorted + grouped ───────────────────────────────────────
+  // ── Active category groups ─────────────────────────────────────────────────
   const activeGroups = useMemo(() => {
     const sorted = matches
       .filter((m) => m.category_id === activeCatId)
@@ -170,7 +264,6 @@ export function ScheduleEditor({ tournamentSlug, startDate, matches }: Props) {
         if (ga !== gb) return ga.localeCompare(gb);
         return a.round - b.round;
       });
-
     const groupMap = new Map<string, MatchForScheduling[]>();
     for (const m of sorted) {
       const key = m.group_name ?? '__ko__';
@@ -184,9 +277,19 @@ export function ScheduleEditor({ tournamentSlug, startDate, matches }: Props) {
     }));
   }, [matches, activeCatId]);
 
-  const inputCls =
-    'block w-full rounded border border-slate-700 bg-surface px-2 py-1.5 text-xs text-white outline-none focus:border-brand-500 disabled:opacity-40';
+  // ── Current schedule for AI ───────────────────────────────────────────────
+  const currentScheduleForAI = useMemo<ScheduleUpdate[]>(() =>
+    matches
+      .filter((m) => m.status === 'scheduled')
+      .map((m) => ({
+        matchId:       m.id,
+        scheduledTime: fromLocalInput(edits[m.id]?.time ?? '') ?? null,
+        court:         edits[m.id]?.court ? parseInt(edits[m.id].court) : null,
+      })),
+    [matches, edits],
+  );
 
+  // ── Early exit ────────────────────────────────────────────────────────────
   if (matches.length === 0) {
     return (
       <div className="rounded-xl bg-surface-card p-10 text-center ring-1 ring-surface-border">
@@ -197,196 +300,331 @@ export function ScheduleEditor({ tournamentSlug, startDate, matches }: Props) {
     );
   }
 
-  let globalMatchNum = 0;
+  const inputCls =
+    'block w-full rounded border border-slate-700 bg-surface px-2 py-1.5 text-xs text-white outline-none focus:border-brand-500 disabled:opacity-40';
 
   return (
-    <div className="space-y-5 pb-28">
-      {/* ── Category selector ─────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-3">
-        <label className="text-xs font-medium text-slate-400 shrink-0">Category</label>
-        <div className="relative flex-1 max-w-sm">
-          <select
-            value={activeCatId}
-            onChange={(e) => { setActiveCatId(e.target.value); setSaveMsg(null); }}
-            className="w-full appearance-none rounded-lg border border-slate-600 bg-surface-card px-4 py-2 pr-9 text-sm text-white outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 cursor-pointer"
+    <div className={`flex gap-0 ${showAI ? 'items-start' : ''}`}>
+      {/* ── Main schedule editor ─────────────────────────────────────────── */}
+      <div className={`flex-1 min-w-0 space-y-4 pb-28 ${showAI ? 'pr-4' : ''}`}>
+
+        {/* ── Top action bar ──────────────────────────────────────────────── */}
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Primary CTA */}
+          <button
+            onClick={() => setShowModal(true)}
+            className="flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 transition-colors"
           >
-            {categories.map((cat) => {
-              const dirty = dirtyCountByCat[cat.id] ?? 0;
-              return (
-                <option key={cat.id} value={cat.id}>
-                  {cat.name}{dirty > 0 ? ` (${dirty} unsaved)` : ''}
-                </option>
-              );
-            })}
-          </select>
-          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">▾</span>
+            ⚡ Schedule all matches
+          </button>
+
+          {/* AI toggle */}
+          {aiEnabled && (
+            <button
+              onClick={() => setShowAI((s) => !s)}
+              className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm transition-colors ${
+                showAI
+                  ? 'border-brand-600 bg-brand-600/20 text-brand-300'
+                  : 'border-slate-600 text-slate-300 hover:border-brand-600 hover:text-brand-300'
+              }`}
+            >
+              🤖 AI Assistant
+            </button>
+          )}
+
+          {/* Dynamic court count */}
+          <div className="flex items-center gap-2 ml-auto">
+            <span className="text-xs text-slate-400">Courts:</span>
+            <input
+              type="number"
+              min={1}
+              max={50}
+              value={courtCount}
+              disabled={courtUpdateLoading}
+              onChange={(e) => {
+                const v = parseInt(e.target.value) || 1;
+                void handleCourtCountChange(v);
+              }}
+              className="w-16 rounded border border-slate-700 bg-surface px-2 py-1 text-xs text-white outline-none focus:border-brand-500 disabled:opacity-50"
+            />
+            {invalidatedByCourtChange.size > 0 && (
+              <span className="text-xs text-amber-400">
+                ⚠️ {invalidatedByCourtChange.size} on removed courts
+              </span>
+            )}
+          </div>
         </div>
-      </div>
 
-      {/* ── One section per group ─────────────────────────────────────────────── */}
-      {activeGroups.map((group) => {
-        const gf = getGf(activeCatId, group.key);
+        {/* ── Conflict banner ──────────────────────────────────────────────── */}
+        {conflicts.length > 0 && (
+          <div className="rounded-lg border border-red-800/50 bg-red-950/30 px-4 py-3 flex items-center gap-3">
+            <span className="text-red-400 text-lg">⚠️</span>
+            <p className="text-sm text-red-300">
+              <span className="font-semibold">{conflicts.length} scheduling conflict{conflicts.length !== 1 ? 's' : ''}</span>
+              {' '}— fix highlighted matches before saving.
+            </p>
+          </div>
+        )}
 
-        return (
-          <div key={group.key} className="rounded-xl bg-surface-card ring-1 ring-surface-border overflow-hidden">
-            {/* Group header + auto-fill controls */}
-            <div className="border-b border-surface-border bg-surface px-4 py-3 space-y-3">
-              <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
-                {group.label}
-              </p>
+        {/* ── Status / save message ────────────────────────────────────────── */}
+        {saveMsg && (
+          <div className={`rounded-lg px-4 py-2.5 text-sm ${
+            saveMsg.err
+              ? 'bg-red-950/30 border border-red-800/50 text-red-300'
+              : 'bg-accent-950/30 border border-accent-800/50 text-accent-300'
+          }`}>
+            {saveMsg.err ?? saveMsg.ok}
+          </div>
+        )}
 
-              {/* Auto-fill row */}
-              <div className="flex flex-wrap items-end gap-3">
-                <label className="space-y-1">
-                  <span className="text-[10px] text-slate-500">Start time</span>
-                  <input
-                    type="datetime-local"
-                    value={gf.datetime}
-                    onChange={(e) => setGf(activeCatId, group.key, { datetime: e.target.value })}
-                    className="block rounded border border-slate-700 bg-surface px-2.5 py-1.5 text-xs text-white outline-none focus:border-brand-500"
-                  />
-                </label>
+        {/* ── Category selector ────────────────────────────────────────────── */}
+        <div className="flex items-center gap-3">
+          <label className="text-xs font-medium text-slate-400 shrink-0">Category</label>
+          <div className="relative flex-1 max-w-sm">
+            <select
+              value={activeCatId}
+              onChange={(e) => { setActiveCatId(e.target.value); setSaveMsg(null); }}
+              className="w-full appearance-none rounded-lg border border-slate-600 bg-surface-card px-4 py-2 pr-9 text-sm text-white outline-none focus:border-brand-500 cursor-pointer"
+            >
+              {categories.map((cat) => (
+                <option key={cat.id} value={cat.id}>{cat.name}</option>
+              ))}
+            </select>
+            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">▾</span>
+          </div>
+        </div>
 
-                <label className="space-y-1">
-                  <span className="text-[10px] text-slate-500">Min / match</span>
-                  <input
-                    type="number"
-                    min={5}
-                    max={180}
-                    value={gf.interval}
-                    onChange={(e) => setGf(activeCatId, group.key, { interval: parseInt(e.target.value) || 30 })}
-                    className="block w-20 rounded border border-slate-700 bg-surface px-2.5 py-1.5 text-xs text-white outline-none focus:border-brand-500"
-                  />
-                </label>
+        {/* ── Groups ──────────────────────────────────────────────────────── */}
+        {activeGroups.map((group) => {
+          const gf              = getGf(activeCatId, group.key);
+          const isExpanded      = expandedGroups.has(`${activeCatId}::${group.key}`);
+          const groupConflicts  = group.matches.filter((m) => conflictById.has(m.id)).length;
+          const groupInvalidated = group.matches.filter((m) => invalidatedByCourtChange.has(m.id)).length;
 
-                <label className="space-y-1">
-                  <span className="text-[10px] text-slate-500">Default court</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={99}
-                    placeholder="—"
-                    value={gf.court}
-                    onChange={(e) => setGf(activeCatId, group.key, { court: e.target.value })}
-                    className="block w-20 rounded border border-slate-700 bg-surface px-2.5 py-1.5 text-xs text-white outline-none focus:border-brand-500"
-                  />
-                </label>
+          return (
+            <div key={group.key} className="rounded-xl bg-surface-card ring-1 ring-surface-border overflow-hidden">
+              {/* Group header */}
+              <div className="border-b border-surface-border bg-surface px-4 py-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
+                      {group.label}
+                    </p>
+                    {groupConflicts > 0 && (
+                      <span className="rounded-full bg-red-900/40 px-2 py-0.5 text-[10px] font-bold text-red-400">
+                        ⚠️ {groupConflicts} conflict{groupConflicts !== 1 ? 's' : ''}
+                      </span>
+                    )}
+                    {groupInvalidated > 0 && (
+                      <span className="rounded-full bg-amber-900/40 px-2 py-0.5 text-[10px] font-bold text-amber-400">
+                        ⚠️ {groupInvalidated} on removed court{groupInvalidated !== 1 ? 's' : ''}
+                      </span>
+                    )}
+                  </div>
 
-                <button
-                  onClick={() => handleGroupAutoFill(activeCatId, group.key, group.matches)}
-                  className="self-end rounded border border-brand-600/50 bg-brand-600/20 px-3 py-1.5 text-xs font-semibold text-brand-300 hover:bg-brand-600/30 transition-colors"
-                >
-                  ⚡ Auto-fill
-                </button>
+                  {/* Advanced toggle */}
+                  <button
+                    onClick={() => setExpandedGroups((prev) => {
+                      const key = `${activeCatId}::${group.key}`;
+                      const next = new Set(prev);
+                      next.has(key) ? next.delete(key) : next.add(key);
+                      return next;
+                    })}
+                    className="text-[11px] text-slate-500 hover:text-slate-300 transition-colors"
+                  >
+                    {isExpanded ? '▴ Hide advanced' : '▾ Advanced'}
+                  </button>
+                </div>
+
+                {/* Advanced auto-fill controls (collapsed by default) */}
+                {isExpanded && (
+                  <div className="mt-3 flex flex-wrap items-end gap-3 pt-3 border-t border-surface-border">
+                    <label className="space-y-1">
+                      <span className="text-[10px] text-slate-500">Start time</span>
+                      <input
+                        type="datetime-local"
+                        value={gf.datetime}
+                        onChange={(e) => setGf(activeCatId, group.key, { datetime: e.target.value })}
+                        className={inputCls + ' w-44'}
+                      />
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-[10px] text-slate-500">Min / match</span>
+                      <input
+                        type="number" min={5} max={180} value={gf.interval}
+                        onChange={(e) => setGf(activeCatId, group.key, { interval: parseInt(e.target.value) || 30 })}
+                        className={inputCls + ' w-20'}
+                      />
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-[10px] text-slate-500">Default court</span>
+                      <input
+                        type="number" min={1} max={courtCount} placeholder="—" value={gf.court}
+                        onChange={(e) => setGf(activeCatId, group.key, { court: e.target.value })}
+                        className={inputCls + ' w-20'}
+                      />
+                    </label>
+                    <button
+                      onClick={() => handleGroupAutoFill(activeCatId, group.key, group.matches)}
+                      className="self-end rounded border border-brand-600/50 bg-brand-600/20 px-3 py-1.5 text-xs font-semibold text-brand-300 hover:bg-brand-600/30 transition-colors"
+                    >
+                      ⚡ Auto-fill group
+                    </button>
+                  </div>
+                )}
               </div>
-            </div>
 
-            {/* Match rows */}
-            <div className="overflow-x-auto">
+              {/* Match table */}
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-surface-border text-left">
-                    <th className="px-4 py-2 text-xs font-medium text-slate-500 w-10 text-center">#</th>
-                    <th className="px-4 py-2 text-xs font-medium text-slate-500">Match</th>
-                    <th className="px-4 py-2 text-xs font-medium text-slate-500 w-48">Date &amp; time</th>
-                    <th className="px-4 py-2 text-xs font-medium text-slate-500 w-20 text-center">Court</th>
+                  <tr className="border-b border-surface-border bg-surface/40">
+                    <th className="px-4 py-2 text-left text-[10px] font-medium text-slate-500 w-8">#</th>
+                    <th className="px-4 py-2 text-left text-[10px] font-medium text-slate-500">Match</th>
+                    <th className="px-4 py-2 text-left text-[10px] font-medium text-slate-500 w-44">Date &amp; time</th>
+                    <th className="px-4 py-2 text-left text-[10px] font-medium text-slate-500 w-20">Court</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-surface-border">
-                  {group.matches.map((m) => {
-                    globalMatchNum += 1;
-                    const edit = edits[m.id] ?? { time: '', court: '' };
-                    const origTime = toLocalInput(m.scheduled_time);
-                    const origCourt = m.court != null ? String(m.court) : '';
-                    const isDirty = m.status === 'scheduled' && (edit.time !== origTime || edit.court !== origCourt);
-                    const isLocked = m.status !== 'scheduled';
+                  {group.matches.map((m, idx) => {
+                    const e           = edits[m.id] ?? { time: '', court: '' };
+                    const isWalkover  = m.status === 'walkover' || m.status === 'retired';
+                    const conflict    = conflictById.get(m.id);
+                    const courtInvalid = invalidatedByCourtChange.has(m.id);
+                    const hasIssue    = !!conflict || courtInvalid;
 
                     return (
-                      <tr key={m.id} className={`${isDirty ? 'bg-brand-900/20' : ''} ${m.status === 'walkover' ? 'opacity-50' : ''}`}>
-                        <td className="px-4 py-2.5 text-xs font-medium text-slate-500 text-center tabular-nums">
-                          {globalMatchNum}
-                        </td>
-
+                      <tr
+                        key={m.id}
+                        className={`transition-colors ${
+                          hasIssue
+                            ? 'bg-red-950/20 hover:bg-red-950/30'
+                            : isWalkover
+                            ? 'opacity-50'
+                            : 'hover:bg-surface/20'
+                        }`}
+                      >
+                        <td className="px-4 py-2.5 text-xs text-slate-500">{idx + 1}</td>
                         <td className="px-4 py-2.5">
-                          <div className="flex items-center gap-2 whitespace-nowrap">
-                            <p className="text-sm text-white">
-                              {m.player_a}
-                              <span className="mx-2 text-slate-600">vs</span>
-                              {m.player_b}
-                            </p>
-                            {m.status === 'walkover' && (
-                              <span className="shrink-0 rounded-full bg-red-900/40 px-2 py-0.5 text-[10px] font-bold text-red-400">
-                                W/O
+                          <div className="flex items-center gap-1 flex-wrap">
+                            <span className="text-sm font-medium text-white">{m.player_a}</span>
+                            <span className="text-slate-500 text-xs">vs</span>
+                            <span className="text-sm text-slate-300">{m.player_b}</span>
+                            {isWalkover && (
+                              <span className="ml-1 rounded-full bg-amber-900/30 px-2 py-0.5 text-[10px] font-semibold text-amber-400">
+                                Walkover
+                              </span>
+                            )}
+                            {conflict && (
+                              <span className="ml-1 rounded px-1.5 py-0.5 text-[10px] bg-red-900/40 text-red-300" title={conflict}>
+                                ⚠️ Conflict
+                              </span>
+                            )}
+                            {courtInvalid && (
+                              <span className="ml-1 rounded px-1.5 py-0.5 text-[10px] bg-amber-900/40 text-amber-300">
+                                ⚠️ Court removed
                               </span>
                             )}
                           </div>
+                          {(conflict || courtInvalid) && (
+                            <p className="mt-0.5 text-[10px] text-red-400/80 truncate">
+                              {conflict ?? 'Court no longer available — please reassign'}
+                            </p>
+                          )}
                         </td>
-
                         <td className="px-4 py-2.5">
                           <input
                             type="datetime-local"
-                            value={edit.time}
-                            onChange={(e) => updateEdit(m.id, { time: e.target.value })}
-                            disabled={isLocked}
+                            value={e.time}
+                            disabled={isWalkover}
+                            onChange={(ev) => updateEdit(m.id, { time: ev.target.value })}
                             className={inputCls}
                           />
                         </td>
-
                         <td className="px-4 py-2.5">
                           <input
                             type="number"
                             min={1}
-                            max={99}
+                            max={courtCount}
                             placeholder="—"
-                            value={edit.court}
-                            onChange={(e) => updateEdit(m.id, { court: e.target.value })}
-                            disabled={isLocked}
-                            className={`${inputCls} text-center`}
+                            value={e.court}
+                            disabled={isWalkover}
+                            onChange={(ev) => updateEdit(m.id, { court: ev.target.value })}
+                            className={`${inputCls} ${courtInvalid ? 'border-amber-700' : ''}`}
                           />
                         </td>
-
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
 
-      {activeGroups.length === 0 && (
-        <div className="rounded-xl bg-surface-card p-8 text-center ring-1 ring-surface-border">
-          <p className="text-sm text-slate-500">No matches for this category yet.</p>
+      {/* ── AI panel (side by side on lg+) ───────────────────────────────── */}
+      {showAI && (
+        <div className="hidden lg:flex w-80 shrink-0 flex-col rounded-xl overflow-hidden ring-1 ring-surface-border sticky top-6 max-h-[calc(100vh-120px)]">
+          <ScheduleAIPanel
+            tournamentSlug={tournamentSlug}
+            currentSchedule={currentScheduleForAI}
+            availableCourts={availableCourts}
+            matchDurationMins={matchDurationMins}
+            onApplyUpdates={handleApplyAI}
+            onClose={() => setShowAI(false)}
+          />
         </div>
       )}
 
-      {/* ── Sticky save bar ───────────────────────────────────────────────────── */}
-      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-full max-w-2xl px-4">
-        <div className="flex items-center gap-4 rounded-xl border border-surface-border bg-surface-card px-5 py-4 shadow-2xl shadow-black/60 ring-1 ring-surface-border">
-          <div className="flex-1 min-w-0">
-            {saveMsg?.err ? (
-              <p className="text-sm text-red-400 truncate">{saveMsg.err}</p>
-            ) : saveMsg?.ok ? (
-              <p className="text-sm text-accent-400">{saveMsg.ok}</p>
-            ) : totalDirty > 0 ? (
-              <p className="text-sm text-slate-300">
-                <span className="font-bold text-white">{totalDirty}</span> unsaved change{totalDirty !== 1 ? 's' : ''}
-              </p>
-            ) : (
-              <p className="text-sm text-slate-600">Schedule is up to date</p>
+      {/* ── AI panel (bottom sheet on mobile) ───────────────────────────── */}
+      {showAI && (
+        <div className="lg:hidden fixed inset-x-0 bottom-0 z-40 h-96 rounded-t-2xl overflow-hidden shadow-2xl ring-1 ring-surface-border">
+          <ScheduleAIPanel
+            tournamentSlug={tournamentSlug}
+            currentSchedule={currentScheduleForAI}
+            availableCourts={availableCourts}
+            matchDurationMins={matchDurationMins}
+            onApplyUpdates={handleApplyAI}
+            onClose={() => setShowAI(false)}
+          />
+        </div>
+      )}
+
+      {/* ── Sticky save footer ────────────────────────────────────────────── */}
+      <div className={`fixed bottom-0 left-0 right-0 z-30 border-t border-surface-border bg-surface/95 backdrop-blur-sm shadow-2xl ${showAI ? 'lg:pr-80' : ''}`}>
+        <div className="mx-auto max-w-4xl flex items-center justify-between px-6 py-4">
+          <div className="text-xs text-slate-500">
+            {totalDirty > 0
+              ? <span className="text-amber-300">{totalDirty} unsaved change{totalDirty !== 1 ? 's' : ''}</span>
+              : <span>Schedule is up to date</span>
+            }
+            {conflicts.length > 0 && (
+              <span className="ml-3 text-red-400">⚠️ {conflicts.length} conflict{conflicts.length !== 1 ? 's' : ''}</span>
             )}
           </div>
-
           <button
             onClick={handleSave}
-            disabled={saving || (totalDirty === 0 && !saveMsg?.err)}
-            className="shrink-0 rounded-lg bg-brand-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 transition-colors disabled:opacity-50"
+            disabled={saving || totalDirty === 0}
+            className="rounded-lg bg-brand-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 transition-colors disabled:opacity-40"
           >
             {saving ? 'Saving…' : 'Save schedule'}
           </button>
         </div>
       </div>
+
+      {/* ── Schedule settings modal ────────────────────────────────────────── */}
+      {showModal && (
+        <ScheduleSettingsModal
+          startDate={startDate}
+          courtCount={courtCount}
+          suggestedMatchDuration={matchDurationMins}
+          defaultChangeoverMins={changeoverMins}
+          defaultStartTime={defaultStartTime}
+          generating={generating}
+          onGenerate={handleGenerate}
+          onClose={() => setShowModal(false)}
+        />
+      )}
     </div>
   );
 }

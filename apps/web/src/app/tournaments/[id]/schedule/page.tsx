@@ -26,18 +26,29 @@ export default async function SchedulePage({ params }: Props) {
 
   const admin = createAdminClient();
 
-  // Tournament + auth check
-  const { data: t } = await admin
-    .from('tournaments')
-    .select('id, name, slug, club_id, start_date')
+  // Tournament + auth check — include scheduling params
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: t } = await (admin.from('tournaments') as any)
+    .select('id, name, slug, club_id, start_date, court_count, default_match_duration_mins, default_changeover_mins, default_start_time, scoring_format, num_sets')
     .eq('slug', slug)
-    .single();
+    .single() as { data: Record<string, unknown> | null };
   if (!t) notFound();
+
+  // Extract typed fields from the any-cast result
+  const tData = t as {
+    id: string; name: string; slug: string; club_id: string; start_date: string | null;
+    court_count: number;
+    default_match_duration_mins: number;
+    default_changeover_mins: number;
+    default_start_time: string;
+    scoring_format: string | null;
+    num_sets: number | null;
+  };
 
   const { data: mgr } = await admin
     .from('club_managers')
     .select('role')
-    .eq('club_id', t.club_id)
+    .eq('club_id', tData.club_id)
     .eq('player_id', user.id)
     .maybeSingle();
   if (!mgr) notFound();
@@ -68,7 +79,7 @@ export default async function SchedulePage({ params }: Props) {
       ),
       tc:tournament_categories!category_id(name)
     `)
-    .eq('tournament_id', t.id)
+    .eq('tournament_id', tData.id)
     .not('entry_a_id', 'is', null)
     .not('entry_b_id', 'is', null)
     .order('scheduled_time', { ascending: true, nullsFirst: true })
@@ -114,6 +125,23 @@ export default async function SchedulePage({ params }: Props) {
   const scheduledCount = matches.filter((m) => m.scheduled_time).length;
   const totalCount     = matches.filter((m) => m.status === 'scheduled').length;
 
+  // Derive default match duration from tournament scoring format (rally vs traditional)
+  const scoringFormat  = (tData.scoring_format ?? 'rally') as 'rally' | 'traditional';
+  const numSets        = (tData.num_sets ?? 1) as number;
+  const perSet         = scoringFormat === 'rally' ? 10 : 20;
+  const changeoverMins = (tData.default_changeover_mins ?? 5);
+  // User-stored override takes precedence over the built-in default of 45
+  const storedDuration  = tData.default_match_duration_mins;
+  const derivedDuration = numSets * perSet + Math.max(0, numSets - 1) * changeoverMins;
+  const matchDurationMins = storedDuration !== 45 ? storedDuration : derivedDuration;
+
+  const defaultStartTime = tData.default_start_time
+    ? String(tData.default_start_time).slice(0, 5)
+    : '09:00';
+
+  const courtCount = (tData.court_count ?? 2);
+  const aiEnabled  = !!process.env.ANTHROPIC_API_KEY;
+
   // Show "Share schedule on social" button only when the organiser flag is enabled
   // and the club has at least one active social connection.
   const organiserSocialEnabled = await isFeatureEnabled('social_media_organiser');
@@ -122,7 +150,7 @@ export default async function SchedulePage({ params }: Props) {
     const { data: clubConns } = await admin
       .from('club_social_connections' as any)
       .select('id')
-      .eq('club_id', t.club_id)
+      .eq('club_id', tData.club_id)
       .eq('is_active', true)
       .limit(1);
     canShareSchedule = (clubConns as any[] | null)?.length ? (clubConns as any[]).length > 0 : false;
@@ -136,7 +164,7 @@ export default async function SchedulePage({ params }: Props) {
         {/* Breadcrumb */}
         <nav className="mb-6 flex items-center gap-2 text-sm text-slate-500">
           <Link href={`/tournaments/${slug}`} className="hover:text-slate-300 transition-colors">
-            {t.name}
+            {tData.name}
           </Link>
           <span>/</span>
           <span className="text-slate-400">Schedule</span>
@@ -155,7 +183,7 @@ export default async function SchedulePage({ params }: Props) {
           <div className="flex items-center gap-2 shrink-0">
             {canShareSchedule && (
               <ShareScheduleButton
-                tournamentId={t.id}
+                tournamentId={tData.id}
                 matchCount={scheduledCount}
               />
             )}
@@ -170,8 +198,13 @@ export default async function SchedulePage({ params }: Props) {
 
         <ScheduleEditor
           tournamentSlug={slug}
-          startDate={t.start_date ?? new Date().toISOString().slice(0, 10)}
+          startDate={tData.start_date ?? new Date().toISOString().slice(0, 10)}
+          courtCount={courtCount}
+          matchDurationMins={matchDurationMins}
+          changeoverMins={changeoverMins}
+          defaultStartTime={defaultStartTime}
           matches={matches}
+          aiEnabled={aiEnabled}
         />
       </main>
     </div>

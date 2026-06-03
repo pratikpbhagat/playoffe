@@ -54,7 +54,12 @@ export async function createTournamentAction(
 
 export async function updateTournamentAction(
   tournamentId: string,
-  input: Partial<CreateTournamentInput> & { auto_approve_entries?: boolean },
+  input: Partial<CreateTournamentInput> & {
+    auto_approve_entries?: boolean;
+    default_match_duration_mins?: number;
+    default_changeover_mins?: number;
+    default_start_time?: string;
+  },
 ) {
   const supabase = await createClient();
   const {
@@ -101,6 +106,13 @@ export async function updateTournamentAction(
   if (input.points_per_set !== undefined) update.points_per_set = input.points_per_set;
   if (input.win_by !== undefined) update.win_by = input.win_by;
   if ('deuce_cap' in input) update.deuce_cap = input.deuce_cap ?? null;
+  if (input.default_changeover_mins !== undefined) update.default_changeover_mins = input.default_changeover_mins;
+  if (input.default_start_time !== undefined)      update.default_start_time      = input.default_start_time;
+  // Note: default_match_duration_mins is derived in the UI from scoring_format + num_sets;
+  // it can also be stored explicitly if the user overrides it.
+  if ((input as any).default_match_duration_mins !== undefined) {
+    update.default_match_duration_mins = (input as any).default_match_duration_mins;
+  }
 
   const { error } = await admin.from('tournaments').update(update).eq('id', tournamentId);
   if (error) return { error: 'Failed to update tournament. Please try again.' };

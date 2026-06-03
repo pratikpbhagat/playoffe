@@ -10,6 +10,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.30.0",
     "@aws-sdk/client-ses": "^3.1052.0",
     "bullmq": "^5.13.0",
     "@hookform/resolvers": "^3.9.1",
