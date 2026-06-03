@@ -19,7 +19,7 @@ import {
   renderGroupSlide,
 } from '../lib/graphic.js';
 import { postToPlatform } from '../platforms/index.js';
-import type { GroupSlideTemplateData } from '../lib/templates/group-slide.js';
+import type { GroupSlideTemplateData, GroupPlayer } from '../lib/templates/group-slide.js';
 
 const CONCURRENCY = parseInt(process.env.PODIUM_WORKER_CONCURRENCY ?? '2', 10);
 
@@ -292,7 +292,18 @@ async function fetchGroupSlides(
   tournamentName: string,
   categoryName: string,
 ): Promise<GroupSlideTemplateData[]> {
-  // 1. Fetch all group-stage matches (where group_name is not null)
+  // 0. Fetch category play_format to determine singles vs doubles
+  const { data: categoryRow } = await supabase
+    .from('tournament_categories')
+    .select('play_format')
+    .eq('id', categoryId)
+    .maybeSingle();
+
+  const isDoubles =
+    (categoryRow as { play_format: string } | null)?.play_format === 'doubles' ||
+    (categoryRow as { play_format: string } | null)?.play_format === 'mixed_doubles';
+
+  // 1. Fetch all group-stage matches (group_name IS NOT NULL)
   const { data: matches } = await supabase
     .from('matches')
     .select('group_name, entry_a_id, entry_b_id')
@@ -313,40 +324,47 @@ async function fetchGroupSlides(
 
   if (groupEntries.size === 0) return [];
 
-  // 3. Fetch all entry → player_id mappings
+  // 3. Fetch all entries — include partner_id for doubles
   const allEntryIds = [...new Set([...groupEntries.values()].flatMap((s) => [...s]))];
   const { data: entries } = await supabase
     .from('tournament_entries')
-    .select('id, player_id, seed')
+    .select('id, player_id, partner_id, seed')
     .in('id', allEntryIds);
 
-  const playerIdByEntry = new Map<string, string>();
-  const seedByEntry     = new Map<string, number | null>();
-  for (const e of (entries ?? []) as { id: string; player_id: string; seed: number | null }[]) {
+  const playerIdByEntry  = new Map<string, string>();
+  const partnerIdByEntry = new Map<string, string | null>();
+  const seedByEntry      = new Map<string, number | null>();
+
+  for (const e of (entries ?? []) as { id: string; player_id: string; partner_id: string | null; seed: number | null }[]) {
     playerIdByEntry.set(e.id, e.player_id);
+    partnerIdByEntry.set(e.id, e.partner_id);
     seedByEntry.set(e.id, e.seed);
   }
 
-  // 4. Fetch player names
-  const allPlayerIds = [...new Set([...playerIdByEntry.values()])];
-  const { data: players } = await supabase
+  // 4. Collect ALL player IDs (primary + partners) for a single batch name fetch
+  const allPlayerIds = [...new Set([
+    ...[...playerIdByEntry.values()],
+    ...[...partnerIdByEntry.values()].filter(Boolean) as string[],
+  ])];
+
+  const { data: playerRows } = await supabase
     .from('players')
     .select('id, full_name')
     .in('id', allPlayerIds);
 
   const nameById = new Map<string, string>();
-  for (const p of (players ?? []) as { id: string; full_name: string }[]) {
+  for (const p of (playerRows ?? []) as { id: string; full_name: string }[]) {
     nameById.set(p.id, p.full_name);
   }
 
-  // 5. Build slide data for each group, sorted alphabetically
+  // 5. Build one GroupSlideTemplateData per group, sorted A→Z
   const sortedGroups = [...groupEntries.keys()].sort();
   const totalSlides  = sortedGroups.length;
 
   return sortedGroups.map((groupName, idx) => {
     const entryIds = [...groupEntries.get(groupName)!];
 
-    // Sort by seed (nulls last), then alphabetically
+    // Sort entries by seed (nulls last), then primary player name
     const sortedEntries = entryIds.sort((a, b) => {
       const sa = seedByEntry.get(a) ?? 999;
       const sb = seedByEntry.get(b) ?? 999;
@@ -356,18 +374,22 @@ async function fetchGroupSlides(
       return na.localeCompare(nb);
     });
 
-    const playerNames = sortedEntries
-      .map((eid) => nameById.get(playerIdByEntry.get(eid) ?? '') ?? 'Player')
-      .filter(Boolean);
+    const groupPlayers: GroupPlayer[] = sortedEntries.map((eid) => {
+      const primaryName  = nameById.get(playerIdByEntry.get(eid) ?? '') ?? 'Player';
+      const partnerId    = partnerIdByEntry.get(eid) ?? null;
+      const partnerName  = partnerId ? (nameById.get(partnerId) ?? undefined) : undefined;
+      return { name: primaryName, partnerName };
+    });
 
     return {
       tournamentName,
       categoryName,
       groupName,
-      players:     playerNames,
-      slideIndex:  idx,
+      players:    groupPlayers,
+      isDoubles,
+      slideIndex: idx,
       totalSlides,
-      platform:    'generic',
+      platform:   'generic',
     };
   });
 }
