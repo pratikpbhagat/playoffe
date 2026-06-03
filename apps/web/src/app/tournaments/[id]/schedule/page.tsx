@@ -139,8 +139,10 @@ export default async function SchedulePage({ params }: Props) {
     ? String(tData.default_start_time).slice(0, 5)
     : '09:00';
 
-  const courtCount = (tData.court_count ?? 2);
-  const aiEnabled  = !!process.env.ANTHROPIC_API_KEY;
+  const courtCount    = (tData.court_count ?? 2);
+  const aiConfigured  = !!process.env.ANTHROPIC_API_KEY;
+  // Always show the AI button; if no key, the panel shows setup instructions.
+  const aiEnabled     = true;
 
   // Show "Share schedule on social" button only when the organiser flag is enabled
   // and the club has at least one active social connection.
@@ -205,6 +207,7 @@ export default async function SchedulePage({ params }: Props) {
           defaultStartTime={defaultStartTime}
           matches={matches}
           aiEnabled={aiEnabled}
+          aiConfigured={aiConfigured}
         />
       </main>
     </div>

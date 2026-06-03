@@ -35,6 +35,7 @@ interface Props {
   defaultStartTime: string;  // "09:00"
   matches: MatchForScheduling[];
   aiEnabled?: boolean;
+  aiConfigured?: boolean;    // true = real API key present; false = show setup message
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -68,6 +69,7 @@ export function ScheduleEditor({
   defaultStartTime,
   matches,
   aiEnabled = false,
+  aiConfigured = false,
 }: Props) {
   // ── Core edit state ────────────────────────────────────────────────────────
   const [edits, setEdits] = useState<Record<string, { time: string; court: string }>>(() => {
@@ -572,6 +574,7 @@ export function ScheduleEditor({
             matchDurationMins={matchDurationMins}
             onApplyUpdates={handleApplyAI}
             onClose={() => setShowAI(false)}
+            aiConfigured={aiConfigured}
           />
         </div>
       )}
@@ -586,6 +589,7 @@ export function ScheduleEditor({
             matchDurationMins={matchDurationMins}
             onApplyUpdates={handleApplyAI}
             onClose={() => setShowAI(false)}
+            aiConfigured={aiConfigured}
           />
         </div>
       )}

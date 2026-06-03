@@ -12,6 +12,7 @@ interface Props {
   matchDurationMins: number;
   onApplyUpdates: (updates: ScheduleUpdate[]) => void;
   onClose: () => void;
+  aiConfigured?: boolean;   // false = show setup instructions
 }
 
 interface ChatMessage {
@@ -29,6 +30,7 @@ export function ScheduleAIPanel({
   matchDurationMins,
   onApplyUpdates,
   onClose,
+  aiConfigured = true,
 }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
@@ -117,8 +119,41 @@ export function ScheduleAIPanel({
         </button>
       </div>
 
+      {/* Not configured message */}
+      {!aiConfigured && (
+        <div className="flex-1 flex flex-col items-center justify-center px-6 text-center gap-4">
+          <span className="text-4xl">🔑</span>
+          <div>
+            <p className="text-sm font-semibold text-white mb-1">API key required</p>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              To use the AI assistant, add your Anthropic API key to{' '}
+              <code className="rounded bg-surface px-1.5 py-0.5 text-brand-300 text-[11px]">
+                apps/web/.env.local
+              </code>
+            </p>
+          </div>
+          <div className="rounded-lg bg-surface ring-1 ring-surface-border p-3 text-left w-full">
+            <p className="text-[11px] font-mono text-accent-300">
+              ANTHROPIC_API_KEY=sk-ant-...
+            </p>
+          </div>
+          <p className="text-xs text-slate-500">
+            Get your key at{' '}
+            <a
+              href="https://console.anthropic.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-brand-400 hover:text-brand-300 underline"
+            >
+              console.anthropic.com
+            </a>
+            , then restart the dev server.
+          </p>
+        </div>
+      )}
+
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4 min-h-0">
+      {aiConfigured && <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4 min-h-0">
         {messages.map((msg, i) => (
           <div key={i}>
             {msg.role === 'system' && (
@@ -217,10 +252,10 @@ export function ScheduleAIPanel({
         )}
 
         <div ref={bottomRef} />
-      </div>
+      </div>}
 
-      {/* Input */}
-      <div className="px-4 py-3 border-t border-surface-border shrink-0">
+      {/* Input — hidden when not configured */}
+      {aiConfigured && <div className="px-4 py-3 border-t border-surface-border shrink-0">
         <div className="flex gap-2">
           <input
             type="text"
@@ -242,7 +277,7 @@ export function ScheduleAIPanel({
         <p className="mt-1.5 text-[10px] text-slate-600">
           Changes are previewed first — click Apply to add them to the schedule.
         </p>
-      </div>
+      </div>}
     </div>
   );
 }
