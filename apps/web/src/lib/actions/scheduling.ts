@@ -3,29 +3,9 @@
 import { revalidatePath } from 'next/cache';
 import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { detectConflictsFromUpdates } from '@/lib/scheduling-utils';
-// Re-export so callers can import from one place
-export { computeMatchDurationMins, detectConflictsFromUpdates } from '@/lib/scheduling-utils';
-
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-export interface ScheduleUpdate {
-  matchId: string;
-  scheduledTime: string | null; // ISO UTC, or null to clear
-  court: number | null;
-}
-
-export interface ConflictInfo {
-  matchId: string;
-  message: string;
-}
-
-export interface SmartScheduleParams {
-  startDatetime: string;       // ISO datetime for first match slot
-  matchDurationMins: number;   // how long one match takes
-  changeoverMins: number;      // dead time between consecutive matches on same court
-  knockoutBufferMins: number;  // gap between last group match and first knockout (default 15)
-  availableCourts: number[];   // [1, 2, 3, …] courts to use
-}
+import type { ScheduleUpdate, ConflictInfo, SmartScheduleParams } from '@/lib/scheduling-utils';
+// Type-only re-export — erases at runtime, allowed in 'use server' files.
+export type { ScheduleUpdate, ConflictInfo, SmartScheduleParams } from '@/lib/scheduling-utils';
 
 // ── Existing save action ──────────────────────────────────────────────────────
 

@@ -1,7 +1,27 @@
-// Pure scheduling utilities — no server-only code, safe to import on client and server.
+// Pure scheduling utilities + shared types.
+// No 'use server' directive — safe to import on both client and server.
 // Extracted from scheduling.ts because 'use server' files require all exports to be async.
 
-import type { ScheduleUpdate, ConflictInfo } from './actions/scheduling';
+// ── Shared types (also re-used in the server action file) ────────────────────
+
+export interface ScheduleUpdate {
+  matchId: string;
+  scheduledTime: string | null; // ISO UTC, or null to clear
+  court: number | null;
+}
+
+export interface ConflictInfo {
+  matchId: string;
+  message: string;
+}
+
+export interface SmartScheduleParams {
+  startDatetime: string;
+  matchDurationMins: number;
+  changeoverMins: number;
+  knockoutBufferMins: number;
+  availableCourts: number[];
+}
 
 /**
  * Computes expected match duration from scoring format + number of sets.
