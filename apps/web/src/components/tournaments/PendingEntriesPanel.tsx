@@ -39,6 +39,7 @@ interface Category {
   slug: string;
   play_format: string;
   max_entries: number | null;
+  status: string;
 }
 
 interface Props {
@@ -72,6 +73,10 @@ export function PendingEntriesPanel({ tournamentSlug, tournamentId, category, en
   const [msg, setMsg] = useState<string | null>(null);
   const [editingSeed, setEditingSeed] = useState<string | null>(null);
   const [seedValue, setSeedValue] = useState<string>('');
+  const [showDrawAlert, setShowDrawAlert] = useState(false);
+
+  const drawIsActive =
+    category.status === 'draw_generated' || category.status === 'in_progress';
 
   const pending     = entries.filter((e) => e.status === 'pending');
   const active      = entries.filter((e) => e.status === 'active');
@@ -101,7 +106,10 @@ export function PendingEntriesPanel({ tournamentSlug, tournamentId, category, en
     setActing(entryId);
     const result = await removeEntryAction(entryId);
     if (result.error) setMsg(`Error: ${result.error}`);
-    else router.refresh();
+    else {
+      if (drawIsActive) setShowDrawAlert(true);
+      router.refresh();
+    }
     setActing(null);
   }
 
@@ -113,6 +121,7 @@ export function PendingEntriesPanel({ tournamentSlug, tournamentId, category, en
     else {
       const w = 'walkovers' in result ? result.walkovers : 0;
       setMsg(`Withdrawn. ${w} walkover${w !== 1 ? 's' : ''} awarded.`);
+      if (drawIsActive) setShowDrawAlert(true);
       router.refresh();
     }
     setActing(null);
@@ -203,6 +212,29 @@ export function PendingEntriesPanel({ tournamentSlug, tournamentId, category, en
         <div className="border-b border-surface-border bg-surface px-5 py-2 text-xs text-slate-300">
           {msg}{' '}
           <button onClick={() => setMsg(null)} className="text-slate-500 hover:text-slate-300 ml-2">✕</button>
+        </div>
+      )}
+
+      {showDrawAlert && (
+        <div className="border-b border-amber-800/40 bg-amber-950/30 px-5 py-3 text-xs">
+          <div className="flex items-start justify-between gap-3">
+            <p className="text-amber-200">
+              ⚠️ The draw for <strong>{category.name}</strong> is now out of sync.{' '}
+              <Link
+                href={`/tournaments/${tournamentSlug}/categories/${category.slug}`}
+                className="underline hover:text-amber-100 transition-colors"
+              >
+                Go to category page
+              </Link>{' '}
+              to replace or regenerate the draw.
+            </p>
+            <button
+              onClick={() => setShowDrawAlert(false)}
+              className="text-amber-600 hover:text-amber-400 transition-colors shrink-0"
+            >
+              ✕
+            </button>
+          </div>
         </div>
       )}
 

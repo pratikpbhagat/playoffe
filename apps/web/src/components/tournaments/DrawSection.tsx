@@ -3,11 +3,16 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { generateDrawAction, clearDrawAction, generateNextSwissRoundAction, promoteGroupWinnersAction, swapDrawEntriesAction } from '@/lib/actions/draws';
+import { generateDrawAction, clearDrawAction, generateNextSwissRoundAction, promoteGroupWinnersAction, swapDrawEntriesAction, replaceDrawEntryAction } from '@/lib/actions/draws';
 import type { MatchWithPlayers } from '@/lib/actions/draws';
 import { BracketView } from './BracketView';
 import { useRealtimeCategoryMatches } from '@/hooks/useRealtimeCategoryMatches';
 import { StandingsTable } from './StandingsTable';
+
+interface StalenessEntry {
+  id: string;
+  name: string;
+}
 
 interface Props {
   categoryId: string;
@@ -19,6 +24,11 @@ interface Props {
   showBracket?: boolean;   // when false, hides BracketView (default true)
   showStandings?: boolean; // when false, hides StandingsTable (default true)
   readOnly?: boolean;      // when true, match tiles in BracketView are non-clickable
+  /** Entries that are out of sync with the draw (withdrawn-in-draw + active-but-unplaced) */
+  stalenessInfo?: {
+    withdrawnInDraw: StalenessEntry[];
+    unplacedActive: StalenessEntry[];
+  };
 }
 
 const FORMAT_LABEL: Record<string, string> = {
@@ -39,6 +49,7 @@ export function DrawSection({
   showBracket = true,
   showStandings = true,
   readOnly = false,
+  stalenessInfo,
 }: Props) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -47,6 +58,12 @@ export function DrawSection({
   const [error, setError] = useState<string | null>(null);
   const [showRegenConfirm, setShowRegenConfirm] = useState(false);
   const [matches, setMatches] = useState(initialMatches);
+
+  // ── Replace-entry state ──────────────────────────────────────────────────────
+  const [replaceFrom, setReplaceFrom] = useState('');
+  const [replaceTo, setReplaceTo] = useState('');
+  const [replacing, setReplacing] = useState(false);
+  const [replaceError, setReplaceError] = useState<string | null>(null);
 
   // ── Swap / adjust-draw state ─────────────────────────────────────────────────
   const [adjustMode, setAdjustMode] = useState(false);
@@ -61,6 +78,35 @@ export function DrawSection({
   useEffect(() => {
     setMatches(initialMatches);
   }, [initialMatches]);
+
+  // Auto-populate replace dropdowns when staleness data changes (e.g. after router.refresh)
+  useEffect(() => {
+    setReplaceFrom(
+      (stalenessInfo?.withdrawnInDraw.length ?? 0) >= 1
+        ? (stalenessInfo?.withdrawnInDraw[0]?.id ?? '')
+        : '',
+    );
+    setReplaceTo(
+      (stalenessInfo?.unplacedActive.length ?? 0) >= 1
+        ? (stalenessInfo?.unplacedActive[0]?.id ?? '')
+        : '',
+    );
+    setReplaceError(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialMatches]); // Re-sync whenever the server refreshes match data
+
+  async function handleReplace() {
+    if (!replaceFrom || !replaceTo) return;
+    setReplacing(true);
+    setReplaceError(null);
+    const result = await replaceDrawEntryAction(categoryId, replaceFrom, replaceTo);
+    if ('error' in result && result.error) {
+      setReplaceError(result.error);
+    } else {
+      router.refresh();
+    }
+    setReplacing(false);
+  }
 
   const isDrawn = categoryStatus === 'draw_generated' || categoryStatus === 'in_progress' || categoryStatus === 'completed';
 
@@ -321,6 +367,110 @@ export function DrawSection({
       {error && (
         <div className="mb-4 rounded-lg border border-red-800 bg-red-950 px-3 py-2 text-xs text-red-400">
           {error}
+        </div>
+      )}
+
+      {/* ── Draw staleness banner ────────────────────────────────────────── */}
+      {isDrawn && !readOnly && stalenessInfo &&
+        (stalenessInfo.withdrawnInDraw.length > 0 || stalenessInfo.unplacedActive.length > 0) && (
+        <div className="mb-4 rounded-lg border border-amber-700/50 bg-amber-950/40 px-4 py-3 space-y-3">
+          <div className="flex items-start gap-2">
+            <span className="text-amber-400 text-sm shrink-0 mt-0.5">⚠️</span>
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-amber-200">Draw is out of sync</p>
+              <p className="mt-0.5 text-xs text-amber-400/80">
+                {stalenessInfo.withdrawnInDraw.length > 0 && (
+                  <span>
+                    {stalenessInfo.withdrawnInDraw.length} entr{stalenessInfo.withdrawnInDraw.length === 1 ? 'y' : 'ies'} withdrawn from the draw
+                    {stalenessInfo.unplacedActive.length > 0 && ' · '}
+                  </span>
+                )}
+                {stalenessInfo.unplacedActive.length > 0 && (
+                  <span>
+                    {stalenessInfo.unplacedActive.length} new entr{stalenessInfo.unplacedActive.length === 1 ? 'y' : 'ies'} not yet placed
+                  </span>
+                )}
+              </p>
+            </div>
+          </div>
+
+          {/* Replace UI — shown only when both lists are non-empty */}
+          {stalenessInfo.withdrawnInDraw.length > 0 && stalenessInfo.unplacedActive.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs text-amber-300/70 shrink-0">Replace</span>
+                <select
+                  value={replaceFrom}
+                  onChange={(e) => setReplaceFrom(e.target.value)}
+                  className="flex-1 min-w-[140px] rounded-lg border border-amber-700/40 bg-surface px-2 py-1.5 text-xs text-white outline-none focus:border-amber-500 cursor-pointer"
+                >
+                  <option value="">Select withdrawn entry…</option>
+                  {stalenessInfo.withdrawnInDraw.map((e) => (
+                    <option key={e.id} value={e.id}>{e.name}</option>
+                  ))}
+                </select>
+                <span className="text-xs text-amber-300/70 shrink-0">with</span>
+                <select
+                  value={replaceTo}
+                  onChange={(e) => setReplaceTo(e.target.value)}
+                  className="flex-1 min-w-[140px] rounded-lg border border-amber-700/40 bg-surface px-2 py-1.5 text-xs text-white outline-none focus:border-amber-500 cursor-pointer"
+                >
+                  <option value="">Select new entry…</option>
+                  {stalenessInfo.unplacedActive.map((e) => (
+                    <option key={e.id} value={e.id}>{e.name}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={handleReplace}
+                  disabled={!replaceFrom || !replaceTo || replacing}
+                  className="rounded-lg bg-amber-700 px-3 py-1.5 text-xs font-semibold text-amber-100 hover:bg-amber-600 transition-colors disabled:opacity-40"
+                >
+                  {replacing ? 'Replacing…' : 'Replace →'}
+                </button>
+              </div>
+              {replaceError && (
+                <p className="text-xs text-red-400">{replaceError}</p>
+              )}
+              <p className="text-xs text-amber-500/60">
+                Or{' '}
+                <button
+                  onClick={() => setShowRegenConfirm(true)}
+                  className="underline hover:text-amber-400 transition-colors"
+                >
+                  regenerate the draw
+                </button>{' '}
+                to rebuild the bracket from all current active entries.
+              </p>
+            </div>
+          )}
+
+          {/* Only withdrawn entries — no new entry available to slot in */}
+          {stalenessInfo.withdrawnInDraw.length > 0 && stalenessInfo.unplacedActive.length === 0 && (
+            <p className="text-xs text-amber-400/70">
+              Withdrawn {stalenessInfo.withdrawnInDraw.length === 1 ? 'entry remains' : 'entries remain'} in the bracket.{' '}
+              <button
+                onClick={() => setShowRegenConfirm(true)}
+                className="underline hover:text-amber-300 transition-colors"
+              >
+                Regenerate the draw
+              </button>{' '}
+              to remove {stalenessInfo.withdrawnInDraw.length === 1 ? 'it' : 'them'}.
+            </p>
+          )}
+
+          {/* Only new entries — nothing withdrawn to replace */}
+          {stalenessInfo.withdrawnInDraw.length === 0 && stalenessInfo.unplacedActive.length > 0 && (
+            <p className="text-xs text-amber-400/70">
+              {stalenessInfo.unplacedActive.length} new entr{stalenessInfo.unplacedActive.length === 1 ? 'y is' : 'ies are'} not in the draw.{' '}
+              <button
+                onClick={() => setShowRegenConfirm(true)}
+                className="underline hover:text-amber-300 transition-colors"
+              >
+                Regenerate the draw
+              </button>{' '}
+              to include {stalenessInfo.unplacedActive.length === 1 ? 'it' : 'them'}.
+            </p>
+          )}
         </div>
       )}
 

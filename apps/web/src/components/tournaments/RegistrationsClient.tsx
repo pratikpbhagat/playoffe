@@ -26,6 +26,7 @@ interface Category {
   slug: string;
   play_format: string;
   max_entries: number | null;
+  status: string;
 }
 
 interface Props {

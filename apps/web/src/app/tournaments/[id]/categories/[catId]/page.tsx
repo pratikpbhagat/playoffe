@@ -148,6 +148,40 @@ export default async function CategoryPage({ params }: Props) {
     categoryStatus === 'in_progress' ||
     categoryStatus === 'completed';
 
+  // ── Draw staleness detection ───────────────────────────────────────────────
+  // Compare entries referenced in matches vs current active entries.
+  // No extra DB queries — both datasets are already fetched above.
+  type StalenessEntry = { id: string; name: string };
+  let withdrawnInDraw: StalenessEntry[] = [];
+  let unplacedActive: StalenessEntry[] = [];
+
+  if (isDrawn && matches.length > 0) {
+    // Collect every entry ID that appears in at least one match slot
+    const drawEntryIds = new Set<string>();
+    for (const m of matches) {
+      if (m.entry_a) drawEntryIds.add(m.entry_a.id);
+      if (m.entry_b) drawEntryIds.add(m.entry_b.id);
+    }
+
+    // Withdrawn entries that are still referenced in the bracket
+    const seenWithdrawn = new Set<string>();
+    for (const m of matches) {
+      if (m.entry_a?.entry_status === 'withdrawn' && !seenWithdrawn.has(m.entry_a.id)) {
+        seenWithdrawn.add(m.entry_a.id);
+        withdrawnInDraw.push({ id: m.entry_a.id, name: m.entry_a.player_name });
+      }
+      if (m.entry_b?.entry_status === 'withdrawn' && !seenWithdrawn.has(m.entry_b.id)) {
+        seenWithdrawn.add(m.entry_b.id);
+        withdrawnInDraw.push({ id: m.entry_b.id, name: m.entry_b.player_name });
+      }
+    }
+
+    // Active entries that have no match slot yet (added after draw was generated)
+    unplacedActive = typedEntries
+      .filter((e) => !drawEntryIds.has(e.id))
+      .map((e) => ({ id: e.id, name: e.players?.full_name ?? 'Unknown' }));
+  }
+
   // For formats where groups or standings are meaningful, show StandingsTable
   // instead of a flat entry list once the draw is generated.
   const STANDINGS_FORMATS = ['round_robin', 'swiss', 'group_stage_knockout'];
@@ -304,6 +338,7 @@ export default async function CategoryPage({ params }: Props) {
           entryCount={entryCount}
           initialMatches={matches}
           showStandings={false}
+          stalenessInfo={{ withdrawnInDraw, unplacedActive }}
         />
 
         {/* Stage scoring overrides — shown for elimination-type formats */}

@@ -605,6 +605,79 @@ export async function swapDrawEntriesAction(
   return { success: true };
 }
 
+// ── Replace a withdrawn draw entry with a new active entry ───────────────────
+// Swaps all unplayed match references from withdrawnEntryId to replacementEntryId.
+// Completed / walkover / retired matches are left untouched.
+export async function replaceDrawEntryAction(
+  categoryId: string,
+  withdrawnEntryId: string,   // entry currently referenced in matches (status = withdrawn)
+  replacementEntryId: string, // active entry not yet in any match
+): Promise<{ success: true } | { error: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: 'Not authenticated' };
+
+  const cat = await assertCategoryManager(categoryId, user.id);
+  if (!cat) return { error: 'Permission denied' };
+
+  const admin = createAdminClient();
+
+  // Verify the withdrawn entry appears in at least one match for this category
+  const { data: withdrawnMatches } = await admin
+    .from('matches')
+    .select('id')
+    .eq('category_id', categoryId)
+    .or(`entry_a_id.eq.${withdrawnEntryId},entry_b_id.eq.${withdrawnEntryId}`)
+    .limit(1);
+
+  if (!withdrawnMatches || withdrawnMatches.length === 0) {
+    return { error: 'The withdrawn entry is not in this draw.' };
+  }
+
+  // Verify the replacement entry is active in this category
+  const { data: repEntry } = await admin
+    .from('tournament_entries')
+    .select('id, status')
+    .eq('id', replacementEntryId)
+    .eq('category_id', categoryId)
+    .maybeSingle();
+
+  if (!repEntry) return { error: 'Replacement entry not found in this category.' };
+  if (repEntry.status !== 'active') return { error: 'Replacement entry is not active.' };
+
+  // Verify the replacement entry is not already in a match
+  const { data: alreadyPlaced } = await admin
+    .from('matches')
+    .select('id')
+    .eq('category_id', categoryId)
+    .or(`entry_a_id.eq.${replacementEntryId},entry_b_id.eq.${replacementEntryId}`)
+    .limit(1);
+
+  if (alreadyPlaced && alreadyPlaced.length > 0) {
+    return { error: 'Replacement entry is already in the draw.' };
+  }
+
+  // Update entry_a_id references in unplayed matches
+  await admin
+    .from('matches')
+    .update({ entry_a_id: replacementEntryId })
+    .eq('category_id', categoryId)
+    .eq('entry_a_id', withdrawnEntryId)
+    .in('status', ['scheduled', 'in_progress', 'disputed']);
+
+  // Update entry_b_id references in unplayed matches
+  await admin
+    .from('matches')
+    .update({ entry_b_id: replacementEntryId })
+    .eq('category_id', categoryId)
+    .eq('entry_b_id', withdrawnEntryId)
+    .in('status', ['scheduled', 'in_progress', 'disputed']);
+
+  const tSlug = cat.tournamentData.slug;
+  revalidatePath(`/tournaments/${tSlug}/categories/${cat.slug}`);
+  return { success: true };
+}
+
 export async function getMatchesForCategory(categoryId: string): Promise<MatchWithPlayers[]> {
   const admin = createAdminClient();
 

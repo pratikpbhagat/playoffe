@@ -15,9 +15,15 @@ export async function createClient() {
           return cookieStore.getAll();
         },
         setAll(cookiesToSet: { name: string; value: string; options: CookieOptions }[]) {
-          cookiesToSet.forEach(({ name, value, options }) =>
-            cookieStore.set(name, value, options),
-          );
+          try {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options),
+            );
+          } catch {
+            // `setAll` is called during a page render (not a Server Action),
+            // so Next.js won't allow cookie mutation here. The session will be
+            // refreshed on the next request — safe to ignore.
+          }
         },
       },
     },

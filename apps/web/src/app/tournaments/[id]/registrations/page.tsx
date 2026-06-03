@@ -50,7 +50,7 @@ export default async function RegistrationsPage({ params }: Props) {
   // Fetch all categories with their slugs
   const { data: categories } = await admin
     .from('tournament_categories')
-    .select('id, name, slug, play_format, max_entries')
+    .select('id, name, slug, play_format, max_entries, status')
     .eq('tournament_id', t.id)
     .order('created_at');
 
@@ -88,7 +88,7 @@ export default async function RegistrationsPage({ params }: Props) {
     entriesByCategory[e.category_id].push(e);
   }
 
-  const cats = (categories ?? []) as Array<{ id: string; name: string; slug: string; play_format: string; max_entries: number | null }>;
+  const cats = (categories ?? []) as Array<{ id: string; name: string; slug: string; play_format: string; max_entries: number | null; status: string }>;
   const pendingTotal = allEntries.filter((e) => e.status === 'pending').length;
 
   return (
