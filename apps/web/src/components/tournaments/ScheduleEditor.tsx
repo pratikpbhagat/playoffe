@@ -306,9 +306,9 @@ export function ScheduleEditor({
     'block w-full rounded border border-slate-700 bg-surface px-2 py-1.5 text-xs text-white outline-none focus:border-brand-500 disabled:opacity-40';
 
   return (
-    <div className={`flex gap-0 ${showAI ? 'items-start' : ''}`}>
-      {/* ── Main schedule editor ─────────────────────────────────────────── */}
-      <div className={`flex-1 min-w-0 space-y-4 pb-28 ${showAI ? 'pr-4' : ''}`}>
+    <div className="relative">
+      {/* ── Main schedule editor — always full width ─────────────────────── */}
+      <div className="space-y-4 pb-28">
 
         {/* ── Top action bar ──────────────────────────────────────────────── */}
         <div className="flex flex-wrap items-center gap-3">
@@ -564,38 +564,45 @@ export function ScheduleEditor({
         })}
       </div>
 
-      {/* ── AI panel (side by side on lg+) ───────────────────────────────── */}
+      {/* ── AI panel — fixed overlay sidebar, never compresses main content ─ */}
       {showAI && (
-        <div className="hidden lg:flex w-80 shrink-0 flex-col rounded-xl overflow-hidden ring-1 ring-surface-border sticky top-6 max-h-[calc(100vh-120px)]">
-          <ScheduleAIPanel
-            tournamentSlug={tournamentSlug}
-            currentSchedule={currentScheduleForAI}
-            availableCourts={availableCourts}
-            matchDurationMins={matchDurationMins}
-            onApplyUpdates={handleApplyAI}
-            onClose={() => setShowAI(false)}
-            aiConfigured={aiConfigured}
+        <>
+          {/* Backdrop — click to close */}
+          <div
+            className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px]"
+            onClick={() => setShowAI(false)}
           />
-        </div>
-      )}
 
-      {/* ── AI panel (bottom sheet on mobile) ───────────────────────────── */}
-      {showAI && (
-        <div className="lg:hidden fixed inset-x-0 bottom-0 z-40 h-96 rounded-t-2xl overflow-hidden shadow-2xl ring-1 ring-surface-border">
-          <ScheduleAIPanel
-            tournamentSlug={tournamentSlug}
-            currentSchedule={currentScheduleForAI}
-            availableCourts={availableCourts}
-            matchDurationMins={matchDurationMins}
-            onApplyUpdates={handleApplyAI}
-            onClose={() => setShowAI(false)}
-            aiConfigured={aiConfigured}
-          />
-        </div>
+          {/* Side panel — desktop (right slide-in) */}
+          <div className="hidden md:flex fixed right-0 top-0 bottom-0 z-50 w-96 flex-col border-l border-surface-border bg-[#0d111f] shadow-2xl">
+            <ScheduleAIPanel
+              tournamentSlug={tournamentSlug}
+              currentSchedule={currentScheduleForAI}
+              availableCourts={availableCourts}
+              matchDurationMins={matchDurationMins}
+              onApplyUpdates={handleApplyAI}
+              onClose={() => setShowAI(false)}
+              aiConfigured={aiConfigured}
+            />
+          </div>
+
+          {/* Bottom sheet — mobile */}
+          <div className="md:hidden fixed inset-x-0 bottom-0 z-50 h-[70vh] rounded-t-2xl overflow-hidden border-t border-surface-border bg-[#0d111f] shadow-2xl">
+            <ScheduleAIPanel
+              tournamentSlug={tournamentSlug}
+              currentSchedule={currentScheduleForAI}
+              availableCourts={availableCourts}
+              matchDurationMins={matchDurationMins}
+              onApplyUpdates={handleApplyAI}
+              onClose={() => setShowAI(false)}
+              aiConfigured={aiConfigured}
+            />
+          </div>
+        </>
       )}
 
       {/* ── Sticky save footer ────────────────────────────────────────────── */}
-      <div className={`fixed bottom-0 left-0 right-0 z-30 border-t border-surface-border bg-surface/95 backdrop-blur-sm shadow-2xl ${showAI ? 'lg:pr-80' : ''}`}>
+      <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-surface-border bg-surface/95 backdrop-blur-sm shadow-2xl">
         <div className="mx-auto max-w-4xl flex items-center justify-between px-6 py-4">
           <div className="text-xs text-slate-500">
             {totalDirty > 0
