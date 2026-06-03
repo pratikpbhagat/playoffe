@@ -9,6 +9,7 @@
 
 import { Queue } from 'bullmq';
 import { createAdminClient } from '@/lib/supabase/server';
+import { isFeatureEnabled } from '@/lib/features';
 
 // ── Job data types (mirrored from workers/src/queue.ts) ───────────────────────
 export type TriggerType = 'match_win' | 'category_complete' | 'tournament_complete';
@@ -52,7 +53,17 @@ function parseRedisConnection(url: string) {
 const g = globalThis as typeof globalThis & {
   __graphicQueue?: Queue;
   __postQueue?: Queue;
+  __podiumQueue?: Queue;
 };
+
+export function getPodiumQueue(): Queue {
+  if (!g.__podiumQueue) {
+    const connection = parseRedisConnection(process.env.REDIS_URL ?? 'redis://localhost:6379');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    g.__podiumQueue = new Queue('social.podium', { connection: connection as any });
+  }
+  return g.__podiumQueue;
+}
 
 export function getGraphicQueue(): Queue {
   if (!g.__graphicQueue) {
@@ -80,6 +91,9 @@ async function enqueueGraphicJob(
   data: GraphicJobData,
 ): Promise<void> {
   if (!process.env.REDIS_URL) return;
+  // Gate player jobs behind social_media_player flag
+  const playerEnabled = await isFeatureEnabled('social_media_player');
+  if (!playerEnabled) return;
   try {
     const queue = getGraphicQueue();
     await queue.add(jobName, data, {
@@ -89,6 +103,36 @@ async function enqueueGraphicJob(
     });
   } catch (err) {
     console.error(`[social-queue] Failed to enqueue ${data.triggerType} job:`, err);
+  }
+}
+
+async function enqueuePodiumJob(
+  jobName: string,
+  jobId: string,
+  data: {
+    type: 'podium' | 'wrap_up' | 'draw_published' | 'schedule_released';
+    categoryId?: string;
+    tournamentId: string;
+    clubId: string;
+    categoryName?: string;
+    participantCount?: number;
+    drawFormat?: string;
+    matchCount?: number;
+  },
+): Promise<void> {
+  if (!process.env.REDIS_URL) return;
+  // Gate organiser jobs behind social_media_organiser flag
+  const organiserEnabled = await isFeatureEnabled('social_media_organiser');
+  if (!organiserEnabled) return;
+  try {
+    const queue = getPodiumQueue();
+    await queue.add(jobName, data, {
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 5000 },
+      jobId,
+    });
+  } catch (err) {
+    console.error(`[social-queue] Failed to enqueue ${data.type} organiser job:`, err);
   }
 }
 
@@ -138,6 +182,54 @@ export async function enqueueCategoryCompleteGraphic(params: {
       entryId:      params.entryId,
       categoryId:   params.categoryId,
       tournamentId: params.tournamentId,
+    },
+  );
+}
+
+/**
+ * Enqueue a draw_published organiser post for a club.
+ * Called when the tournament manager clicks "Share draw on social".
+ */
+export async function enqueueDrawPublished(params: {
+  tournamentId: string;
+  clubId: string;
+  categoryId: string;
+  categoryName: string;
+  participantCount: number;
+  drawFormat: string;
+}): Promise<void> {
+  await enqueuePodiumJob(
+    `draw-published-${params.categoryId}`,
+    `draw-published-${params.categoryId}`,
+    {
+      type:             'draw_published',
+      tournamentId:     params.tournamentId,
+      clubId:           params.clubId,
+      categoryId:       params.categoryId,
+      categoryName:     params.categoryName,
+      participantCount: params.participantCount,
+      drawFormat:       params.drawFormat,
+    },
+  );
+}
+
+/**
+ * Enqueue a schedule_released organiser post for a club.
+ * Called when the tournament manager clicks "Share schedule on social".
+ */
+export async function enqueueScheduleReleased(params: {
+  tournamentId: string;
+  clubId: string;
+  matchCount: number;
+}): Promise<void> {
+  await enqueuePodiumJob(
+    `schedule-released-${params.tournamentId}`,
+    `schedule-released-${params.tournamentId}`,
+    {
+      type:         'schedule_released',
+      tournamentId: params.tournamentId,
+      clubId:       params.clubId,
+      matchCount:   params.matchCount,
     },
   );
 }

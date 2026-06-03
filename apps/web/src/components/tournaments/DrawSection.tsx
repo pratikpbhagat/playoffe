@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { generateDrawAction, clearDrawAction, generateNextSwissRoundAction, promoteGroupWinnersAction, swapDrawEntriesAction, replaceDrawEntryAction } from '@/lib/actions/draws';
+import { shareDrawOnSocialAction } from '@/lib/actions/social';
+import { useToast } from '@/components/ui/ToastProvider';
 import type { MatchWithPlayers } from '@/lib/actions/draws';
 import { BracketView } from './BracketView';
 import { useRealtimeCategoryMatches } from '@/hooks/useRealtimeCategoryMatches';
@@ -24,6 +26,8 @@ interface Props {
   showBracket?: boolean;   // when false, hides BracketView (default true)
   showStandings?: boolean; // when false, hides StandingsTable (default true)
   readOnly?: boolean;      // when true, match tiles in BracketView are non-clickable
+  /** When true: shows "Share draw on social" button (requires organiser flag + connected club accounts) */
+  shareOnSocialEnabled?: boolean;
   /** Entries that are out of sync with the draw (withdrawn-in-draw + active-but-unplaced) */
   stalenessInfo?: {
     withdrawnInDraw: StalenessEntry[];
@@ -49,9 +53,11 @@ export function DrawSection({
   showBracket = true,
   showStandings = true,
   readOnly = false,
+  shareOnSocialEnabled = false,
   stalenessInfo,
 }: Props) {
-  const router = useRouter();
+  const router    = useRouter();
+  const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [generatingSwissRound, setGeneratingSwissRound] = useState(false);
   const [promotingGroups, setPromotingGroups] = useState(false);
@@ -64,6 +70,20 @@ export function DrawSection({
   const [replaceTo, setReplaceTo] = useState('');
   const [replacing, setReplacing] = useState(false);
   const [replaceError, setReplaceError] = useState<string | null>(null);
+
+  // ── Share-draw-on-social state ────────────────────────────────────────────────
+  const [sharing, setSharing] = useState(false);
+
+  async function handleShareDraw() {
+    setSharing(true);
+    const result = await shareDrawOnSocialAction(categoryId);
+    if (result.error) {
+      toast(result.error, 'error');
+    } else {
+      toast('Draw shared on social! 🎉', 'success');
+    }
+    setSharing(false);
+  }
 
   // ── Swap / adjust-draw state ─────────────────────────────────────────────────
   const [adjustMode, setAdjustMode] = useState(false);
@@ -295,6 +315,18 @@ export function DrawSection({
                       className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs text-slate-300 hover:border-amber-500 hover:text-amber-400 transition-colors"
                     >
                       ✏️ Adjust draw
+                    </button>
+                  )}
+
+                  {/* Share draw on social — shown when organiser flag is enabled + club has connections */}
+                  {shareOnSocialEnabled && !showRegenConfirm && !adjustMode && (
+                    <button
+                      onClick={handleShareDraw}
+                      disabled={sharing}
+                      title="Post a 'Draw is live' announcement to the club's social media pages"
+                      className="rounded-lg border border-brand-700/50 px-3 py-1.5 text-xs text-brand-400 hover:bg-brand-700/10 transition-colors disabled:opacity-50"
+                    >
+                      {sharing ? 'Sharing…' : '📢 Share on social'}
                     </button>
                   )}
 

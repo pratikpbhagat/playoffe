@@ -5,16 +5,18 @@ import { FeatureFlagList } from '@/components/superadmin/FeatureFlagList';
 export const metadata: Metadata = { title: 'Feature Flags · Super Admin' };
 
 const FLAG_DESCRIPTIONS: Record<string, string> = {
-  player_network:        'Player profiles, social feed, follow, messaging — hide for tournament-only mode',
-  social_media:          'Social media account linking and auto-posting for admins and players',
-  sponsor_marketplace:   'Sponsor browsing, contact, and badge display features',
-  tournament_display:    'Display screen URL generation and live display pages',
-  player_self_reporting: 'Allow players to self-report match scores (off by default)',
-  direct_messaging:      'Stream.io in-app chat between players',
-  partner_matching:      'Doubles partner matching algorithm and search',
-  practice_logger:       'Practice session logger for individual players',
-  ai_caption_generation: 'Claude API caption generation for social media posts',
-  geographic_heatmap:    'Player location heatmap on the analytics page',
+  player_network:          'Player profiles, social feed, follow, messaging — hide for tournament-only mode',
+  // Social media is now split into two role-specific flags:
+  social_media_organiser:  'Club owners/admins: post draws, schedules, category/tournament winners to club social pages (enabled by default)',
+  social_media_player:     'Players: auto-post match wins, category/tournament completions to personal social accounts (disabled by default — enable for player launch)',
+  sponsor_marketplace:     'Sponsor browsing, contact, and badge display features',
+  tournament_display:      'Display screen URL generation and live display pages',
+  player_self_reporting:   'Allow players to self-report match scores (off by default)',
+  direct_messaging:        'Stream.io in-app chat between players',
+  partner_matching:        'Doubles partner matching algorithm and search',
+  practice_logger:         'Practice session logger for individual players',
+  ai_caption_generation:   'Claude API caption generation for social media posts',
+  geographic_heatmap:      'Player location heatmap on the analytics page',
 };
 
 export default async function SuperAdminFlagsPage() {

@@ -8,7 +8,7 @@ import type {
   OAuthPlatform,
 } from '@/lib/social-types';
 import { DEFAULT_SOCIAL_POST_PREFS } from '@/lib/social-types';
-import { getPostQueue } from '@/lib/social-queue';
+import { getPostQueue, enqueueDrawPublished, enqueueScheduleReleased } from '@/lib/social-queue';
 
 // ── Shared post log row type ──────────────────────────────────────────────────
 
@@ -379,6 +379,135 @@ export async function upsertClubSocialConnectionAction(params: {
 
   if (error) return { error: error.message };
   return { success: true };
+}
+
+// ── Organiser share actions ────────────────────────────────────────────────────
+
+/**
+ * Share the bracket for a category on the club's social media pages.
+ * Called when the tournament manager clicks "Share draw on social" in DrawSection.
+ */
+export async function shareDrawOnSocialAction(
+  categoryId: string,
+): Promise<{ success?: true; error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: 'Not authenticated' };
+
+  const admin = createAdminClient();
+
+  // Resolve category → tournament → club
+  const { data: category } = await admin
+    .from('tournament_categories')
+    .select('id, name, draw_format, tournament_id')
+    .eq('id', categoryId)
+    .single();
+  if (!category) return { error: 'Category not found' };
+
+  const tournamentId = (category as { tournament_id: string }).tournament_id;
+
+  const { data: tournament } = await admin
+    .from('tournaments')
+    .select('club_id')
+    .eq('id', tournamentId)
+    .single();
+  if (!tournament) return { error: 'Tournament not found' };
+
+  // Verify manager role
+  const { data: mgr } = await admin
+    .from('club_managers')
+    .select('role')
+    .eq('club_id', tournament.club_id)
+    .eq('player_id', user.id)
+    .maybeSingle();
+  if (!mgr) return { error: 'Permission denied' };
+
+  // Count active entries in this category
+  const { count: participantCount } = await admin
+    .from('tournament_entries')
+    .select('id', { count: 'exact', head: true })
+    .eq('category_id', categoryId)
+    .eq('status', 'active');
+
+  try {
+    await enqueueDrawPublished({
+      tournamentId,
+      clubId:           tournament.club_id,
+      categoryId,
+      categoryName:     (category as { name: string }).name,
+      participantCount: participantCount ?? 0,
+      drawFormat:       (category as { draw_format: string }).draw_format,
+    });
+  } catch (err) {
+    console.error('[social] enqueueDrawPublished failed:', err);
+    return { error: 'Failed to queue social post' };
+  }
+
+  return { success: true };
+}
+
+/**
+ * Share the match schedule for a tournament on the club's social media pages.
+ * Called when the tournament manager clicks "Share schedule on social".
+ */
+export async function shareScheduleOnSocialAction(
+  tournamentId: string,
+): Promise<{ success?: true; error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: 'Not authenticated' };
+
+  const admin = createAdminClient();
+
+  const { data: tournament } = await admin
+    .from('tournaments')
+    .select('club_id')
+    .eq('id', tournamentId)
+    .single();
+  if (!tournament) return { error: 'Tournament not found' };
+
+  const { data: mgr } = await admin
+    .from('club_managers')
+    .select('role')
+    .eq('club_id', tournament.club_id)
+    .eq('player_id', user.id)
+    .maybeSingle();
+  if (!mgr) return { error: 'Permission denied' };
+
+  // Count scheduled matches
+  const { count: matchCount } = await admin
+    .from('matches')
+    .select('id', { count: 'exact', head: true })
+    .eq('tournament_id', tournamentId)
+    .not('scheduled_time', 'is', null);
+
+  try {
+    await enqueueScheduleReleased({
+      tournamentId,
+      clubId:     tournament.club_id,
+      matchCount: matchCount ?? 0,
+    });
+  } catch (err) {
+    console.error('[social] enqueueScheduleReleased failed:', err);
+    return { error: 'Failed to queue social post' };
+  }
+
+  return { success: true };
+}
+
+/** Returns the organiser post history for a club (last 30 rows). */
+export async function getClubPostHistoryAction(
+  clubId: string,
+): Promise<PostLogRow[]> {
+  const admin = createAdminClient();
+  const { data } = await (admin as any)
+    .from('social_post_log')
+    .select('id, platform, trigger_type, status, graphic_url, caption, caption_style, platform_post_id, error_message, queued_at, posted_at')
+    .eq('club_id', clubId)
+    .order('queued_at', { ascending: false })
+    .limit(30);
+
+  return (data ?? []) as PostLogRow[];
 }
 
 /** Marks a club social connection as inactive (soft-disconnect). */

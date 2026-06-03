@@ -5,7 +5,9 @@ import { cookies } from 'next/headers';
 import { createClient, createAdminClient, getUserRoles } from '@/lib/supabase/server';
 import { AppNav } from '@/components/layout/AppNav';
 import { ScheduleEditor } from '@/components/tournaments/ScheduleEditor';
+import { ShareScheduleButton } from '@/components/tournaments/ShareScheduleButton';
 import type { MatchForScheduling } from '@/components/tournaments/ScheduleEditor';
+import { isFeatureEnabled } from '@/lib/features';
 
 export const metadata: Metadata = { title: 'Schedule matches' };
 
@@ -110,7 +112,21 @@ export default async function SchedulePage({ params }: Props) {
   }));
 
   const scheduledCount = matches.filter((m) => m.scheduled_time).length;
-  const totalCount = matches.filter((m) => m.status === 'scheduled').length;
+  const totalCount     = matches.filter((m) => m.status === 'scheduled').length;
+
+  // Show "Share schedule on social" button only when the organiser flag is enabled
+  // and the club has at least one active social connection.
+  const organiserSocialEnabled = await isFeatureEnabled('social_media_organiser');
+  let canShareSchedule = false;
+  if (organiserSocialEnabled && scheduledCount > 0) {
+    const { data: clubConns } = await admin
+      .from('club_social_connections' as any)
+      .select('id')
+      .eq('club_id', t.club_id)
+      .eq('is_active', true)
+      .limit(1);
+    canShareSchedule = (clubConns as any[] | null)?.length ? (clubConns as any[]).length > 0 : false;
+  }
 
   return (
     <div className="min-h-screen bg-surface">
@@ -136,12 +152,20 @@ export default async function SchedulePage({ params }: Props) {
             </p>
           </div>
 
-          <Link
-            href={`/tournaments/${slug}/scoring`}
-            className="shrink-0 rounded-lg border border-surface-border px-3 py-1.5 text-xs text-slate-400 hover:text-white hover:border-slate-500 transition-colors"
-          >
-            Go to scoring →
-          </Link>
+          <div className="flex items-center gap-2 shrink-0">
+            {canShareSchedule && (
+              <ShareScheduleButton
+                tournamentId={t.id}
+                matchCount={scheduledCount}
+              />
+            )}
+            <Link
+              href={`/tournaments/${slug}/scoring`}
+              className="rounded-lg border border-surface-border px-3 py-1.5 text-xs text-slate-400 hover:text-white hover:border-slate-500 transition-colors"
+            >
+              Go to scoring →
+            </Link>
+          </div>
         </div>
 
         <ScheduleEditor

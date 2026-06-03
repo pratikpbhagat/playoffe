@@ -61,10 +61,15 @@ export interface PostJobData {
  * Renders podium graphic with winner/runner-up photos + sponsor logos.
  */
 export interface PodiumJobData {
-  type: 'podium' | 'wrap_up';
-  categoryId?: string;   // for podium (single category done)
+  type: 'podium' | 'wrap_up' | 'draw_published' | 'schedule_released';
+  categoryId?: string;   // for podium + draw_published
   tournamentId: string;
   clubId: string;
+  // Extra context for draw/schedule announcement graphics
+  categoryName?: string;
+  participantCount?: number;
+  drawFormat?: string;
+  matchCount?: number;    // for schedule_released
 }
 
 // ── Queue instances ───────────────────────────────────────────────────────────

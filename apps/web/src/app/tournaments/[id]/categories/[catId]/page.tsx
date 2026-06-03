@@ -15,6 +15,7 @@ import { SeedingPanel } from '@/components/tournaments/SeedingPanel';
 import { getCategoryWithEntries, getStageScoringAction } from '@/lib/actions/categories';
 import { getTournamentStageScoringAction } from '@/lib/actions/tournaments';
 import { getMatchesForCategory } from '@/lib/actions/draws';
+import { isFeatureEnabled } from '@/lib/features';
 
 export const metadata: Metadata = { title: 'Category entries' };
 
@@ -99,12 +100,13 @@ export default async function CategoryPage({ params }: Props) {
 
   const categoryId = categoryRow.id;
 
-  // Fetch category + entries + matches + stage scoring in parallel
-  const [data, matches, stageRows, tournamentStageRows] = await Promise.all([
+  // Fetch category + entries + matches + stage scoring + social flag in parallel
+  const [data, matches, stageRows, tournamentStageRows, organiserSocialEnabled] = await Promise.all([
     getCategoryWithEntries(categoryId),
     getMatchesForCategory(categoryId),
     getStageScoringAction(categoryId),
     getTournamentStageScoringAction(tournament.id),
+    isFeatureEnabled('social_media_organiser'),
   ]);
   if (!data) notFound();
 
@@ -147,6 +149,20 @@ export default async function CategoryPage({ params }: Props) {
     categoryStatus === 'draw_generated' ||
     categoryStatus === 'in_progress' ||
     categoryStatus === 'completed';
+
+  // ── Organiser "share draw on social" button visibility ────────────────────
+  // Show only when the organiser flag is enabled AND the club has at least one
+  // active social connection (otherwise clicking the button is pointless).
+  let canShareOnSocial = false;
+  if (organiserSocialEnabled && isDrawn) {
+    const { data: clubConns } = await admin
+      .from('club_social_connections' as any)
+      .select('id')
+      .eq('club_id', tournament.club_id)
+      .eq('is_active', true)
+      .limit(1);
+    canShareOnSocial = (clubConns as any[] | null)?.length ? (clubConns as any[]).length > 0 : false;
+  }
 
   // ── Draw staleness detection ───────────────────────────────────────────────
   // Compare entries referenced in matches vs current active entries.
@@ -339,6 +355,7 @@ export default async function CategoryPage({ params }: Props) {
           initialMatches={matches}
           showStandings={false}
           stalenessInfo={{ withdrawnInDraw, unplacedActive }}
+          shareOnSocialEnabled={canShareOnSocial}
         />
 
         {/* Stage scoring overrides — shown for elimination-type formats */}

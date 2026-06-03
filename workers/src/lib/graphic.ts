@@ -4,9 +4,13 @@ import { loadFonts } from './fonts.js';
 import type { MatchWinTemplateData } from './templates/match-win.js';
 import type { CategoryCompleteTemplateData } from './templates/category-complete.js';
 import type { PodiumTemplateData } from './templates/podium.js';
+import type { DrawAnnouncementTemplateData } from './templates/draw-announcement.js';
+import type { ScheduleAnnouncementTemplateData } from './templates/schedule-announcement.js';
 import { buildMatchWinElement } from './templates/match-win.js';
 import { buildCategoryCompleteElement } from './templates/category-complete.js';
 import { buildPodiumElement } from './templates/podium.js';
+import { buildDrawAnnouncementElement } from './templates/draw-announcement.js';
+import { buildScheduleAnnouncementElement } from './templates/schedule-announcement.js';
 
 // Graphic dimensions
 const SQUARE_W = 1080;
@@ -45,4 +49,12 @@ export async function renderCategoryComplete(data: CategoryCompleteTemplateData)
 
 export async function renderPodium(data: PodiumTemplateData): Promise<Buffer> {
   return renderToPng(buildPodiumElement(data));
+}
+
+export async function renderDrawAnnouncement(data: DrawAnnouncementTemplateData): Promise<Buffer> {
+  return renderToPng(buildDrawAnnouncementElement(data));
+}
+
+export async function renderScheduleAnnouncement(data: ScheduleAnnouncementTemplateData): Promise<Buffer> {
+  return renderToPng(buildScheduleAnnouncementElement(data));
 }

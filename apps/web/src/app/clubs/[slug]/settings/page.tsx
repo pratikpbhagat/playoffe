@@ -5,7 +5,9 @@ import { AppNav } from '@/components/layout/AppNav';
 import { ClubAdminNav } from '@/components/clubs/ClubAdminNav';
 import { ClubSettingsForm } from '@/components/clubs/ClubSettingsForm';
 import { ClubSocialPanel } from '@/components/clubs/ClubSocialPanel';
-import { getClubSocialConnectionsAction } from '@/lib/actions/social';
+import { ClubPostHistoryPanel } from '@/components/clubs/ClubPostHistoryPanel';
+import { getClubSocialConnectionsAction, getClubPostHistoryAction } from '@/lib/actions/social';
+import { isFeatureEnabled } from '@/lib/features';
 
 export const metadata: Metadata = { title: 'Club Settings' };
 
@@ -39,8 +41,16 @@ export default async function ClubSettingsPage({ params, searchParams }: Props) 
   // Redirect non-owners away
   if (!isOwner) redirect(`/clubs/${slug}`);
 
-  // Fetch club social connections for the social panel
-  const clubConnections = await getClubSocialConnectionsAction(club.id);
+  // Gate organiser social features behind feature flag
+  const organiserSocialEnabled = await isFeatureEnabled('social_media_organiser');
+
+  // Fetch club social connections and post history (only if flag is enabled)
+  const [clubConnections, clubPostHistory] = organiserSocialEnabled
+    ? await Promise.all([
+        getClubSocialConnectionsAction(club.id),
+        getClubPostHistoryAction(club.id),
+      ])
+    : [[], []];
 
   // Flash from OAuth redirect
   type FlashMsg = { type: 'success' | 'error'; message: string } | null;
@@ -92,15 +102,18 @@ export default async function ClubSettingsPage({ params, searchParams }: Props) 
           }}
         />
 
-        {/* Club social media connections — for organiser posting */}
-        <div className="mt-8 rounded-xl bg-surface-card p-6 ring-1 ring-surface-border">
-          <ClubSocialPanel
-            clubId={club.id}
-            clubSlug={slug}
-            connections={clubConnections}
-            flashMessage={socialFlash}
-          />
-        </div>
+        {/* Club social media connections — shown only when organiser flag is enabled */}
+        {organiserSocialEnabled && (
+          <div className="mt-8 rounded-xl bg-surface-card p-6 ring-1 ring-surface-border">
+            <ClubSocialPanel
+              clubId={club.id}
+              clubSlug={slug}
+              connections={clubConnections}
+              flashMessage={socialFlash}
+            />
+            <ClubPostHistoryPanel history={clubPostHistory} />
+          </div>
+        )}
       </main>
     </div>
   );

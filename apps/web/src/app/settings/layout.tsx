@@ -3,7 +3,7 @@ import { SettingsTabNav } from '@/components/settings/SettingsTabNav';
 import { isFeatureEnabled } from '@/lib/features';
 
 export default async function SettingsLayout({ children }: { children: React.ReactNode }) {
-  const socialEnabled = await isFeatureEnabled('social_media');
+  const socialEnabled = await isFeatureEnabled('social_media_player');
 
   return (
     <div className="min-h-screen bg-surface">

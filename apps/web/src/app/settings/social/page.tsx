@@ -26,7 +26,7 @@ interface Props {
 
 export default async function SocialSettingsPage({ searchParams }: Props) {
   // Hard gate — defence in depth even if the tab is hidden
-  const socialEnabled = await isFeatureEnabled('social_media');
+  const socialEnabled = await isFeatureEnabled('social_media_player');
   if (!socialEnabled) redirect('/settings/profile');
 
   const supabase = await createClient();
