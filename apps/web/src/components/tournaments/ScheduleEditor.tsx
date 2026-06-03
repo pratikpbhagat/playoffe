@@ -5,9 +5,9 @@ import {
   batchScheduleMatchesAction,
   generateSmartScheduleAction,
   updateCourtCountAction,
-  detectConflictsFromUpdates,
 } from '@/lib/actions/scheduling';
 import type { ScheduleUpdate, ConflictInfo } from '@/lib/actions/scheduling';
+import { detectConflictsFromUpdates } from '@/lib/scheduling-utils';
 import { ScheduleSettingsModal } from './ScheduleSettingsModal';
 import type { ScheduleSettings } from './ScheduleSettingsModal';
 import { ScheduleAIPanel } from './ScheduleAIPanel';

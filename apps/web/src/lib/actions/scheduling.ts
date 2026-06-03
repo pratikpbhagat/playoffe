@@ -2,6 +2,9 @@
 
 import { revalidatePath } from 'next/cache';
 import { createClient, createAdminClient } from '@/lib/supabase/server';
+import { detectConflictsFromUpdates } from '@/lib/scheduling-utils';
+// Re-export so callers can import from one place
+export { computeMatchDurationMins, detectConflictsFromUpdates } from '@/lib/scheduling-utils';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -72,23 +75,6 @@ export async function batchScheduleMatchesAction(
   revalidatePath(`/tournaments/${tournamentSlug}/scoring`);
   revalidatePath(`/tournaments/${tournamentSlug}/analytics`);
   return { success: true, count: updates.length };
-}
-
-// ── Match-duration helper ─────────────────────────────────────────────────────
-
-/**
- * Computes expected match duration from scoring format + number of sets.
- * Rally points:      10 min/set + 5 min changeover
- * Traditional/service: 20 min/set + 5 min changeover
- */
-export function computeMatchDurationMins(params: {
-  scoringFormat: 'rally' | 'traditional';
-  numSets: number;
-  changeoverMins?: number;
-}): number {
-  const perSet      = params.scoringFormat === 'rally' ? 10 : 20;
-  const changeover  = params.changeoverMins ?? 5;
-  return params.numSets * perSet + (params.numSets - 1) * changeover;
 }
 
 // ── Smart schedule generator ──────────────────────────────────────────────────
@@ -240,58 +226,6 @@ export async function generateSmartScheduleAction(
   const conflicts = detectConflictsFromUpdates(updates, matchDurationMins, availableCourts);
 
   return { updates, conflicts };
-}
-
-// ── Client-safe conflict detection (exported for client-side use too) ─────────
-
-export function detectConflictsFromUpdates(
-  updates: ScheduleUpdate[],
-  matchDurationMins: number,
-  availableCourts?: number[],
-): ConflictInfo[] {
-  const conflicts: ConflictInfo[] = [];
-  const scheduled = updates.filter((u) => u.scheduledTime && u.court);
-
-  for (let i = 0; i < scheduled.length; i++) {
-    const a = scheduled[i];
-    const aStart = new Date(a.scheduledTime!).getTime();
-    const aEnd   = aStart + matchDurationMins * 60_000;
-
-    // Out-of-range court
-    if (availableCourts && !availableCourts.includes(a.court!)) {
-      conflicts.push({ matchId: a.matchId, message: `Court ${a.court} is not available` });
-      continue;
-    }
-
-    for (let j = i + 1; j < scheduled.length; j++) {
-      const b = scheduled[j];
-      if (a.court !== b.court) continue; // different courts — no conflict
-
-      const bStart = new Date(b.scheduledTime!).getTime();
-      const bEnd   = bStart + matchDurationMins * 60_000;
-
-      // Overlap: A starts before B ends AND B starts before A ends
-      if (aStart < bEnd && bStart < aEnd) {
-        const fmt = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        conflicts.push({
-          matchId: a.matchId,
-          message: `Overlaps on court ${a.court} with another match at ${fmt(bStart)}`,
-        });
-        conflicts.push({
-          matchId: b.matchId,
-          message: `Overlaps on court ${b.court} with another match at ${fmt(aStart)}`,
-        });
-      }
-    }
-  }
-
-  // Deduplicate by matchId (keep first occurrence per match)
-  const seen = new Set<string>();
-  return conflicts.filter((c) => {
-    if (seen.has(c.matchId)) return false;
-    seen.add(c.matchId);
-    return true;
-  });
 }
 
 // ── Dynamic court count adjustment ────────────────────────────────────────────
