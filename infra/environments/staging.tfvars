@@ -1,32 +1,36 @@
 # ── PLAYOFFE Staging Environment ──────────────────────────────────────────────
-# Fill in the values below after creating your Supabase staging project.
-# NEVER commit sensitive values — use TF_VAR_* environment variables or
-# a secrets manager integration for the sensitive fields.
+# Target cost: ~$9/month
+#
+# Cost optimisations applied automatically (environment = "staging"):
+#   ✅ Fargate Spot       — ~70% cheaper compute, graceful shutdown handles interruptions
+#   ✅ Redis sidecar      — Redis runs inside the ECS task, no ElastiCache cluster needed
+#   ✅ SSM Parameter Store — free secret storage (vs $6/month Secrets Manager)
+#
+# Fill in vpc_id, subnet_ids, and supabase_storage_url before running terraform apply.
+# Set all TF_VAR_* sensitive values as shell environment variables (never in this file).
 
 environment = "staging"
 aws_region  = "ap-southeast-1"
 
-# Networking — paste your default VPC ID and subnet IDs from:
-# AWS Console → VPC → Your VPCs / Subnets
+# Networking — AWS Console → VPC → Your VPCs / Subnets
 vpc_id     = "vpc-XXXXXXXXXXXXXXXXX"
 subnet_ids = ["subnet-XXXXXXXXXXXXXXXXX", "subnet-XXXXXXXXXXXXXXXXX"]
 
 # ECS Workers
 ecs_desired_count = 1
-ecs_cpu           = 512   # 0.5 vCPU
-ecs_memory        = 1024  # 1 GB
+ecs_cpu           = 512   # 0.5 vCPU  (shared between worker + Redis sidecar)
+ecs_memory        = 1024  # 1 GB      (worker ~700MB + Redis sidecar ~256MB)
 workers_image_tag = "latest"
 
-# ElastiCache Redis
-redis_node_type = "cache.t3.micro"
+# redis_node_type not used for staging (Redis runs as sidecar, no ElastiCache)
 
 # Alerts
 alert_email = "alerts-staging@playoffe.com"
 
-# Supabase Storage CDN origin — format: <project-ref>.supabase.co
+# Supabase Storage CDN origin
 supabase_storage_url = "https://XXXXXXXXXXXXXXXX.supabase.co/storage/v1/object/public/social-graphics"
 
-# ── Sensitive vars — set via environment variables, NOT in this file ──────────
+# ── Sensitive values — export as TF_VAR_* before running terraform apply ──────
 # export TF_VAR_supabase_url="https://XXXXXXXX.supabase.co"
 # export TF_VAR_supabase_anon_key="eyJ..."
 # export TF_VAR_supabase_service_role_key="eyJ..."

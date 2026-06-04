@@ -1,5 +1,6 @@
 variable "name_prefix"               { type = string }
 variable "environment"               { type = string }
+variable "use_ssm"                   { type = bool; default = false; description = "true = SSM Parameter Store (free, staging); false = Secrets Manager (prod)" }
 variable "supabase_url"              { type = string; sensitive = true }
 variable "supabase_anon_key"         { type = string; sensitive = true }
 variable "supabase_service_role_key" { type = string; sensitive = true }

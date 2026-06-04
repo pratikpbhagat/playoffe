@@ -1,24 +1,38 @@
 # ── PLAYOFFE — Infrastructure root ────────────────────────────────────────────
 #
-# Composes all modules. Deploy per environment:
+# Deploy per environment:
 #   terraform apply -var-file="environments/staging.tfvars"
 #   terraform apply -var-file="environments/prod.tfvars"
+#
+# Cost strategy — automatically applied by environment:
+#
+#   staging:  Fargate Spot + Redis sidecar + SSM Parameter Store  → ~$9/month
+#   prod:     Fargate on-demand + ElastiCache + Secrets Manager   → ~$130/month
 
 locals {
   name_prefix = "playoffe-${var.environment}"
+  is_prod     = var.environment == "prod"
+
+  # These three flags drive all cost optimisations
+  use_spot          = !local.is_prod  # Fargate Spot for non-prod (~70% cheaper)
+  use_redis_sidecar = !local.is_prod  # Redis runs in the task — no ElastiCache cost
+  use_ssm           = !local.is_prod  # SSM Parameter Store is free; Secrets Manager is not
 }
 
 # ── ECR: container image registry (shared across environments) ────────────────
 module "ecr" {
   source      = "./modules/ecr"
-  name_prefix = "playoffe" # one repo, images tagged per env
+  name_prefix = "playoffe"
 }
 
-# ── Secrets Manager: all env vars per environment ─────────────────────────────
+# ── Secrets / SSM: env vars per environment ───────────────────────────────────
+# staging → SSM Parameter Store (free)
+# prod    → Secrets Manager ($0.40/secret/month, rotation, audit trail)
 module "secrets" {
   source      = "./modules/secrets"
   name_prefix = local.name_prefix
   environment = var.environment
+  use_ssm     = local.use_ssm
 
   supabase_url              = var.supabase_url
   supabase_anon_key         = var.supabase_anon_key
@@ -35,8 +49,11 @@ module "secrets" {
   x_access_token_secret     = var.x_access_token_secret
 }
 
-# ── ElastiCache: managed Redis ────────────────────────────────────────────────
+# ── ElastiCache: managed Redis (prod only) ────────────────────────────────────
+# staging uses Redis sidecar inside the ECS task — no separate cluster needed
 module "elasticache" {
+  count = local.is_prod ? 1 : 0
+
   source      = "./modules/elasticache"
   name_prefix = local.name_prefix
   vpc_id      = var.vpc_id
@@ -60,9 +77,16 @@ module "ecs" {
   vpc_id     = var.vpc_id
   subnet_ids = var.subnet_ids
 
-  redis_url          = "redis://${module.elasticache.primary_endpoint}:6379"
-  secret_arns        = module.secrets.secret_arns
-  elasticache_sg_id  = module.elasticache.security_group_id
+  # Cost flags — drives Spot, sidecar, and IAM policy type
+  use_spot          = local.use_spot
+  use_redis_sidecar = local.use_redis_sidecar
+  use_ssm           = local.use_ssm
+
+  # prod: real ElastiCache URL. staging: ignored (sidecar uses localhost)
+  redis_url         = local.is_prod ? "redis://${module.elasticache[0].primary_endpoint}:6379" : "redis://localhost:6379"
+  elasticache_sg_id = local.is_prod ? module.elasticache[0].security_group_id : null
+
+  secret_arns = module.secrets.secret_arns
 }
 
 # ── CloudWatch: alarms + dashboard ────────────────────────────────────────────
@@ -71,10 +95,10 @@ module "cloudwatch" {
   name_prefix = local.name_prefix
   environment = var.environment
 
-  ecs_cluster_name  = module.ecs.cluster_name
-  ecs_service_name  = module.ecs.service_name
-  redis_cluster_id  = module.elasticache.cluster_id
-  alert_email       = var.alert_email
+  ecs_cluster_name = module.ecs.cluster_name
+  ecs_service_name = module.ecs.service_name
+  redis_cluster_id = local.is_prod ? module.elasticache[0].cluster_id : null
+  alert_email      = var.alert_email
 }
 
 # ── CloudFront: CDN for social-graphics storage bucket ────────────────────────
@@ -84,10 +108,12 @@ module "cloudfront" {
   supabase_storage_url = var.supabase_storage_url
 }
 
-# ── Write Redis URL back into Secrets Manager ─────────────────────────────────
+# ── Write Redis URL into Secrets Manager (prod only) ─────────────────────────
 resource "aws_secretsmanager_secret_version" "redis_url" {
+  count = local.is_prod ? 1 : 0
+
   secret_id     = module.secrets.redis_url_secret_id
-  secret_string = "redis://${module.elasticache.primary_endpoint}:6379"
+  secret_string = "redis://${module.elasticache[0].primary_endpoint}:6379"
 
   depends_on = [module.elasticache, module.secrets]
 }

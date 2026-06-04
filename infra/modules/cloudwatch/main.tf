@@ -10,9 +10,12 @@ resource "aws_sns_topic_subscription" "email" {
   endpoint  = var.alert_email
 }
 
-# ── Alarm: Redis queue depth > 100 ───────────────────────────────────────────
+# ── Alarm: Redis queue depth > 100 (prod/ElastiCache only) ───────────────────
+# Staging uses a Redis sidecar which has no CloudWatch metrics — skipped.
 
 resource "aws_cloudwatch_metric_alarm" "queue_depth" {
+  count = var.redis_cluster_id != null ? 1 : 0
+
   alarm_name          = "${var.name_prefix}-queue-depth-high"
   alarm_description   = "Redis queue depth exceeded 100 jobs — workers may be falling behind"
   comparison_operator = "GreaterThanThreshold"
