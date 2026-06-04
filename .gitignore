@@ -39,6 +39,23 @@ Thumbs.db
 # Testing
 coverage
 
+# Load test results (never commit — may contain tokens in URLs)
+tests/load/results/*.json
+
+# Terraform
+infra/.terraform/
+infra/.terraform.lock.hcl
+infra/terraform.tfstate
+infra/terraform.tfstate.backup
+infra/crash.log
+infra/*.tfvars.json
+# Keep tfvars files but never commit sensitive overrides
+!infra/environments/staging.tfvars
+!infra/environments/prod.tfvars
+
+# Unpacked docx (scratch directory)
+unpacked_handoff/
+
 # Logs
 *.log
 npm-debug.log*
