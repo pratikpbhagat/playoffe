@@ -1,4 +1,4 @@
-﻿export type Json =
+export type Json =
   | string
   | number
   | boolean
@@ -177,6 +177,47 @@ export type Database = {
         }
         Relationships: []
       }
+      category_stage_scoring: {
+        Row: {
+          category_id: string
+          created_at: string
+          deuce_cap: number | null
+          id: string
+          num_sets: number | null
+          points_per_set: number | null
+          stage: string
+          win_by: number | null
+        }
+        Insert: {
+          category_id: string
+          created_at?: string
+          deuce_cap?: number | null
+          id?: string
+          num_sets?: number | null
+          points_per_set?: number | null
+          stage: string
+          win_by?: number | null
+        }
+        Update: {
+          category_id?: string
+          created_at?: string
+          deuce_cap?: number | null
+          id?: string
+          num_sets?: number | null
+          points_per_set?: number | null
+          stage?: string
+          win_by?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "category_stage_scoring_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "tournament_categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       club_affiliations: {
         Row: {
           club_id: string
@@ -251,6 +292,62 @@ export type Database = {
             columns: ["player_id"]
             isOneToOne: false
             referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      club_social_connections: {
+        Row: {
+          access_token: string | null
+          club_id: string
+          connected_at: string
+          id: string
+          is_active: boolean
+          platform: string
+          platform_display_name: string | null
+          platform_user_id: string | null
+          platform_username: string | null
+          refresh_token: string | null
+          scopes: string[]
+          token_expires_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          access_token?: string | null
+          club_id: string
+          connected_at?: string
+          id?: string
+          is_active?: boolean
+          platform: string
+          platform_display_name?: string | null
+          platform_user_id?: string | null
+          platform_username?: string | null
+          refresh_token?: string | null
+          scopes?: string[]
+          token_expires_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          access_token?: string | null
+          club_id?: string
+          connected_at?: string
+          id?: string
+          is_active?: boolean
+          platform?: string
+          platform_display_name?: string | null
+          platform_user_id?: string | null
+          platform_username?: string | null
+          refresh_token?: string | null
+          scopes?: string[]
+          token_expires_at?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "club_social_connections_club_id_fkey"
+            columns: ["club_id"]
+            isOneToOne: false
+            referencedRelation: "clubs"
             referencedColumns: ["id"]
           },
         ]
@@ -638,6 +735,8 @@ export type Database = {
           round: number
           round_name: string | null
           scheduled_time: string | null
+          server_number: number | null
+          serving_entry_id: string | null
           sets: Json
           started_at: string | null
           status: Database["public"]["Enums"]["match_status_enum"]
@@ -671,6 +770,8 @@ export type Database = {
           round: number
           round_name?: string | null
           scheduled_time?: string | null
+          server_number?: number | null
+          serving_entry_id?: string | null
           sets?: Json
           started_at?: string | null
           status?: Database["public"]["Enums"]["match_status_enum"]
@@ -704,6 +805,8 @@ export type Database = {
           round?: number
           round_name?: string | null
           scheduled_time?: string | null
+          server_number?: number | null
+          serving_entry_id?: string | null
           sets?: Json
           started_at?: string | null
           status?: Database["public"]["Enums"]["match_status_enum"]
@@ -746,6 +849,13 @@ export type Database = {
           {
             foreignKeyName: "matches_player_reported_winner_id_fkey"
             columns: ["player_reported_winner_id"]
+            isOneToOne: false
+            referencedRelation: "tournament_entries"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "matches_serving_entry_id_fkey"
+            columns: ["serving_entry_id"]
             isOneToOne: false
             referencedRelation: "tournament_entries"
             referencedColumns: ["id"]
@@ -964,6 +1074,7 @@ export type Database = {
           player_id: string
           playing_since: number | null
           preferred_style: string | null
+          social_post_prefs: Json
           updated_at: string
         }
         Insert: {
@@ -975,6 +1086,7 @@ export type Database = {
           player_id: string
           playing_since?: number | null
           preferred_style?: string | null
+          social_post_prefs?: Json
           updated_at?: string
         }
         Update: {
@@ -986,6 +1098,7 @@ export type Database = {
           player_id?: string
           playing_since?: number | null
           preferred_style?: string | null
+          social_post_prefs?: Json
           updated_at?: string
         }
         Relationships: [
@@ -1363,59 +1476,224 @@ export type Database = {
           },
         ]
       }
+      social_connections: {
+        Row: {
+          access_token: string | null
+          connected_at: string
+          id: string
+          is_active: boolean
+          platform: string
+          platform_display_name: string | null
+          platform_user_id: string | null
+          platform_username: string | null
+          player_id: string
+          refresh_token: string | null
+          scopes: string[]
+          token_expires_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          access_token?: string | null
+          connected_at?: string
+          id?: string
+          is_active?: boolean
+          platform: string
+          platform_display_name?: string | null
+          platform_user_id?: string | null
+          platform_username?: string | null
+          player_id: string
+          refresh_token?: string | null
+          scopes?: string[]
+          token_expires_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          access_token?: string | null
+          connected_at?: string
+          id?: string
+          is_active?: boolean
+          platform?: string
+          platform_display_name?: string | null
+          platform_user_id?: string | null
+          platform_username?: string | null
+          player_id?: string
+          refresh_token?: string | null
+          scopes?: string[]
+          token_expires_at?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "social_connections_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      social_post_log: {
+        Row: {
+          caption: string | null
+          caption_style: string | null
+          club_id: string | null
+          created_at: string
+          error_message: string | null
+          generated_at: string | null
+          graphic_url: string | null
+          id: string
+          platform: string
+          platform_post_id: string | null
+          player_id: string | null
+          posted_at: string | null
+          queued_at: string
+          status: string
+          tournament_id: string | null
+          trigger_id: string | null
+          trigger_type: string
+        }
+        Insert: {
+          caption?: string | null
+          caption_style?: string | null
+          club_id?: string | null
+          created_at?: string
+          error_message?: string | null
+          generated_at?: string | null
+          graphic_url?: string | null
+          id?: string
+          platform: string
+          platform_post_id?: string | null
+          player_id?: string | null
+          posted_at?: string | null
+          queued_at?: string
+          status?: string
+          tournament_id?: string | null
+          trigger_id?: string | null
+          trigger_type: string
+        }
+        Update: {
+          caption?: string | null
+          caption_style?: string | null
+          club_id?: string | null
+          created_at?: string
+          error_message?: string | null
+          generated_at?: string | null
+          graphic_url?: string | null
+          id?: string
+          platform?: string
+          platform_post_id?: string | null
+          player_id?: string | null
+          posted_at?: string | null
+          queued_at?: string
+          status?: string
+          tournament_id?: string | null
+          trigger_id?: string | null
+          trigger_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "social_post_log_club_id_fkey"
+            columns: ["club_id"]
+            isOneToOne: false
+            referencedRelation: "clubs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "social_post_log_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "social_post_log_tournament_id_fkey"
+            columns: ["tournament_id"]
+            isOneToOne: false
+            referencedRelation: "tournaments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tournament_categories: {
         Row: {
+          advance_per_group: number
           created_at: string
+          deuce_cap: number | null
           draw_format: Database["public"]["Enums"]["draw_format_enum"]
+          groups_count: number | null
+          has_third_place_match: boolean
           id: string
           max_age: number | null
           max_entries: number | null
           min_age: number | null
           name: string
+          num_sets: number | null
           play_format: Database["public"]["Enums"]["play_format_enum"]
+          points_per_set: number | null
           runner_up_entry_id: string | null
+          scoring_format: string | null
+          scoring_override: boolean
           skill_levels: Json
           slug: string
           status: Database["public"]["Enums"]["category_status_enum"]
           third_place_entry_id: string | null
           tournament_id: string
           type: Database["public"]["Enums"]["category_type_enum"]
+          win_by: number | null
           winner_entry_id: string | null
         }
         Insert: {
+          advance_per_group?: number
           created_at?: string
+          deuce_cap?: number | null
           draw_format: Database["public"]["Enums"]["draw_format_enum"]
+          groups_count?: number | null
+          has_third_place_match?: boolean
           id?: string
           max_age?: number | null
           max_entries?: number | null
           min_age?: number | null
           name: string
+          num_sets?: number | null
           play_format: Database["public"]["Enums"]["play_format_enum"]
+          points_per_set?: number | null
           runner_up_entry_id?: string | null
+          scoring_format?: string | null
+          scoring_override?: boolean
           skill_levels?: Json
           slug: string
           status?: Database["public"]["Enums"]["category_status_enum"]
           third_place_entry_id?: string | null
           tournament_id: string
           type: Database["public"]["Enums"]["category_type_enum"]
+          win_by?: number | null
           winner_entry_id?: string | null
         }
         Update: {
+          advance_per_group?: number
           created_at?: string
+          deuce_cap?: number | null
           draw_format?: Database["public"]["Enums"]["draw_format_enum"]
+          groups_count?: number | null
+          has_third_place_match?: boolean
           id?: string
           max_age?: number | null
           max_entries?: number | null
           min_age?: number | null
           name?: string
+          num_sets?: number | null
           play_format?: Database["public"]["Enums"]["play_format_enum"]
+          points_per_set?: number | null
           runner_up_entry_id?: string | null
+          scoring_format?: string | null
+          scoring_override?: boolean
           skill_levels?: Json
           slug?: string
           status?: Database["public"]["Enums"]["category_status_enum"]
           third_place_entry_id?: string | null
           tournament_id?: string
           type?: Database["public"]["Enums"]["category_type_enum"]
+          win_by?: number | null
           winner_entry_id?: string | null
         }
         Relationships: [
@@ -1541,6 +1819,47 @@ export type Database = {
           },
         ]
       }
+      tournament_stage_scoring: {
+        Row: {
+          created_at: string
+          deuce_cap: number | null
+          id: string
+          num_sets: number | null
+          points_per_set: number | null
+          stage: string
+          tournament_id: string
+          win_by: number | null
+        }
+        Insert: {
+          created_at?: string
+          deuce_cap?: number | null
+          id?: string
+          num_sets?: number | null
+          points_per_set?: number | null
+          stage: string
+          tournament_id: string
+          win_by?: number | null
+        }
+        Update: {
+          created_at?: string
+          deuce_cap?: number | null
+          id?: string
+          num_sets?: number | null
+          points_per_set?: number | null
+          stage?: string
+          tournament_id?: string
+          win_by?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tournament_stage_scoring_tournament_id_fkey"
+            columns: ["tournament_id"]
+            isOneToOne: false
+            referencedRelation: "tournaments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tournaments: {
         Row: {
           auto_approve_entries: boolean
@@ -1548,19 +1867,27 @@ export type Database = {
           court_count: number
           created_at: string
           created_by: string
+          default_changeover_mins: number
+          default_match_duration_mins: number
+          default_start_time: string
           description: string | null
+          deuce_cap: number | null
           display_code: string
           end_date: string
           id: string
           max_participants: number | null
           name: string
+          num_sets: number
+          points_per_set: number
           registration_deadline: string | null
+          scoring_format: string
           slug: string
           social_post_triggers: Json
           start_date: string
           status: Database["public"]["Enums"]["tournament_status_enum"]
           updated_at: string
           venue: string | null
+          win_by: number
         }
         Insert: {
           auto_approve_entries?: boolean
@@ -1568,19 +1895,27 @@ export type Database = {
           court_count?: number
           created_at?: string
           created_by: string
+          default_changeover_mins?: number
+          default_match_duration_mins?: number
+          default_start_time?: string
           description?: string | null
+          deuce_cap?: number | null
           display_code: string
           end_date: string
           id?: string
           max_participants?: number | null
           name: string
+          num_sets?: number
+          points_per_set?: number
           registration_deadline?: string | null
+          scoring_format?: string
           slug: string
           social_post_triggers?: Json
           start_date: string
           status?: Database["public"]["Enums"]["tournament_status_enum"]
           updated_at?: string
           venue?: string | null
+          win_by?: number
         }
         Update: {
           auto_approve_entries?: boolean
@@ -1588,19 +1923,27 @@ export type Database = {
           court_count?: number
           created_at?: string
           created_by?: string
+          default_changeover_mins?: number
+          default_match_duration_mins?: number
+          default_start_time?: string
           description?: string | null
+          deuce_cap?: number | null
           display_code?: string
           end_date?: string
           id?: string
           max_participants?: number | null
           name?: string
+          num_sets?: number
+          points_per_set?: number
           registration_deadline?: string | null
+          scoring_format?: string
           slug?: string
           social_post_triggers?: Json
           start_date?: string
           status?: Database["public"]["Enums"]["tournament_status_enum"]
           updated_at?: string
           venue?: string | null
+          win_by?: number
         }
         Relationships: [
           {
@@ -1958,4 +2301,3 @@ export const Constants = {
     },
   },
 } as const
-

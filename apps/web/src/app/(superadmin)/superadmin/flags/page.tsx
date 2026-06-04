@@ -9,6 +9,8 @@ const FLAG_DESCRIPTIONS: Record<string, string> = {
   // Social media is now split into two role-specific flags:
   social_media_organiser:  'Club owners/admins: post draws, schedules, category/tournament winners to club social pages (enabled by default)',
   social_media_player:     'Players: auto-post match wins, category/tournament completions to personal social accounts (disabled by default — enable for player launch)',
+  ai_schedule_assistant:   'AI scheduling assistant (Claude) on tournament schedule pages for admins. Super admins always have access regardless of this flag.',
+  rankings:                'Rankings page and nav link — disable to hide global rankings from all users (super admins always see it).',
   sponsor_marketplace:     'Sponsor browsing, contact, and badge display features',
   tournament_display:      'Display screen URL generation and live display pages',
   player_self_reporting:   'Allow players to self-report match scores (off by default)',

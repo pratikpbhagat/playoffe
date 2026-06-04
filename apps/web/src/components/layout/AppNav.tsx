@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { cookies } from 'next/headers';
 import { createClient, createAdminClient, isSuperAdmin, getUserRoles } from '@/lib/supabase/server';
+import { isFeatureEnabled } from '@/lib/features';
 import { NotificationBell } from './NotificationBell';
 import { NavLink } from './NavLink';
 import { MobileNav } from './MobileNav';
@@ -32,6 +33,11 @@ export async function AppNav() {
     : isAdmin ? 'admin'
     : 'player';
 
+  // Feature flags
+  // Rankings: super admins always see it; others respect the flag
+  const rankingsFlagEnabled = await isFeatureEnabled('rankings');
+  const showRankings = superAdmin || rankingsFlagEnabled;
+
   // Fetch initial notifications for the bell (last 30, server-side)
   let initialNotifications: Notification[] = [];
   if (user) {
@@ -57,6 +63,7 @@ export async function AppNav() {
             email={user?.email}
             isSuperAdmin={superAdmin}
             activeMode={activeMode}
+            showRankings={showRankings}
           />
           <Link href={superAdmin ? '/superadmin' : player ? '/dashboard' : '/'} className="text-lg font-black text-white shrink-0">
             PLAY<span className="text-brand-500">OFFE</span>
@@ -70,7 +77,7 @@ export async function AppNav() {
             <>
               <NavLink href="/dashboard" exact>Dashboard</NavLink>
               <NavLink href="/clubs" exact>My clubs</NavLink>
-              <NavLink href="/rankings">Rankings</NavLink>
+              {showRankings && <NavLink href="/rankings">Rankings</NavLink>}
               <NavLink href="/tournaments" exact>My tournaments</NavLink>
             </>
           )}
@@ -80,7 +87,7 @@ export async function AppNav() {
             <>
               <NavLink href="/dashboard" exact>Dashboard</NavLink>
               <NavLink href="/events">Events</NavLink>
-              <NavLink href="/rankings">Rankings</NavLink>
+              {showRankings && <NavLink href="/rankings">Rankings</NavLink>}
               <NavLink href="/feed" exact>Feed</NavLink>
               <NavLink href="/practice" exact>Practice</NavLink>
               <NavLink href="/partners" exact>Partners</NavLink>
@@ -91,7 +98,7 @@ export async function AppNav() {
           {!superAdmin && !player && user && (
             <>
               <NavLink href="/events">Events</NavLink>
-              <NavLink href="/rankings">Rankings</NavLink>
+              {showRankings && <NavLink href="/rankings">Rankings</NavLink>}
             </>
           )}
 
@@ -99,7 +106,7 @@ export async function AppNav() {
           {!superAdmin && !user && (
             <>
               <NavLink href="/events">Events</NavLink>
-              <NavLink href="/rankings">Rankings</NavLink>
+              {showRankings && <NavLink href="/rankings">Rankings</NavLink>}
             </>
           )}
 

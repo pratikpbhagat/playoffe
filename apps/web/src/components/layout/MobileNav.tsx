@@ -11,6 +11,7 @@ interface MobileNavProps {
   email?: string;
   isSuperAdmin?: boolean;
   activeMode?: 'admin' | 'player';
+  showRankings?: boolean;
 }
 
 interface NavEntry {
@@ -42,7 +43,7 @@ const PLAYER_LINKS: NavEntry[] = [
   { label: 'Partners',  href: '/partners',  exact: true },
 ];
 
-export function MobileNav({ isLoggedIn, username, fullName, email, isSuperAdmin, activeMode }: MobileNavProps) {
+export function MobileNav({ isLoggedIn, username, fullName, email, isSuperAdmin, activeMode, showRankings = true }: MobileNavProps) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
 
@@ -55,11 +56,15 @@ export function MobileNav({ isLoggedIn, username, fullName, email, isSuperAdmin,
     return () => { document.body.style.overflow = ''; };
   }, [open]);
 
+  // Filter Rankings from link arrays when flag is off
+  const filterLinks = (arr: NavEntry[]) =>
+    showRankings ? arr : arr.filter((l) => l.href !== '/rankings');
+
   // Pick the correct link set based on role mode
   const links = isSuperAdmin ? []
-    : !isLoggedIn ? GUEST_LINKS
-    : activeMode === 'admin' ? ADMIN_LINKS
-    : PLAYER_LINKS;
+    : !isLoggedIn ? filterLinks(GUEST_LINKS)
+    : activeMode === 'admin' ? filterLinks(ADMIN_LINKS)
+    : filterLinks(PLAYER_LINKS);
 
   function isActive(href: string, exact?: boolean) {
     return exact ? pathname === href : pathname.startsWith(href);
