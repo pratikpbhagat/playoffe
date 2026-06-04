@@ -78,6 +78,7 @@ export function startPodiumWorker() {
             .eq('club_id', clubId)
             .eq('is_active', true);
 
+          const carouselNow = new Date().toISOString();
           if (clubConns && (clubConns as any[]).length > 0) {
             for (const conn of clubConns as { platform: string; access_token: string; platform_username: string | null }[]) {
               const result = await postToPlatform({
@@ -91,6 +92,24 @@ export function startPodiumWorker() {
                 carouselBuffers,
               });
               console.log(`[podium] Job ${job.id}: carousel → ${conn.platform} ${result.success ? `✓ (${result.platformPostId})` : `✗ (${result.error})`}`);
+
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              await (supabase as any)
+                .from('social_post_log')
+                .insert({
+                  club_id:          clubId,
+                  tournament_id:    tournamentId,
+                  platform:         conn.platform,
+                  trigger_type:     'draw_published',
+                  trigger_id:       categoryId ?? tournamentId,
+                  graphic_url:      carouselUrls[0],
+                  caption:          carouselCaption,
+                  status:           result.success ? 'posted' : 'failed',
+                  platform_post_id: result.platformPostId ?? null,
+                  error_message:    result.error ?? null,
+                  generated_at:     carouselNow,
+                  posted_at:        result.success ? carouselNow : null,
+                });
             }
           }
 
@@ -210,21 +229,6 @@ export function startPodiumWorker() {
       const graphicUrl = await uploadGraphic(fileName, pngBuffer);
       console.log(`[podium] Job ${job.id}: graphic uploaded → ${graphicUrl}`);
 
-      // ── Log to social_post_log ────────────────────────────────────────────
-      await supabase
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .from('social_post_log' as any)
-        .insert({
-          club_id:      clubId,
-          tournament_id: tournamentId,
-          trigger_type: type,
-          trigger_id:   categoryId ?? tournamentId,
-          graphic_url:  graphicUrl,
-          caption,
-          status:       'posting',
-          generated_at: new Date().toISOString(),
-        });
-
       // ── Post to each connected club social platform ───────────────────────
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data: clubConns } = await supabase
@@ -233,6 +237,8 @@ export function startPodiumWorker() {
         .select('platform, access_token, platform_username')
         .eq('club_id', clubId)
         .eq('is_active', true);
+
+      const now = new Date().toISOString();
 
       if (clubConns && (clubConns as any[]).length > 0) {
         for (const conn of clubConns as { platform: string; access_token: string; platform_username: string | null }[]) {
@@ -246,25 +252,41 @@ export function startPodiumWorker() {
           });
 
           console.log(`[podium] Job ${job.id}: ${conn.platform} → ${result.success ? `✓ (${result.platformPostId})` : `✗ (${result.error})`}`);
-        }
 
-        // Update status to 'posted' in log
-        await supabase
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          .from('social_post_log' as any)
-          .update({ status: 'posted', posted_at: new Date().toISOString() })
-          .eq('club_id', clubId)
-          .eq('trigger_type', type)
-          .eq('graphic_url', graphicUrl);
+          await (supabase as any)
+            .from('social_post_log')
+            .insert({
+              club_id:          clubId,
+              tournament_id:    tournamentId,
+              platform:         conn.platform,
+              trigger_type:     type,
+              trigger_id:       categoryId ?? tournamentId,
+              graphic_url:      graphicUrl,
+              caption,
+              status:           result.success ? 'posted' : 'failed',
+              platform_post_id: result.platformPostId ?? null,
+              error_message:    result.error ?? null,
+              generated_at:     now,
+              posted_at:        result.success ? now : null,
+            });
+        }
       } else {
         console.log(`[podium] Job ${job.id}: no club social connections — graphic at ${graphicUrl}`);
-        await supabase
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          .from('social_post_log' as any)
-          .update({ status: 'skipped' })
-          .eq('club_id', clubId)
-          .eq('trigger_type', type)
-          .eq('graphic_url', graphicUrl);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (supabase as any)
+          .from('social_post_log')
+          .insert({
+            club_id:       clubId,
+            tournament_id: tournamentId,
+            platform:      'instagram', // placeholder — no real platform when skipped
+            trigger_type:  type,
+            trigger_id:    categoryId ?? tournamentId,
+            graphic_url:   graphicUrl,
+            caption,
+            status:        'skipped',
+            generated_at:  now,
+          });
       }
 
       return { done: true, graphicUrl };
