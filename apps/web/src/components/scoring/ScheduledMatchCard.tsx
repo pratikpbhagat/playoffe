@@ -189,7 +189,14 @@ export function ScheduledMatchCard({
         </div>
 
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-white truncate">
+          {/* Mobile: stacked names */}
+          <div className="sm:hidden">
+            <p className="text-sm font-semibold text-white truncate">{aName}</p>
+            <p className="text-[11px] text-slate-500 font-normal my-0.5">vs</p>
+            <p className="text-sm font-semibold text-white truncate">{bName}</p>
+          </div>
+          {/* Desktop: single line */}
+          <p className="hidden sm:block text-sm font-semibold text-white truncate">
             {aName}
             <span className="mx-2 text-slate-500 font-normal">vs</span>
             {bName}

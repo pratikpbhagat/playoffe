@@ -407,7 +407,14 @@ function LiveMatchCard({ match, tournamentSlug }: { match: ScoringMatch; tournam
       </div>
 
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold text-white truncate">
+        {/* Mobile: stacked names */}
+        <div className="sm:hidden">
+          <p className="text-sm font-semibold text-white truncate">{match.playerA}</p>
+          <p className="text-[11px] text-slate-500 font-normal my-0.5">vs</p>
+          <p className="text-sm font-semibold text-white truncate">{match.playerB}</p>
+        </div>
+        {/* Desktop: single line */}
+        <p className="hidden sm:block text-sm font-semibold text-white truncate">
           {match.playerA}
           <span className="mx-2 text-slate-500 font-normal">vs</span>
           {match.playerB}
@@ -466,7 +473,14 @@ function CompletedMatchCard({ match, tournamentSlug }: { match: ScoringMatch; to
           )}
         </div>
         <div className="flex-1 min-w-0">
-          <p className={`text-sm font-medium truncate ${needsRestart ? 'text-white' : 'text-slate-300'}`}>
+          {/* Mobile: stacked names */}
+          <div className="sm:hidden">
+            <p className={`text-sm font-medium truncate ${needsRestart ? 'text-white' : 'text-slate-300'}`}>{match.playerA}</p>
+            <p className="text-[11px] text-slate-500 font-normal my-0.5">vs</p>
+            <p className={`text-sm font-medium truncate ${needsRestart ? 'text-white' : 'text-slate-300'}`}>{match.playerB}</p>
+          </div>
+          {/* Desktop: single line */}
+          <p className={`hidden sm:block text-sm font-medium truncate ${needsRestart ? 'text-white' : 'text-slate-300'}`}>
             {match.playerA}
             <span className="mx-2 text-slate-500 font-normal">vs</span>
             {match.playerB}
