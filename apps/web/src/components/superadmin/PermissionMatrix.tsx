@@ -116,6 +116,12 @@ const CATEGORIES: Record<string, { label: string; features: Array<{ key: string;
       { key: 'club_management', sub: 'join_request',   label: 'Join club request' },
     ],
   },
+  entries: {
+    label: 'Entries & Registrations',
+    features: [
+      { key: 'entries', sub: 'withdraw', label: 'Withdraw / remove entry from category' },
+    ],
+  },
 };
 
 const ROLES = ['admin', 'player', 'referee'] as const;
