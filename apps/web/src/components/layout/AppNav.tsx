@@ -134,7 +134,7 @@ export async function AppNav() {
             </>
           ) : (
             <>
-              <RoleToggle roles={roles} />
+              <RoleToggle roles={roles} initialMode={activeMode} />
               {player ? (
                 <>
                   {/* Notification bell */}
