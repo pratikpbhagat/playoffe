@@ -179,9 +179,11 @@ export function PublicCategoryCard({
 
         {/* Right: actions */}
         <div className="shrink-0 flex flex-col items-end gap-2">
-          {/* Category non-registration status */}
-          {category.status !== 'registration' && category.status !== 'pending' && (
-            <span className="text-xs text-slate-500">{CAT_STATUS[category.status] ?? category.status}</span>
+          {/* Category non-registration status — hide draw_generated since View draw link already communicates this */}
+          {category.status !== 'registration' && category.status !== 'pending' && category.status !== 'draw_generated' && (
+            <span className="text-xs font-medium text-slate-500">
+              {CAT_STATUS[category.status] ?? category.status}
+            </span>
           )}
 
           {/* Singles register */}
@@ -232,23 +234,35 @@ export function PublicCategoryCard({
             <button
               onClick={handleWithdraw}
               disabled={loading}
-              className="text-xs text-slate-500 hover:text-red-400 transition-colors"
+              className="text-xs font-medium text-brand-400 hover:text-brand-300 transition-colors"
             >
               Withdraw
             </button>
           )}
 
-          {/* View draw / standings */}
+          {/* View draw / standings — desktop only (right column) */}
           {(category.status === 'draw_generated' || category.status === 'in_progress' || category.status === 'completed') && (
             <Link
               href={`/events/${tournamentSlug}/draw/${category.slug}`}
-              className="text-xs text-brand-400 hover:text-brand-300 transition-colors"
+              className="hidden sm:block text-xs font-medium text-brand-400 hover:text-brand-300 transition-colors"
             >
               {matchProgress !== null ? 'View standings →' : 'View draw →'}
             </Link>
           )}
         </div>
       </div>
+
+      {/* View draw / standings — mobile only (full-width bottom link) */}
+      {(category.status === 'draw_generated' || category.status === 'in_progress' || category.status === 'completed') && (
+        <div className="mt-4 border-t border-surface-border pt-3 sm:hidden">
+          <Link
+            href={`/events/${tournamentSlug}/draw/${category.slug}`}
+            className="flex items-center justify-center gap-1 text-xs font-medium text-brand-400 hover:text-brand-300 transition-colors"
+          >
+            {matchProgress !== null ? 'View standings →' : 'View draw →'}
+          </Link>
+        </div>
+      )}
 
       {/* Doubles partner form */}
       {showPartnerForm && (

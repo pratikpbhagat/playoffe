@@ -93,14 +93,15 @@ export default async function PublicDrawPage({ params }: Props) {
         </div>
 
         {/* Breadcrumb */}
-        <nav className="mb-6 flex items-center gap-2 text-xs text-slate-500 sm:text-sm" data-print-hide>
-          <Link href="/events" className="hover:text-slate-300 transition-colors">Tournaments</Link>
-          <span>/</span>
-          <Link href={`/events/${tournamentSlug}`} className="hover:text-slate-300 transition-colors">
+        <nav className="mb-6 flex items-center gap-2 text-xs text-slate-500 sm:text-sm min-w-0" data-print-hide>
+          {/* "Tournaments" crumb — hidden on mobile to save space */}
+          <Link href="/events" className="hidden sm:inline hover:text-slate-300 transition-colors shrink-0">Tournaments</Link>
+          <span className="hidden sm:inline">/</span>
+          <Link href={`/events/${tournamentSlug}`} className="hover:text-slate-300 transition-colors truncate min-w-0 shrink">
             {tournament.name}
           </Link>
-          <span>/</span>
-          <span className="text-slate-400">{cat.name} Draw</span>
+          <span className="shrink-0">/</span>
+          <span className="text-slate-400 truncate min-w-0 shrink">{cat.name} Draw</span>
         </nav>
 
         <div className="mb-8 flex items-start justify-between gap-4 flex-wrap">

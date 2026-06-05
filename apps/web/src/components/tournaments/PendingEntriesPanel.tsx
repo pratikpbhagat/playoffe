@@ -253,7 +253,7 @@ export function PendingEntriesPanel({ tournamentSlug, tournamentId, category, en
               <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-500 hidden sm:table-cell">Rating</th>
               <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-500 hidden md:table-cell">Registered</th>
               <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-500">Status</th>
-              <th className="px-5 py-2.5 text-right text-xs font-medium text-slate-500">Actions</th>
+              <th className="px-5 py-2.5 text-right text-xs font-medium text-slate-500 hidden sm:table-cell">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-surface-border">
@@ -319,6 +319,64 @@ export function PendingEntriesPanel({ tournamentSlug, tournamentId, category, en
                             <p className="text-xs text-slate-500">@{player.username}</p>
                           </>
                         )}
+
+                        {/* Mobile-only inline actions (hidden on desktop where the Actions column is used) */}
+                        <div className="mt-2 flex flex-wrap items-center gap-2 sm:hidden">
+                          {isPending && (
+                            <>
+                              <button
+                                onClick={() => handleApprove(entry.id)}
+                                disabled={acting === entry.id}
+                                className="rounded-lg bg-accent-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-accent-700 transition-colors disabled:opacity-50"
+                              >
+                                {acting === entry.id ? '…' : 'Approve'}
+                              </button>
+                              <button
+                                onClick={() => handleReject(entry.id)}
+                                disabled={acting === entry.id}
+                                className="rounded-lg border border-slate-600 px-2.5 py-1 text-xs text-slate-400 hover:border-red-600 hover:text-red-400 transition-colors disabled:opacity-50"
+                              >
+                                Reject
+                              </button>
+                            </>
+                          )}
+                          {isWaitlisted && (
+                            <button
+                              onClick={() => handlePromote(entry.id, player?.full_name ?? 'player')}
+                              disabled={acting === entry.id}
+                              className="rounded-lg bg-brand-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-brand-700 transition-colors disabled:opacity-50"
+                            >
+                              {acting === entry.id ? '…' : 'Promote'}
+                            </button>
+                          )}
+                          {isActive && (
+                            <button
+                              onClick={() => handleWithdraw(entry.id, player?.full_name ?? 'player')}
+                              disabled={acting === entry.id}
+                              className="text-xs font-medium text-brand-400 hover:text-brand-300 transition-colors disabled:opacity-50"
+                            >
+                              {acting === entry.id ? '…' : 'Withdraw'}
+                            </button>
+                          )}
+                          {(isActive || isWaitlisted) && (
+                            <button
+                              onClick={() => handleRemove(entry.id, player?.full_name ?? 'player')}
+                              disabled={acting === entry.id}
+                              className="text-xs font-medium text-brand-400 hover:text-brand-300 transition-colors disabled:opacity-50"
+                            >
+                              {acting === entry.id ? '…' : 'Remove'}
+                            </button>
+                          )}
+                          {isProvisional && (
+                            <button
+                              onClick={() => handleRemove(entry.id, player?.full_name ?? 'player')}
+                              disabled={acting === entry.id}
+                              className="text-xs font-medium text-brand-400 hover:text-brand-300 transition-colors disabled:opacity-50"
+                            >
+                              {acting === entry.id ? '…' : 'Cancel invite'}
+                            </button>
+                          )}
+                        </div>
                       </div>
                     ) : (
                       <span className="italic text-slate-500">Unknown</span>
@@ -382,8 +440,8 @@ export function PendingEntriesPanel({ tournamentSlug, tournamentId, category, en
                     </span>
                   </td>
 
-                  {/* Actions — hidden for withdrawn entries */}
-                  <td className="px-5 py-3 text-right">
+                  {/* Actions — hidden on mobile (actions shown inline in Player cell); hidden for withdrawn entries */}
+                  <td className="px-5 py-3 text-right hidden sm:table-cell">
                     <div className="flex items-center justify-end gap-2">
                       {isWithdrawn && (
                         <span className="text-xs text-slate-600 italic">—</span>
@@ -419,7 +477,7 @@ export function PendingEntriesPanel({ tournamentSlug, tournamentId, category, en
                         <button
                           onClick={() => handleWithdraw(entry.id, player?.full_name ?? 'player')}
                           disabled={acting === entry.id}
-                          className="text-xs text-slate-600 hover:text-amber-400 transition-colors disabled:opacity-50"
+                          className="text-xs font-medium text-brand-400 hover:text-brand-300 transition-colors disabled:opacity-50"
                           title="Withdraw mid-tournament: awards walkovers to opponents"
                         >
                           {acting === entry.id ? '…' : 'Withdraw'}
@@ -429,7 +487,7 @@ export function PendingEntriesPanel({ tournamentSlug, tournamentId, category, en
                         <button
                           onClick={() => handleRemove(entry.id, player?.full_name ?? 'player')}
                           disabled={acting === entry.id}
-                          className="text-xs text-slate-600 hover:text-red-400 transition-colors disabled:opacity-50"
+                          className="text-xs font-medium text-brand-400 hover:text-brand-300 transition-colors disabled:opacity-50"
                           title="Remove entry (pre-tournament)"
                         >
                           {acting === entry.id ? '…' : 'Remove'}
@@ -439,7 +497,7 @@ export function PendingEntriesPanel({ tournamentSlug, tournamentId, category, en
                         <button
                           onClick={() => handleRemove(entry.id, player?.full_name ?? 'player')}
                           disabled={acting === entry.id}
-                          className="text-xs text-slate-600 hover:text-red-400 transition-colors disabled:opacity-50"
+                          className="text-xs font-medium text-brand-400 hover:text-brand-300 transition-colors disabled:opacity-50"
                           title="Cancel invite"
                         >
                           {acting === entry.id ? '…' : 'Cancel invite'}
