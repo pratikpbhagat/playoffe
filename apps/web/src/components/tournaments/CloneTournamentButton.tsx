@@ -10,7 +10,7 @@ export function CloneTournamentButton({ tournamentId }: { tournamentId: string }
     <button
       disabled={isPending}
       onClick={() => startTransition(async () => { await cloneTournamentAction(tournamentId); })}
-      className="flex items-center gap-2 rounded-lg border border-surface-border px-4 py-2 text-sm text-slate-300 hover:bg-surface-card transition-colors disabled:opacity-50"
+      className="flex flex-col items-center justify-center gap-1 rounded-lg border border-surface-border px-3 py-3 text-sm text-slate-300 hover:bg-surface-card transition-colors disabled:opacity-50 min-h-[64px] text-center sm:flex-row sm:justify-start sm:gap-2 sm:min-h-0 sm:text-left sm:px-4 sm:py-2"
     >
       <span>📋</span> {isPending ? 'Cloning…' : 'Clone'}
     </button>

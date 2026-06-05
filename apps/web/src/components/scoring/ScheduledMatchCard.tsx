@@ -189,7 +189,14 @@ export function ScheduledMatchCard({
         </div>
 
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-white truncate">
+          {/* Mobile: stacked names */}
+          <div className="sm:hidden">
+            <p className="text-sm font-semibold text-white truncate">{aName}</p>
+            <p className="text-[11px] text-slate-500 font-normal my-0.5">vs</p>
+            <p className="text-sm font-semibold text-white truncate">{bName}</p>
+          </div>
+          {/* Desktop: single line */}
+          <p className="hidden sm:block text-sm font-semibold text-white truncate">
             {aName}
             <span className="mx-2 text-slate-500 font-normal">vs</span>
             {bName}
@@ -208,11 +215,20 @@ export function ScheduledMatchCard({
           </div>
         </div>
 
-        <div className="flex items-center gap-1 shrink-0">
+        {/* Desktop only — hidden on mobile since the whole row is tappable */}
+        <div className="hidden sm:flex items-center gap-1 shrink-0">
           <span className="text-xs text-brand-400 font-medium">
             Score →
           </span>
         </div>
+      </Link>
+
+      {/* Mobile-only full-width Score button — gives player names room to breathe */}
+      <Link
+        href={`/tournaments/${tournamentSlug}/scoring/${matchId}`}
+        className="flex items-center justify-center gap-1.5 border-t border-surface-border/40 py-2.5 text-xs font-semibold text-brand-400 hover:bg-white/[0.02] transition-colors sm:hidden"
+      >
+        Score →
       </Link>
 
       {/* Assignment controls */}

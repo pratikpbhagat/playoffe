@@ -706,10 +706,55 @@ export function MatchScoreCard({
 
       {/* Score entry */}
       <div className="rounded-xl bg-surface-card ring-1 ring-surface-border overflow-hidden">
-        <div className="border-b border-surface-border px-5 py-3 flex items-center justify-between">
+        {/* ── Scores header — mobile: two rows; desktop: single row ── */}
+
+        {/* Mobile header */}
+        <div className="sm:hidden border-b border-surface-border px-5 py-3 space-y-2">
+          {/* Row 1: title + sets counter */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-white">Scores</h3>
+              {status === 'in_progress' && autoSaveStatus !== 'idle' && (
+                <span className={`text-[11px] font-medium ${
+                  autoSaveStatus === 'saved'  ? 'text-accent-400'
+                  : autoSaveStatus === 'error' ? 'text-red-400'
+                  : 'text-slate-500'
+                }`}>
+                  {autoSaveStatus === 'pending' ? '…'
+                   : autoSaveStatus === 'saving' ? 'Saving…'
+                   : autoSaveStatus === 'saved'  ? '✓ Saved'
+                   : '⚠ Save failed'}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2 text-xs font-bold tabular-nums">
+              <span className="text-2xl text-white">{aWins}</span>
+              <span className="text-slate-500">—</span>
+              <span className="text-2xl text-white">{bWins}</span>
+              <span className="ml-1 text-slate-500">sets</span>
+            </div>
+          </div>
+          {/* Row 2: scoring rule + traditional live score pill */}
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] text-slate-500">First to {pointsPerSet} · win by {winBy}</span>
+            {scoringFormat === 'traditional' && servingEntryId !== null && serverNumber !== null && (
+              <div className="flex items-center gap-1 rounded-lg bg-amber-500/10 ring-1 ring-amber-500/30 px-3 py-1">
+                <span className="text-base font-black tabular-nums text-white">
+                  {servingEntryId === entryA?.id ? sets[sets.length - 1]?.score_a ?? 0 : sets[sets.length - 1]?.score_b ?? 0}
+                  <span className="text-slate-500 mx-1">–</span>
+                  {servingEntryId === entryA?.id ? sets[sets.length - 1]?.score_b ?? 0 : sets[sets.length - 1]?.score_a ?? 0}
+                  <span className="text-slate-500 mx-1">–</span>
+                  <span className="text-amber-400">{serverNumber}</span>
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Desktop header — original single row */}
+        <div className="hidden sm:flex border-b border-surface-border px-5 py-3 items-center justify-between">
           <div className="flex items-center gap-3">
             <h3 className="text-sm font-semibold text-white">Scores</h3>
-            {/* Auto-save status pill — only visible while in progress */}
             {status === 'in_progress' && autoSaveStatus !== 'idle' && (
               <span className={`text-[11px] font-medium ${
                 autoSaveStatus === 'saved'  ? 'text-accent-400'
@@ -725,7 +770,6 @@ export function MatchScoreCard({
           </div>
           <div className="flex items-center gap-3">
             <span className="text-[11px] text-slate-600">First to {pointsPerSet} · win by {winBy}</span>
-            {/* Traditional: show live announcement format X-Y-Z next to the sets counter */}
             {scoringFormat === 'traditional' && servingEntryId !== null && serverNumber !== null && (
               <div className="flex items-center gap-1 rounded-lg bg-amber-500/10 ring-1 ring-amber-500/30 px-3 py-1">
                 <span className="text-base font-black tabular-nums text-white">
@@ -748,8 +792,8 @@ export function MatchScoreCard({
 
         {/* Set rows */}
         <div className="divide-y divide-surface-border">
-          {/* Column header */}
-          <div className="grid grid-cols-[2.5rem_1fr_2.5rem_1fr] items-center gap-2 px-5 py-2">
+          {/* Column header — desktop only */}
+          <div className="hidden sm:grid grid-cols-[2.5rem_1fr_2.5rem_1fr] items-center gap-2 px-5 py-2">
             <span className="text-xs text-slate-600">Set</span>
             <span className="text-xs text-slate-500 text-center">{entryA?.player_name ?? 'A'}</span>
             <span />
@@ -763,78 +807,139 @@ export function MatchScoreCard({
             const aWonSet = set.score_a >= pointsPerSet && aLeads >= winBy;
             const bWonSet = set.score_b >= pointsPerSet && bLeads >= winBy;
 
-            return (
-              <div key={i} className="grid grid-cols-[2.5rem_1fr_2.5rem_1fr] items-center gap-2 px-5 py-3">
-                <span className="text-xs font-bold text-slate-500">{set.set_number}</span>
+            const inputClsA = `w-full block rounded-lg border px-2 py-3 text-center text-2xl font-bold outline-none transition disabled:opacity-60 ${
+              aWonSet ? 'border-accent-500/60 bg-accent-500/10 text-accent-300'
+              : bWonSet ? 'border-red-900/30 bg-red-950/20 text-slate-500'
+              : 'border-slate-600 bg-surface text-white focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30'
+            }`;
 
-                {/* Team A score + buttons */}
-                <div className="flex items-center gap-1.5">
+            const inputClsB = `w-full block rounded-lg border px-2 py-3 text-center text-2xl font-bold outline-none transition disabled:opacity-60 ${
+              bWonSet ? 'border-accent-500/60 bg-accent-500/10 text-accent-300'
+              : aWonSet ? 'border-red-900/30 bg-red-950/20 text-slate-500'
+              : 'border-slate-600 bg-surface text-white focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30'
+            }`;
+
+            return (
+              <div key={i}>
+                {/* ── Mobile layout: names → inputs → buttons ── */}
+                <div className="sm:hidden px-4 pt-3 pb-4 space-y-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Set {set.set_number}</p>
+                  {/* Player names */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <p className="text-xs text-slate-400 text-center truncate">{entryA?.player_name ?? 'A'}</p>
+                    <p className="text-xs text-slate-400 text-center truncate">{entryB?.player_name ?? 'B'}</p>
+                  </div>
+                  {/* Score inputs */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <input
+                      type="number" min={0} max={99} value={set.score_a}
+                      onChange={(e) => updateSet(i, 'score_a', parseInt(e.target.value) || 0)}
+                      disabled={!isEditable}
+                      className={inputClsA}
+                    />
+                    <input
+                      type="number" min={0} max={99} value={set.score_b}
+                      onChange={(e) => updateSet(i, 'score_b', parseInt(e.target.value) || 0)}
+                      disabled={!isEditable}
+                      className={inputClsB}
+                    />
+                  </div>
+                  {/* +/− buttons */}
                   {isEditable && (
-                    <button
-                      onClick={() => updateSet(i, 'score_a', set.score_a - 1)}
-                      disabled={set.score_a <= 0}
-                      className="h-9 w-9 shrink-0 rounded-lg bg-surface ring-1 ring-surface-border text-slate-400 hover:text-white hover:ring-slate-500 disabled:opacity-25 transition-colors text-base font-bold"
-                    >
-                      −
-                    </button>
-                  )}
-                  <input
-                    type="number"
-                    min={0}
-                    max={99}
-                    value={set.score_a}
-                    onChange={(e) => updateSet(i, 'score_a', parseInt(e.target.value) || 0)}
-                    disabled={!isEditable}
-                    className={`flex-1 min-w-0 block rounded-lg border px-2 py-2 text-center text-lg font-bold outline-none transition disabled:opacity-60 ${
-                      aWonSet ? 'border-accent-500/60 bg-accent-500/10 text-accent-300'
-                      : bWonSet ? 'border-red-900/30 bg-red-950/20 text-slate-500'
-                      : 'border-slate-600 bg-surface text-white focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30'
-                    }`}
-                  />
-                  {isEditable && (
-                    <button
-                      onClick={() => handleScoreIncrement(i, 'score_a')}
-                      className="h-9 w-9 shrink-0 rounded-lg bg-brand-600 text-white hover:bg-brand-500 transition-colors text-base font-bold"
-                    >
-                      +
-                    </button>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => updateSet(i, 'score_a', set.score_a - 1)}
+                          disabled={set.score_a <= 0}
+                          className="flex-1 h-12 rounded-lg bg-surface ring-1 ring-surface-border text-slate-400 hover:text-white hover:ring-slate-500 disabled:opacity-25 transition-colors text-xl font-bold"
+                        >−</button>
+                        <button
+                          onClick={() => handleScoreIncrement(i, 'score_a')}
+                          className="flex-1 h-12 rounded-lg bg-brand-600 text-white hover:bg-brand-500 transition-colors text-xl font-bold"
+                        >+</button>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => updateSet(i, 'score_b', set.score_b - 1)}
+                          disabled={set.score_b <= 0}
+                          className="flex-1 h-12 rounded-lg bg-surface ring-1 ring-surface-border text-slate-400 hover:text-white hover:ring-slate-500 disabled:opacity-25 transition-colors text-xl font-bold"
+                        >−</button>
+                        <button
+                          onClick={() => handleScoreIncrement(i, 'score_b')}
+                          className="flex-1 h-12 rounded-lg bg-brand-600 text-white hover:bg-brand-500 transition-colors text-xl font-bold"
+                        >+</button>
+                      </div>
+                    </div>
                   )}
                 </div>
 
-                <span className="text-center text-slate-600 font-bold text-sm">–</span>
+                {/* ── Desktop layout: original grid row ── */}
+                <div className="hidden sm:grid grid-cols-[2.5rem_1fr_2.5rem_1fr] items-center gap-2 px-5 py-3">
+                  <span className="text-xs font-bold text-slate-500">{set.set_number}</span>
 
-                {/* Team B score + buttons */}
-                <div className="flex items-center gap-1.5">
-                  {isEditable && (
-                    <button
-                      onClick={() => updateSet(i, 'score_b', set.score_b - 1)}
-                      disabled={set.score_b <= 0}
-                      className="h-9 w-9 shrink-0 rounded-lg bg-surface ring-1 ring-surface-border text-slate-400 hover:text-white hover:ring-slate-500 disabled:opacity-25 transition-colors text-base font-bold"
-                    >
-                      −
-                    </button>
-                  )}
-                  <input
-                    type="number"
-                    min={0}
-                    max={99}
-                    value={set.score_b}
-                    onChange={(e) => updateSet(i, 'score_b', parseInt(e.target.value) || 0)}
-                    disabled={!isEditable}
-                    className={`flex-1 min-w-0 block rounded-lg border px-2 py-2 text-center text-lg font-bold outline-none transition disabled:opacity-60 ${
-                      bWonSet ? 'border-accent-500/60 bg-accent-500/10 text-accent-300'
-                      : aWonSet ? 'border-red-900/30 bg-red-950/20 text-slate-500'
-                      : 'border-slate-600 bg-surface text-white focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30'
-                    }`}
-                  />
-                  {isEditable && (
-                    <button
-                      onClick={() => handleScoreIncrement(i, 'score_b')}
-                      className="h-9 w-9 shrink-0 rounded-lg bg-brand-600 text-white hover:bg-brand-500 transition-colors text-base font-bold"
-                    >
-                      +
-                    </button>
-                  )}
+                  {/* Team A score + buttons */}
+                  <div className="flex items-center gap-1.5">
+                    {isEditable && (
+                      <button
+                        onClick={() => updateSet(i, 'score_a', set.score_a - 1)}
+                        disabled={set.score_a <= 0}
+                        className="h-9 w-9 shrink-0 rounded-lg bg-surface ring-1 ring-surface-border text-slate-400 hover:text-white hover:ring-slate-500 disabled:opacity-25 transition-colors text-base font-bold"
+                      >
+                        −
+                      </button>
+                    )}
+                    <input
+                      type="number" min={0} max={99} value={set.score_a}
+                      onChange={(e) => updateSet(i, 'score_a', parseInt(e.target.value) || 0)}
+                      disabled={!isEditable}
+                      className={`flex-1 min-w-0 block rounded-lg border px-2 py-2 text-center text-lg font-bold outline-none transition disabled:opacity-60 ${
+                        aWonSet ? 'border-accent-500/60 bg-accent-500/10 text-accent-300'
+                        : bWonSet ? 'border-red-900/30 bg-red-950/20 text-slate-500'
+                        : 'border-slate-600 bg-surface text-white focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30'
+                      }`}
+                    />
+                    {isEditable && (
+                      <button
+                        onClick={() => handleScoreIncrement(i, 'score_a')}
+                        className="h-9 w-9 shrink-0 rounded-lg bg-brand-600 text-white hover:bg-brand-500 transition-colors text-base font-bold"
+                      >
+                        +
+                      </button>
+                    )}
+                  </div>
+
+                  <span className="text-center text-slate-600 font-bold text-sm">–</span>
+
+                  {/* Team B score + buttons */}
+                  <div className="flex items-center gap-1.5">
+                    {isEditable && (
+                      <button
+                        onClick={() => updateSet(i, 'score_b', set.score_b - 1)}
+                        disabled={set.score_b <= 0}
+                        className="h-9 w-9 shrink-0 rounded-lg bg-surface ring-1 ring-surface-border text-slate-400 hover:text-white hover:ring-slate-500 disabled:opacity-25 transition-colors text-base font-bold"
+                      >
+                        −
+                      </button>
+                    )}
+                    <input
+                      type="number" min={0} max={99} value={set.score_b}
+                      onChange={(e) => updateSet(i, 'score_b', parseInt(e.target.value) || 0)}
+                      disabled={!isEditable}
+                      className={`flex-1 min-w-0 block rounded-lg border px-2 py-2 text-center text-lg font-bold outline-none transition disabled:opacity-60 ${
+                        bWonSet ? 'border-accent-500/60 bg-accent-500/10 text-accent-300'
+                        : aWonSet ? 'border-red-900/30 bg-red-950/20 text-slate-500'
+                        : 'border-slate-600 bg-surface text-white focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30'
+                      }`}
+                    />
+                    {isEditable && (
+                      <button
+                        onClick={() => handleScoreIncrement(i, 'score_b')}
+                        className="h-9 w-9 shrink-0 rounded-lg bg-brand-600 text-white hover:bg-brand-500 transition-colors text-base font-bold"
+                      >
+                        +
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             );

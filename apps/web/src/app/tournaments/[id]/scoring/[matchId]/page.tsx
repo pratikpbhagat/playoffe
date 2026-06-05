@@ -122,7 +122,7 @@ export default async function MatchScoringPage({ params }: Props) {
       <AppNav />
 
       <main className="mx-auto max-w-2xl px-6 py-10">
-        <nav className="mb-6 flex items-center gap-2 text-sm text-slate-500 flex-wrap">
+        <nav className="mb-6 flex items-center gap-2 text-xs text-slate-500 sm:text-sm flex-wrap">
           <Link href={`/tournaments/${slug}`} className="hover:text-slate-300 transition-colors">
             {t.name}
           </Link>

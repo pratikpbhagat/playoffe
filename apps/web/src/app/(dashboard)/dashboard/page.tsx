@@ -60,7 +60,7 @@ export default async function DashboardPage() {
           </h1>
           <p className="mt-1 text-sm text-slate-500">Your admin overview — clubs and tournaments you manage.</p>
 
-          <div className="mt-10 grid gap-6 lg:grid-cols-3">
+          <div className="mt-10 grid grid-cols-1 gap-6 lg:grid-cols-3">
             {/* Quick actions */}
             <div className="rounded-xl bg-surface-card p-6 ring-1 ring-surface-border">
               <h2 className="text-base font-semibold text-white">Quick actions</h2>
@@ -262,7 +262,7 @@ export default async function DashboardPage() {
         </h1>
 
         {/* Stats row */}
-        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {[
             { label: 'Rating',   value: player?.global_stats?.current_rating?.toFixed(2) ?? '3.50' },
             { label: 'Matches',  value: player?.global_stats?.total_matches ?? 0 },
@@ -279,7 +279,27 @@ export default async function DashboardPage() {
         {/* Next match widget */}
         {nextMatch && (
           <div className="mt-8 rounded-xl bg-brand-900/20 ring-1 ring-brand-700/30 overflow-hidden">
-            <div className="flex items-center gap-3 px-6 py-4 border-b border-brand-700/20">
+
+            {/* ── Mobile header: stacked ── */}
+            <div className="sm:hidden px-5 py-4 border-b border-brand-700/20 space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="text-base">📅</span>
+                <p className="text-xs font-semibold text-brand-300 uppercase tracking-wide">Your next match</p>
+              </div>
+              <p className="text-sm font-bold text-white">
+                {formatMatchTime(nextMatch.scheduled_time)}
+                {nextMatch.court ? <span className="ml-2 text-brand-400/70 font-normal">· Court {nextMatch.court}</span> : ''}
+              </p>
+              <Link
+                href={`/events/${nextMatch.tournamentSlug}`}
+                className="block w-full text-center rounded-lg bg-brand-600/30 px-3 py-2 text-xs font-semibold text-brand-300 hover:bg-brand-600/50 transition-colors"
+              >
+                View event →
+              </Link>
+            </div>
+
+            {/* ── Desktop header: single row ── */}
+            <div className="hidden sm:flex items-center gap-3 px-6 py-4 border-b border-brand-700/20">
               <span className="text-lg">📅</span>
               <div>
                 <p className="text-xs font-semibold text-brand-300 uppercase tracking-wide">Your next match</p>
@@ -295,7 +315,9 @@ export default async function DashboardPage() {
                 View event →
               </Link>
             </div>
-            <div className="flex flex-wrap items-center gap-x-6 gap-y-1 px-6 py-4">
+
+            {/* ── Details row: 2-col grid on mobile, flex wrap on desktop ── */}
+            <div className="grid grid-cols-2 gap-x-4 gap-y-3 px-5 py-4 sm:flex sm:flex-wrap sm:items-center sm:gap-x-6 sm:gap-y-1 sm:px-6">
               <div>
                 <p className="text-xs text-slate-500">vs</p>
                 <p className="text-base font-semibold text-white">{nextMatch.opponentName}</p>
@@ -326,7 +348,7 @@ export default async function DashboardPage() {
           </div>
         )}
 
-        <div className="mt-8 grid gap-6 lg:grid-cols-3">
+        <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-3">
           {/* Quick actions — always first column, mirrors Admin layout */}
           <div className="rounded-xl bg-surface-card p-6 ring-1 ring-surface-border">
             <h2 className="text-base font-semibold text-white">Quick actions</h2>

@@ -528,6 +528,17 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
             const aWonSet = set.score_a >= pointsPerSet && aLeads >= winBy;
             const bWonSet = set.score_b >= pointsPerSet && bLeads >= winBy;
 
+            const inputClsA = `w-full block rounded-xl border px-2 py-3 text-center text-2xl font-bold outline-none transition ${
+              aWonSet ? 'border-accent-500/60 bg-accent-500/10 text-accent-300'
+              : bWonSet ? 'border-red-900/30 bg-red-950/20 text-slate-500'
+              : 'border-slate-700 bg-surface text-white focus:border-brand-500'
+            }`;
+            const inputClsB = `w-full block rounded-xl border px-2 py-3 text-center text-2xl font-bold outline-none transition ${
+              bWonSet ? 'border-accent-500/60 bg-accent-500/10 text-accent-300'
+              : aWonSet ? 'border-red-900/30 bg-red-950/20 text-slate-500'
+              : 'border-slate-700 bg-surface text-white focus:border-brand-500'
+            }`;
+
             return (
               <div key={i} className="space-y-2">
                 <div className="flex items-center justify-between">
@@ -541,7 +552,60 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
                     </button>
                   )}
                 </div>
-                <div className="flex items-center gap-3">
+
+                {/* ── Mobile layout: names → inputs → buttons ── */}
+                <div className="sm:hidden space-y-3">
+                  {/* Player names */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="flex items-center justify-center gap-1">
+                      {isInProgress && servingEntryId === match.entry_a?.id && (
+                        <span className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />
+                      )}
+                      <p className="text-[10px] text-slate-400 text-center truncate">{entryLabel(match.entry_a)}</p>
+                      {isInProgress && !isRally && servingEntryId === match.entry_a?.id && serverNumber !== null && (
+                        <span className="text-[9px] font-bold text-amber-400 shrink-0">S{serverNumber}</span>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-center gap-1">
+                      {isInProgress && servingEntryId === match.entry_b?.id && (
+                        <span className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />
+                      )}
+                      <p className="text-[10px] text-slate-400 text-center truncate">{entryLabel(match.entry_b)}</p>
+                      {isInProgress && !isRally && servingEntryId === match.entry_b?.id && serverNumber !== null && (
+                        <span className="text-[9px] font-bold text-amber-400 shrink-0">S{serverNumber}</span>
+                      )}
+                    </div>
+                  </div>
+                  {/* Score inputs */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <input type="number" min={0} max={99} value={set.score_a}
+                      onChange={(e) => updateSet(i, 'score_a', parseInt(e.target.value) || 0)}
+                      className={inputClsA}
+                    />
+                    <input type="number" min={0} max={99} value={set.score_b}
+                      onChange={(e) => updateSet(i, 'score_b', parseInt(e.target.value) || 0)}
+                      className={inputClsB}
+                    />
+                  </div>
+                  {/* +/− buttons */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="flex gap-2">
+                      <button onClick={() => updateSet(i, 'score_a', set.score_a - 1)} disabled={set.score_a <= 0}
+                        className="flex-1 h-12 rounded-xl bg-surface ring-1 ring-surface-border text-slate-400 hover:text-white hover:ring-slate-500 disabled:opacity-25 transition-colors text-xl font-bold">−</button>
+                      <button onClick={() => handlePlusClick(i, 'score_a')}
+                        className="flex-1 h-12 rounded-xl bg-brand-600 text-white hover:bg-brand-500 transition-colors text-xl font-bold">+</button>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => updateSet(i, 'score_b', set.score_b - 1)} disabled={set.score_b <= 0}
+                        className="flex-1 h-12 rounded-xl bg-surface ring-1 ring-surface-border text-slate-400 hover:text-white hover:ring-slate-500 disabled:opacity-25 transition-colors text-xl font-bold">−</button>
+                      <button onClick={() => handlePlusClick(i, 'score_b')}
+                        className="flex-1 h-12 rounded-xl bg-brand-600 text-white hover:bg-brand-500 transition-colors text-xl font-bold">+</button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── Desktop layout: original side-by-side ── */}
+                <div className="hidden sm:flex items-center gap-3">
                   {/* Team A */}
                   <div className="flex-1 space-y-1">
                     <div className="flex items-center justify-center gap-1">
@@ -554,18 +618,9 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
                       )}
                     </div>
                     <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => updateSet(i, 'score_a', set.score_a - 1)}
-                        disabled={set.score_a <= 0}
-                        className="h-11 w-11 shrink-0 rounded-xl bg-surface ring-1 ring-surface-border text-slate-400 hover:text-white hover:ring-slate-500 disabled:opacity-25 transition-colors text-xl font-bold"
-                      >
-                        −
-                      </button>
-                      <input
-                        type="number"
-                        min={0}
-                        max={99}
-                        value={set.score_a}
+                      <button onClick={() => updateSet(i, 'score_a', set.score_a - 1)} disabled={set.score_a <= 0}
+                        className="h-11 w-11 shrink-0 rounded-xl bg-surface ring-1 ring-surface-border text-slate-400 hover:text-white hover:ring-slate-500 disabled:opacity-25 transition-colors text-xl font-bold">−</button>
+                      <input type="number" min={0} max={99} value={set.score_a}
                         onChange={(e) => updateSet(i, 'score_a', parseInt(e.target.value) || 0)}
                         className={`flex-1 min-w-0 rounded-xl border px-2 py-2.5 text-center text-xl font-bold outline-none transition ${
                           aWonSet ? 'border-accent-500/60 bg-accent-500/10 text-accent-300'
@@ -573,17 +628,11 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
                           : 'border-slate-700 bg-surface text-white focus:border-brand-500'
                         }`}
                       />
-                      <button
-                        onClick={() => handlePlusClick(i, 'score_a')}
-                        className="h-11 w-11 shrink-0 rounded-xl bg-brand-600 text-white hover:bg-brand-500 transition-colors text-xl font-bold"
-                      >
-                        +
-                      </button>
+                      <button onClick={() => handlePlusClick(i, 'score_a')}
+                        className="h-11 w-11 shrink-0 rounded-xl bg-brand-600 text-white hover:bg-brand-500 transition-colors text-xl font-bold">+</button>
                     </div>
                   </div>
-
                   <span className="text-slate-600 font-bold text-sm shrink-0">–</span>
-
                   {/* Team B */}
                   <div className="flex-1 space-y-1">
                     <div className="flex items-center justify-center gap-1">
@@ -596,18 +645,9 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
                       )}
                     </div>
                     <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => updateSet(i, 'score_b', set.score_b - 1)}
-                        disabled={set.score_b <= 0}
-                        className="h-11 w-11 shrink-0 rounded-xl bg-surface ring-1 ring-surface-border text-slate-400 hover:text-white hover:ring-slate-500 disabled:opacity-25 transition-colors text-xl font-bold"
-                      >
-                        −
-                      </button>
-                      <input
-                        type="number"
-                        min={0}
-                        max={99}
-                        value={set.score_b}
+                      <button onClick={() => updateSet(i, 'score_b', set.score_b - 1)} disabled={set.score_b <= 0}
+                        className="h-11 w-11 shrink-0 rounded-xl bg-surface ring-1 ring-surface-border text-slate-400 hover:text-white hover:ring-slate-500 disabled:opacity-25 transition-colors text-xl font-bold">−</button>
+                      <input type="number" min={0} max={99} value={set.score_b}
                         onChange={(e) => updateSet(i, 'score_b', parseInt(e.target.value) || 0)}
                         className={`flex-1 min-w-0 rounded-xl border px-2 py-2.5 text-center text-xl font-bold outline-none transition ${
                           bWonSet ? 'border-accent-500/60 bg-accent-500/10 text-accent-300'
@@ -615,12 +655,8 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
                           : 'border-slate-700 bg-surface text-white focus:border-brand-500'
                         }`}
                       />
-                      <button
-                        onClick={() => handlePlusClick(i, 'score_b')}
-                        className="h-11 w-11 shrink-0 rounded-xl bg-brand-600 text-white hover:bg-brand-500 transition-colors text-xl font-bold"
-                      >
-                        +
-                      </button>
+                      <button onClick={() => handlePlusClick(i, 'score_b')}
+                        className="h-11 w-11 shrink-0 rounded-xl bg-brand-600 text-white hover:bg-brand-500 transition-colors text-xl font-bold">+</button>
                     </div>
                   </div>
                 </div>

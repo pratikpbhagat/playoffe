@@ -149,7 +149,7 @@ export default async function TournamentPage({ params }: Props) {
 
       <main className="mx-auto max-w-6xl px-6 py-10">
         {/* Breadcrumb */}
-        <nav className="mb-6 flex items-center gap-2 text-sm text-slate-500">
+        <nav className="mb-6 flex items-center gap-2 text-xs text-slate-500 sm:text-sm">
           <Link href={`/clubs/${club.slug}`} className="hover:text-slate-300 transition-colors">
             {club.name}
           </Link>
@@ -160,7 +160,7 @@ export default async function TournamentPage({ params }: Props) {
         {/* Header */}
         <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <h1 className="text-2xl font-bold text-white">{t.name}</h1>
               <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${badge.className}`}>
                 {badge.label}
@@ -173,11 +173,11 @@ export default async function TournamentPage({ params }: Props) {
             </p>
           </div>
 
-          {/* Actions */}
-          <div className="flex items-center gap-3 shrink-0">
+          {/* Actions — stacked on mobile, inline row on desktop */}
+          <div className="flex flex-col gap-2 shrink-0 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
             <Link
               href={`/tournaments/${slug}/edit`}
-              className="flex items-center gap-1.5 rounded-lg border border-slate-600 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-surface-card hover:border-slate-500 transition-colors"
+              className="flex items-center justify-center gap-1.5 rounded-lg border border-slate-600 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-surface-card hover:border-slate-500 transition-colors sm:justify-start"
             >
               <span>✏️</span> Edit
             </Link>
@@ -189,7 +189,7 @@ export default async function TournamentPage({ params }: Props) {
         </div>
 
         {/* Stat cards */}
-        <div className="mb-10 grid gap-4 sm:grid-cols-4">
+        <div className="mb-10 grid grid-cols-2 gap-4 sm:grid-cols-4">
           {[
             { label: 'Categories', value: categories.length },
             { label: 'Entries', value: Object.values(countByCategory).reduce((a, b) => a + b, 0) },
@@ -214,10 +214,10 @@ export default async function TournamentPage({ params }: Props) {
         )}
 
         {/* Quick links */}
-        <div className="mb-10 flex flex-wrap gap-3">
+        <div className="mb-10 grid grid-cols-2 gap-3 sm:flex sm:flex-wrap">
           <Link
             href={`/tournaments/${slug}/registrations`}
-            className="relative flex items-center gap-2 rounded-lg border border-surface-border px-4 py-2 text-sm text-slate-300 hover:bg-surface-card transition-colors"
+            className="relative flex flex-col items-center justify-center gap-1 rounded-lg border border-surface-border px-3 py-3 text-sm text-slate-300 hover:bg-surface-card transition-colors min-h-[64px] text-center sm:flex-row sm:justify-start sm:gap-2 sm:min-h-0 sm:text-left sm:px-4 sm:py-2"
           >
             <span>📋</span> Registrations
             {(pendingCount ?? 0) > 0 && (
@@ -228,13 +228,13 @@ export default async function TournamentPage({ params }: Props) {
           </Link>
           <Link
             href={`/tournaments/${slug}/schedule`}
-            className="flex items-center gap-2 rounded-lg border border-surface-border px-4 py-2 text-sm text-slate-300 hover:bg-surface-card transition-colors"
+            className="flex flex-col items-center justify-center gap-1 rounded-lg border border-surface-border px-3 py-3 text-sm text-slate-300 hover:bg-surface-card transition-colors min-h-[64px] text-center sm:flex-row sm:justify-start sm:gap-2 sm:min-h-0 sm:text-left sm:px-4 sm:py-2"
           >
             <span>📅</span> Schedule
           </Link>
           <Link
             href={`/tournaments/${slug}/scoring`}
-            className="relative flex items-center gap-2 rounded-lg border border-surface-border px-4 py-2 text-sm text-slate-300 hover:bg-surface-card transition-colors"
+            className="relative flex flex-col items-center justify-center gap-1 rounded-lg border border-surface-border px-3 py-3 text-sm text-slate-300 hover:bg-surface-card transition-colors min-h-[64px] text-center sm:flex-row sm:justify-start sm:gap-2 sm:min-h-0 sm:text-left sm:px-4 sm:py-2"
           >
             <span>🎾</span> Scoring
             {(pendingScoreCount ?? 0) > 0 && (
@@ -246,38 +246,38 @@ export default async function TournamentPage({ params }: Props) {
           <Link
             href={`/display/${t.display_code}`}
             target="_blank"
-            className="flex items-center gap-2 rounded-lg border border-surface-border px-4 py-2 text-sm text-slate-300 hover:bg-surface-card transition-colors"
+            className="flex flex-col items-center justify-center gap-1 rounded-lg border border-surface-border px-3 py-3 text-sm text-slate-300 hover:bg-surface-card transition-colors min-h-[64px] text-center sm:flex-row sm:justify-start sm:gap-2 sm:min-h-0 sm:text-left sm:px-4 sm:py-2"
           >
             <span>📺</span> Display screen
           </Link>
           <Link
             href={`/tournaments/${slug}/display-control`}
-            className="flex items-center gap-2 rounded-lg border border-surface-border px-4 py-2 text-sm text-slate-300 hover:bg-surface-card transition-colors"
+            className="flex flex-col items-center justify-center gap-1 rounded-lg border border-surface-border px-3 py-3 text-sm text-slate-300 hover:bg-surface-card transition-colors min-h-[64px] text-center sm:flex-row sm:justify-start sm:gap-2 sm:min-h-0 sm:text-left sm:px-4 sm:py-2"
           >
             <span>🎛️</span> Display control
           </Link>
           <Link
             href={`/tournaments/${slug}/analytics`}
-            className="flex items-center gap-2 rounded-lg border border-surface-border px-4 py-2 text-sm text-slate-300 hover:bg-surface-card transition-colors"
+            className="flex flex-col items-center justify-center gap-1 rounded-lg border border-surface-border px-3 py-3 text-sm text-slate-300 hover:bg-surface-card transition-colors min-h-[64px] text-center sm:flex-row sm:justify-start sm:gap-2 sm:min-h-0 sm:text-left sm:px-4 sm:py-2"
           >
             <span>📈</span> Analytics
           </Link>
           <Link
             href={`/events/${slug}`}
             target="_blank"
-            className="flex items-center gap-2 rounded-lg border border-surface-border px-4 py-2 text-sm text-slate-300 hover:bg-surface-card transition-colors"
+            className="flex flex-col items-center justify-center gap-1 rounded-lg border border-surface-border px-3 py-3 text-sm text-slate-300 hover:bg-surface-card transition-colors min-h-[64px] text-center sm:flex-row sm:justify-start sm:gap-2 sm:min-h-0 sm:text-left sm:px-4 sm:py-2"
           >
             <span>🌐</span> Public page
           </Link>
           <Link
             href={`/tournaments/${slug}/results`}
-            className="flex items-center gap-2 rounded-lg border border-surface-border px-4 py-2 text-sm text-slate-300 hover:bg-surface-card transition-colors"
+            className="flex flex-col items-center justify-center gap-1 rounded-lg border border-surface-border px-3 py-3 text-sm text-slate-300 hover:bg-surface-card transition-colors min-h-[64px] text-center sm:flex-row sm:justify-start sm:gap-2 sm:min-h-0 sm:text-left sm:px-4 sm:py-2"
           >
             <span>🏆</span> Results
           </Link>
           <Link
             href={`/tournaments/${slug}/announcements`}
-            className="flex items-center gap-2 rounded-lg border border-surface-border px-4 py-2 text-sm text-slate-300 hover:bg-surface-card transition-colors"
+            className="flex flex-col items-center justify-center gap-1 rounded-lg border border-surface-border px-3 py-3 text-sm text-slate-300 hover:bg-surface-card transition-colors min-h-[64px] text-center sm:flex-row sm:justify-start sm:gap-2 sm:min-h-0 sm:text-left sm:px-4 sm:py-2"
           >
             <span>📢</span> Announcements
           </Link>

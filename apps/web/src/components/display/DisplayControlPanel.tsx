@@ -197,8 +197,8 @@ export function DisplayControlPanel({
       {/* ── QR Code + URL ── */}
       <div className="rounded-xl bg-surface-card ring-1 ring-surface-border px-5 py-5">
         <h2 className="text-sm font-semibold text-white mb-4">Display URL</h2>
-        <div className="flex items-start gap-6">
-          <div className="shrink-0 rounded-xl overflow-hidden bg-white p-2">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-6">
+          <div className="shrink-0 rounded-xl overflow-hidden bg-white p-2 self-center sm:self-auto">
             <QRCode value={displayUrl} size={120} level="M" />
           </div>
           <div className="flex-1 min-w-0">
@@ -235,7 +235,7 @@ export function DisplayControlPanel({
             </button>
           )}
         </div>
-        <div className="grid grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {SLIDES.map((slide) => {
             const isActive = ds.current_slide === slide.value;
             const isPinned = isActive && ds.is_pinned;
@@ -302,7 +302,7 @@ export function DisplayControlPanel({
                 disabled={isPending || isLastOn}
                 onClick={() => handleToggleSlide(slide.value)}
                 title={isLastOn ? 'At least one slide must remain enabled' : undefined}
-                className={`flex items-center gap-3 rounded-xl px-3 py-3 text-left transition-all disabled:opacity-50 ${
+                className={`flex items-center gap-2 rounded-xl px-3 py-4 text-left transition-all disabled:opacity-50 sm:gap-3 sm:py-3 ${
                   isOn
                     ? 'bg-brand-600/15 ring-1 ring-brand-500/60 text-white'
                     : 'bg-surface ring-1 ring-surface-border text-slate-500 hover:text-slate-300'
@@ -310,13 +310,13 @@ export function DisplayControlPanel({
               >
                 {/* Checkbox indicator */}
                 <span
-                  className={`flex h-4 w-4 shrink-0 items-center justify-center rounded text-[10px] font-bold transition-colors ${
+                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded text-[11px] font-bold transition-colors sm:h-4 sm:w-4 sm:text-[10px] ${
                     isOn ? 'bg-brand-500 text-white' : 'bg-slate-700 text-slate-500'
                   }`}
                 >
                   {isOn ? '✓' : ''}
                 </span>
-                <span className="text-lg leading-none">{slide.icon}</span>
+                <span className="text-xl leading-none sm:text-lg">{slide.icon}</span>
                 <span className="text-xs font-medium leading-tight">{slide.label}</span>
               </button>
             );
@@ -372,7 +372,7 @@ export function DisplayControlPanel({
             rows={3}
             className="block w-full rounded-lg border border-slate-700 bg-surface px-3 py-2 text-sm text-white placeholder-slate-600 outline-none focus:border-brand-500 resize-none"
           />
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-3">
               <span className="text-xs text-slate-500">{annMsg.length}/200</span>
               <div className="flex items-center gap-1">

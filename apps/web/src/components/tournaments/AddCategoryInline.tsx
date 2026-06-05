@@ -166,24 +166,13 @@ export function AddCategoryInline({
     );
   }
 
-  return (
-    <div className="mt-4 rounded-xl border border-brand-500/30 bg-surface p-5">
-      <div className="mb-4 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-white">New category</h3>
-        <button
-          onClick={() => { resetForm(); setOpen(false); }}
-          className="text-slate-500 hover:text-slate-300 transition-colors text-sm"
-        >
-          ✕ Cancel
-        </button>
-      </div>
-
+  const formContent = (
+    <>
       {error && (
         <div className="mb-4 rounded-lg border border-red-800 bg-red-950 px-3 py-2 text-xs text-red-400">
           {error}
         </div>
       )}
-
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Name */}
         <div>
@@ -341,7 +330,39 @@ export function AddCategoryInline({
           </button>
         </div>
       </form>
-    </div>
+    </>
+  );
+
+  return (
+    <>
+      {/* Mobile: full-screen overlay so the form isn't squeezed by the parent flex row */}
+      <div className="fixed inset-0 z-50 overflow-y-auto bg-surface px-5 py-6 sm:hidden">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-white">New category</h3>
+          <button
+            onClick={() => { resetForm(); setOpen(false); }}
+            className="text-slate-500 hover:text-slate-300 transition-colors text-sm"
+          >
+            ✕ Cancel
+          </button>
+        </div>
+        {formContent}
+      </div>
+
+      {/* Desktop: inline form below the Categories header row */}
+      <div className="hidden sm:block mt-4 rounded-xl border border-brand-500/30 bg-surface p-5">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-white">New category</h3>
+          <button
+            onClick={() => { resetForm(); setOpen(false); }}
+            className="text-slate-500 hover:text-slate-300 transition-colors text-sm"
+          >
+            ✕ Cancel
+          </button>
+        </div>
+        {formContent}
+      </div>
+    </>
   );
 }
 

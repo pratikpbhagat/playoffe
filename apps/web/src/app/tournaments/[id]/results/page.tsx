@@ -123,7 +123,7 @@ export default async function TournamentResultsPage({ params }: Props) {
 
       <main className="mx-auto max-w-4xl px-6 py-10">
         {/* Breadcrumb */}
-        <nav className="mb-6 flex items-center gap-2 text-sm text-slate-500">
+        <nav className="mb-6 flex items-center gap-2 text-xs text-slate-500 sm:text-sm">
           <Link href={`/tournaments/${slug}`} className="hover:text-slate-300 transition-colors">
             {t.name}
           </Link>
@@ -132,7 +132,7 @@ export default async function TournamentResultsPage({ params }: Props) {
         </nav>
 
         {/* Header */}
-        <div className="mb-8 flex items-start justify-between gap-4">
+        <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
           <div>
             <h1 className="text-2xl font-bold text-white">{t.name}</h1>
             <p className="mt-1 text-sm text-slate-400">
@@ -149,15 +149,15 @@ export default async function TournamentResultsPage({ params }: Props) {
         </div>
 
         {/* Stats strip */}
-        <div className="mb-8 grid grid-cols-3 gap-4">
+        <div className="mb-8 grid grid-cols-3 gap-3 sm:gap-4">
           {[
             { label: 'Categories', value: cats.length },
             { label: 'Matches played', value: completedMatches },
             { label: 'Categories finished', value: `${completedCats}/${cats.length}` },
           ].map((s) => (
-            <div key={s.label} className="rounded-xl bg-surface-card p-5 ring-1 ring-surface-border text-center">
-              <p className="text-2xl font-bold text-white">{s.value}</p>
-              <p className="mt-1 text-xs text-slate-500">{s.label}</p>
+            <div key={s.label} className="rounded-xl bg-surface-card p-3 ring-1 ring-surface-border text-center sm:p-5">
+              <p className="text-xl font-bold text-white sm:text-2xl">{s.value}</p>
+              <p className="mt-1 text-[10px] text-slate-500 sm:text-xs">{s.label}</p>
             </div>
           ))}
         </div>
@@ -201,7 +201,7 @@ export default async function TournamentResultsPage({ params }: Props) {
                   </div>
 
                   {hasResults ? (
-                    <div className="grid sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-surface-border">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-surface-border">
                       {PODIUM.map((pos) => {
                         const entryId = cat[pos.key];
                         if (!entryId) return (
@@ -234,7 +234,7 @@ export default async function TournamentResultsPage({ params }: Props) {
         )}
 
         {/* Footer actions */}
-        <div className="mt-10 flex items-center gap-4">
+        <div className="mt-10 flex flex-wrap items-center gap-3 sm:gap-4">
           <Link
             href={`/tournaments/${slug}`}
             className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 hover:bg-surface-card transition-colors"

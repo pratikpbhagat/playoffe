@@ -97,7 +97,7 @@ export default async function RegistrationsPage({ params }: Props) {
 
       <main className="mx-auto max-w-4xl px-6 py-10">
         {/* Breadcrumb */}
-        <nav className="mb-6 flex items-center gap-2 text-sm text-slate-500">
+        <nav className="mb-6 flex items-center gap-2 text-xs text-slate-500 sm:text-sm">
           <Link href={`/tournaments/${slug}`} className="hover:text-slate-300 transition-colors">
             {t.name}
           </Link>

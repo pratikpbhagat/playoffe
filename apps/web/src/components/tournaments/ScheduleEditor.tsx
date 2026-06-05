@@ -380,9 +380,9 @@ export function ScheduleEditor({
         )}
 
         {/* ── Category selector ────────────────────────────────────────────── */}
-        <div className="flex items-center gap-3">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
           <label className="text-xs font-medium text-slate-400 shrink-0">Category</label>
-          <div className="relative flex-1 max-w-sm">
+          <div className="relative w-full sm:flex-1 sm:max-w-sm">
             <select
               value={activeCatId}
               onChange={(e) => { setActiveCatId(e.target.value); setSaveMsg(null); }}
@@ -482,8 +482,8 @@ export function ScheduleEditor({
                   <tr className="border-b border-surface-border bg-surface/40">
                     <th className="px-4 py-2 text-left text-[10px] font-medium text-slate-500 w-8">#</th>
                     <th className="px-4 py-2 text-left text-[10px] font-medium text-slate-500">Match</th>
-                    <th className="px-4 py-2 text-left text-[10px] font-medium text-slate-500 w-44">Date &amp; time</th>
-                    <th className="px-4 py-2 text-left text-[10px] font-medium text-slate-500 w-20">Court</th>
+                    <th className="hidden sm:table-cell px-4 py-2 text-left text-[10px] font-medium text-slate-500 w-44">Date &amp; time</th>
+                    <th className="hidden sm:table-cell px-4 py-2 text-left text-[10px] font-medium text-slate-500 w-20">Court</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-surface-border">
@@ -507,6 +507,7 @@ export function ScheduleEditor({
                       >
                         <td className="px-4 py-2.5 text-xs text-slate-500">{idx + 1}</td>
                         <td className="px-4 py-2.5">
+                          {/* Player names */}
                           <div className="flex items-center gap-1 flex-wrap">
                             <span className="text-sm font-medium text-white">{m.player_a}</span>
                             <span className="text-slate-500 text-xs">vs</span>
@@ -532,8 +533,28 @@ export function ScheduleEditor({
                               {conflict ?? 'Court no longer available — please reassign'}
                             </p>
                           )}
+                          {/* Mobile-only: date/time + court inputs inline below names */}
+                          <div className="mt-2 flex items-center gap-2 sm:hidden">
+                            <input
+                              type="datetime-local"
+                              value={e.time}
+                              disabled={isWalkover}
+                              onChange={(ev) => updateEdit(m.id, { time: ev.target.value })}
+                              className="block min-w-0 flex-[3] rounded border border-slate-700 bg-surface px-2 py-1.5 text-xs text-white outline-none focus:border-brand-500 disabled:opacity-40"
+                            />
+                            <input
+                              type="number"
+                              min={1}
+                              max={courtCount}
+                              placeholder="Ct"
+                              value={e.court}
+                              disabled={isWalkover}
+                              onChange={(ev) => updateEdit(m.id, { court: ev.target.value })}
+                              className={`block flex-1 min-w-0 rounded border bg-surface px-2 py-1.5 text-xs text-white outline-none focus:border-brand-500 disabled:opacity-40 ${courtInvalid ? 'border-amber-700' : 'border-slate-700'}`}
+                            />
+                          </div>
                         </td>
-                        <td className="px-4 py-2.5">
+                        <td className="hidden sm:table-cell px-4 py-2.5">
                           <input
                             type="datetime-local"
                             value={e.time}
@@ -542,7 +563,7 @@ export function ScheduleEditor({
                             className={inputCls}
                           />
                         </td>
-                        <td className="px-4 py-2.5">
+                        <td className="hidden sm:table-cell px-4 py-2.5">
                           <input
                             type="number"
                             min={1}

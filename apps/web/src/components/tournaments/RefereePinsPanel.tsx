@@ -220,18 +220,18 @@ export function RefereePinsPanel({ tournamentId, pins, initialSessions, classNam
       )}
 
       {/* Create new PIN */}
-      <div className="border-t border-surface-border px-5 py-4 flex items-center gap-3">
+      <div className="border-t border-surface-border px-5 py-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
         <input
           type="text"
           value={label}
           onChange={(e) => setLabel(e.target.value)}
           placeholder="Label (e.g. Court 1 referee)"
-          className="flex-1 rounded-lg border border-slate-700 bg-surface px-3 py-2 text-sm text-slate-200 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
+          className="w-full rounded-lg border border-slate-700 bg-surface px-3 py-2 text-sm text-slate-200 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none sm:flex-1 sm:w-auto"
         />
         <button
           onClick={handleCreate}
           disabled={creating}
-          className="shrink-0 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 transition-colors disabled:opacity-50"
+          className="w-full rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 transition-colors disabled:opacity-50 sm:w-auto sm:shrink-0"
         >
           {creating ? 'Generating…' : 'Generate PIN'}
         </button>

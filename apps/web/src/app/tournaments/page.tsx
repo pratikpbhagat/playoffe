@@ -4,12 +4,12 @@ import { createClient } from '@/lib/supabase/server';
 import { getMyTournaments } from '@/lib/actions/tournaments';
 import { AppNav } from '@/components/layout/AppNav';
 
-const STATUS_BADGE: Record<string, { label: string; className: string }> = {
-  draft:             { label: 'Draft',             className: 'bg-slate-700 text-slate-300' },
-  registration_open: { label: 'Registration open', className: 'bg-blue-900/60 text-blue-300' },
-  in_progress:       { label: 'In progress',       className: 'bg-accent-500/20 text-accent-400' },
-  completed:         { label: 'Completed',          className: 'bg-brand-600/20 text-brand-300' },
-  cancelled:         { label: 'Cancelled',          className: 'bg-red-900/40 text-red-400' },
+const STATUS_BADGE: Record<string, { label: string; className: string; dot: string }> = {
+  draft:             { label: 'Draft',             className: 'bg-slate-700 text-slate-300',      dot: 'bg-slate-400' },
+  registration_open: { label: 'Registration open', className: 'bg-blue-900/60 text-blue-300',     dot: 'bg-blue-400' },
+  in_progress:       { label: 'In progress',       className: 'bg-accent-500/20 text-accent-400', dot: 'bg-accent-400' },
+  completed:         { label: 'Completed',          className: 'bg-brand-600/20 text-brand-300',   dot: 'bg-brand-400' },
+  cancelled:         { label: 'Cancelled',          className: 'bg-red-900/40 text-red-400',       dot: 'bg-red-500' },
 };
 
 export default async function MyTournamentsPage() {
@@ -81,7 +81,13 @@ export default async function MyTournamentsPage() {
                       </span>
                     </div>
                   </div>
-                  <span className={`ml-4 shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${badge.className}`}>
+                  {/* Mobile: colored dot with tooltip on hover */}
+                  <span
+                    title={badge.label}
+                    className={`ml-3 mt-1 h-2.5 w-2.5 shrink-0 rounded-full sm:hidden ${badge.dot}`}
+                  />
+                  {/* Desktop: full text badge */}
+                  <span className={`ml-4 hidden shrink-0 whitespace-nowrap rounded-full px-2.5 py-0.5 text-[11px] font-semibold sm:inline-flex ${badge.className}`}>
                     {badge.label}
                   </span>
                 </Link>

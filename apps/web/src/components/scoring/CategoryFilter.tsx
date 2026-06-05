@@ -29,14 +29,14 @@ export function CategoryFilter({ categories, activeCategoryId }: Props) {
   }
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
       <label className="text-xs font-semibold text-slate-400 uppercase tracking-wide shrink-0">
         Category
       </label>
       <select
         value={activeCategoryId ?? ''}
         onChange={handleChange}
-        className="rounded-lg border border-slate-700 bg-surface-card px-3 py-2 text-sm text-slate-200 focus:border-brand-500 focus:outline-none"
+        className="w-full rounded-lg border border-slate-700 bg-surface-card px-3 py-2 text-sm text-slate-200 focus:border-brand-500 focus:outline-none sm:w-auto sm:flex-1 sm:max-w-sm"
       >
         <option value="">All categories</option>
         {categories.map((c) => (

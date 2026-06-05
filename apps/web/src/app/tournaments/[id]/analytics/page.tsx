@@ -156,7 +156,7 @@ export default async function AnalyticsPage({ params }: Props) {
       <AppNav />
 
       <main className="mx-auto max-w-5xl px-6 py-10">
-        <nav className="mb-6 flex items-center gap-2 text-sm text-slate-500">
+        <nav className="mb-6 flex items-center gap-2 text-xs text-slate-500 sm:text-sm">
           <Link href={`/tournaments/${slug}`} className="hover:text-slate-300 transition-colors">
             {t.name}
           </Link>
@@ -207,7 +207,7 @@ export default async function AnalyticsPage({ params }: Props) {
           </div>
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           {/* ── Matches per day ────────────────────────────────────────────── */}
           {days.length > 0 && (
             <div className="rounded-xl bg-surface-card p-5 ring-1 ring-surface-border">

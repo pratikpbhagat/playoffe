@@ -67,7 +67,8 @@ export function PlayerProfileView({ player, matchHistory, ratingHistory, isOwnPr
                 )}
               </div>
 
-              <div className="mb-1 flex items-center gap-2 flex-wrap">
+              {/* Action buttons — hidden on mobile, shown on sm+ alongside avatar */}
+              <div className="mb-1 hidden sm:flex items-center gap-2 flex-wrap">
                 {isOwnProfile ? (
                   <>
                     <Link
@@ -111,6 +112,34 @@ export function PlayerProfileView({ player, matchHistory, ratingHistory, isOwnPr
                 ) : null}
               </div>
             </div>
+
+            {/* Mobile-only action buttons — stacked vertically below avatar on small screens */}
+            {isOwnProfile && (
+              <div className="mt-3 flex flex-col gap-2 sm:hidden">
+                <Link
+                  href="/settings/profile"
+                  className="w-full text-center rounded-lg bg-brand-600/20 border border-brand-600/40 px-3 py-2 text-xs font-semibold text-brand-300 hover:bg-brand-600/30 transition-colors"
+                >
+                  Edit profile
+                </Link>
+                <div className="flex gap-2">
+                  <Link
+                    href="/dashboard"
+                    className="flex-1 text-center rounded-lg border border-surface-border px-3 py-2 text-xs text-slate-400 hover:bg-surface hover:text-white transition-colors"
+                  >
+                    ← Dashboard
+                  </Link>
+                  <a
+                    href={`/api/players/${player.username}/schedule.ics`}
+                    download
+                    title="Subscribe to your upcoming match schedule"
+                    className="flex-1 text-center rounded-lg border border-surface-border px-3 py-2 text-xs text-slate-400 hover:bg-surface hover:text-white transition-colors"
+                  >
+                    🗓 My schedule
+                  </a>
+                </div>
+              </div>
+            )}
 
             {/* Name + meta */}
             <div className="mt-4">
