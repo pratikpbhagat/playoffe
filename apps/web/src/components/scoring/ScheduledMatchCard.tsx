@@ -215,11 +215,20 @@ export function ScheduledMatchCard({
           </div>
         </div>
 
-        <div className="flex items-center gap-1 shrink-0">
+        {/* Desktop only — hidden on mobile since the whole row is tappable */}
+        <div className="hidden sm:flex items-center gap-1 shrink-0">
           <span className="text-xs text-brand-400 font-medium">
             Score →
           </span>
         </div>
+      </Link>
+
+      {/* Mobile-only full-width Score button — gives player names room to breathe */}
+      <Link
+        href={`/tournaments/${tournamentSlug}/scoring/${matchId}`}
+        className="flex items-center justify-center gap-1.5 border-t border-surface-border/40 py-2.5 text-xs font-semibold text-brand-400 hover:bg-white/[0.02] transition-colors sm:hidden"
+      >
+        Score →
       </Link>
 
       {/* Assignment controls */}

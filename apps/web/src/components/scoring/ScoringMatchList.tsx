@@ -440,7 +440,7 @@ function LiveMatchCard({ match, tournamentSlug }: { match: ScoringMatch; tournam
         emptyLabel="—"
       />
 
-      <span className="text-slate-600 shrink-0">›</span>
+      <span className="hidden sm:block text-slate-600 shrink-0">›</span>
     </Link>
   );
 }
@@ -497,7 +497,7 @@ function CompletedMatchCard({ match, tournamentSlug }: { match: ScoringMatch; to
         <span className="shrink-0 text-xs font-medium text-slate-500">
           {match.status === 'walkover' ? 'W/O' : 'Done'}
         </span>
-        <span className="text-slate-600 shrink-0">›</span>
+        <span className="hidden sm:block text-slate-600 shrink-0">›</span>
       </Link>
 
       {needsRestart && (
