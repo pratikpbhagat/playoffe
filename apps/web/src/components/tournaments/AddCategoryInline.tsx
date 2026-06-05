@@ -9,6 +9,7 @@ import {
   deriveGroupSize,
   deriveKnockoutTeams,
   getKnockoutRoundNames,
+  getSuggestedGroupOptions,
 } from '@/lib/utils/groupStageConfig';
 
 const DRAW_FORMATS = [
@@ -56,30 +57,36 @@ export function AddCategoryInline({
 }: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Controlled fields needed for reactive group-stage config panel
+  // ── Step 1: category basics ────────────────────────────────────────────────
+  const [name, setName] = useState('');
+  const [categoryType, setCategoryType] = useState<'open' | 'skill' | 'gender' | 'age'>('open');
+  const [playFormat, setPlayFormat] = useState<'singles' | 'doubles' | 'mixed_doubles'>('singles');
   const [drawFormat, setDrawFormat] = useState<string>('single_elimination');
   const [maxEntries, setMaxEntries] = useState<string>('');
+  const [minAge, setMinAge] = useState<string>('');
+  const [maxAge, setMaxAge] = useState<string>('');
 
   // Group stage config
   const [groupsCount, setGroupsCount] = useState<string>('');
   const [advancePerGroup, setAdvancePerGroup] = useState<string>('2');
   const [hasThirdPlaceMatch, setHasThirdPlaceMatch] = useState(false);
 
-  // Scoring override
+  // ── Step 2: scoring override ───────────────────────────────────────────────
   const [scoringOverride, setScoringOverride] = useState(false);
   const [scoringFormat, setScoringFormat] = useState<'rally' | 'traditional'>(tournamentScoringFormat);
   const [numSets, setNumSets] = useState<1 | 3 | 5>(tournamentNumSets);
+  const [pointsPerSet, setPointsPerSet] = useState<string>(String(tournamentPointsPerSet));
   const [winBy, setWinBy] = useState<1 | 2>(tournamentWinBy);
   const [deuceCap, setDeuceCap] = useState(tournamentDeuceCap != null ? String(tournamentDeuceCap) : '');
 
+  // ── Derived group config ───────────────────────────────────────────────────
   const isGroupStage = drawFormat === 'group_stage_knockout';
   const maxEntriesNum = parseInt(maxEntries, 10);
   const hasMaxEntries = !isNaN(maxEntriesNum) && maxEntriesNum >= 2;
-
-  // Derived group config (auto-suggest or user override)
   const effectiveAdvance = parseInt(advancePerGroup, 10) || 2;
   const suggestedConfig = hasMaxEntries ? suggestGroupConfig(maxEntriesNum, effectiveAdvance) : null;
   const effectiveGroups = groupsCount ? parseInt(groupsCount, 10) : (suggestedConfig?.groupsCount ?? 0);
@@ -88,38 +95,50 @@ export function AddCategoryInline({
     : 0;
   const knockoutTeams = effectiveGroups > 0 ? deriveKnockoutTeams(effectiveGroups, effectiveAdvance) : 0;
   const knockoutRounds = knockoutTeams >= 2 ? getKnockoutRoundNames(knockoutTeams) : [];
+  const allOptions = hasMaxEntries ? getSuggestedGroupOptions(maxEntriesNum, effectiveAdvance) : [];
 
-  // Reset group config when max_entries changes so auto-suggestion re-runs
   function handleMaxEntriesChange(val: string) {
     setMaxEntries(val);
-    setGroupsCount(''); // reset override → re-auto-suggest
+    setGroupsCount('');
   }
 
   function resetForm() {
+    setStep(1);
+    setName('');
+    setCategoryType('open');
+    setPlayFormat('singles');
     setDrawFormat('single_elimination');
     setMaxEntries('');
+    setMinAge('');
+    setMaxAge('');
     setGroupsCount('');
     setAdvancePerGroup('2');
     setHasThirdPlaceMatch(false);
     setScoringOverride(false);
     setScoringFormat(tournamentScoringFormat);
     setNumSets(tournamentNumSets);
+    setPointsPerSet(String(tournamentPointsPerSet));
     setWinBy(tournamentWinBy);
     setDeuceCap(tournamentDeuceCap != null ? String(tournamentDeuceCap) : '');
     setError(null);
     setLoading(false);
   }
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  // Step 1 validation
+  function canProceedStep1() {
+    if (!name.trim() || name.trim().length < 2) return false;
+    if (isGroupStage && !hasMaxEntries) return false;
+    return true;
+  }
+
+  async function handleSubmit() {
     setError(null);
     setLoading(true);
 
-    const fd = new FormData(e.currentTarget);
     const result = await createCategoryAction(tournamentId, {
-      name: fd.get('name') as string,
-      type: fd.get('type') as 'skill' | 'age' | 'gender' | 'open',
-      play_format: fd.get('play_format') as 'singles' | 'doubles' | 'mixed_doubles',
+      name: name.trim(),
+      type: categoryType,
+      play_format: playFormat,
       draw_format: drawFormat as
         | 'round_robin'
         | 'single_elimination'
@@ -127,14 +146,14 @@ export function AddCategoryInline({
         | 'group_stage_knockout'
         | 'swiss',
       max_entries: maxEntries ? Number(maxEntries) : undefined,
-      min_age: fd.get('min_age') ? Number(fd.get('min_age')) : undefined,
-      max_age: fd.get('max_age') ? Number(fd.get('max_age')) : undefined,
+      min_age: minAge ? Number(minAge) : undefined,
+      max_age: maxAge ? Number(maxAge) : undefined,
       skill_levels: [],
       scoring_override: scoringOverride,
       ...(scoringOverride && {
         scoring_format: scoringFormat,
         num_sets: numSets,
-        points_per_set: parseInt(fd.get('points_per_set') as string, 10) || tournamentPointsPerSet,
+        points_per_set: parseInt(pointsPerSet, 10) || tournamentPointsPerSet,
         win_by: winBy,
         deuce_cap: deuceCap ? parseInt(deuceCap, 10) : null,
       }),
@@ -166,176 +185,419 @@ export function AddCategoryInline({
     );
   }
 
-  const formContent = (
-    <>
-      {error && (
-        <div className="mb-4 rounded-lg border border-red-800 bg-red-950 px-3 py-2 text-xs text-red-400">
-          {error}
-        </div>
-      )}
-      <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Name */}
+  // ── Step indicator ─────────────────────────────────────────────────────────
+  const stepLabels = ['Setup', 'Scoring', 'Preview'];
+  const stepIndicator = (
+    <div className="mb-6 flex items-center gap-0">
+      {stepLabels.map((label, i) => {
+        const n = (i + 1) as 1 | 2 | 3;
+        const done = step > n;
+        const active = step === n;
+        return (
+          <div key={n} className="flex items-center">
+            {/* connector line (before first = none) */}
+            {i > 0 && (
+              <div className={`h-px w-8 sm:w-12 transition-colors ${done || active ? 'bg-brand-500' : 'bg-slate-700'}`} />
+            )}
+            <button
+              type="button"
+              onClick={() => done && setStep(n)}
+              className={`flex items-center gap-1.5 ${done ? 'cursor-pointer' : 'cursor-default'}`}
+            >
+              <div className={`flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-bold transition-colors ${
+                active
+                  ? 'bg-brand-600 text-white'
+                  : done
+                    ? 'bg-brand-900 text-brand-400 ring-1 ring-brand-600'
+                    : 'bg-slate-800 text-slate-500 ring-1 ring-slate-700'
+              }`}>
+                {done ? '✓' : n}
+              </div>
+              <span className={`text-[11px] font-medium hidden sm:block transition-colors ${active ? 'text-white' : done ? 'text-brand-400' : 'text-slate-500'}`}>
+                {label}
+              </span>
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  // ── Step 1: Category setup ─────────────────────────────────────────────────
+  const step1Content = (
+    <div className="space-y-4">
+      {/* Name */}
+      <div>
+        <label className={labelClass}>Category name *</label>
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          required
+          minLength={2}
+          maxLength={80}
+          placeholder="e.g. Men's Singles Open"
+          className={inputClass}
+        />
+      </div>
+
+      {/* Type + Play format + Draw format */}
+      <div className="grid gap-3 sm:grid-cols-3">
         <div>
-          <label className={labelClass}>Category name *</label>
+          <label className={labelClass}>Type</label>
+          <select
+            value={categoryType}
+            onChange={(e) => setCategoryType(e.target.value as typeof categoryType)}
+            className={`${inputClass} cursor-pointer`}
+          >
+            {CATEGORY_TYPES.map((t) => (
+              <option key={t.value} value={t.value}>{t.label}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className={labelClass}>Play format</label>
+          <select
+            value={playFormat}
+            onChange={(e) => setPlayFormat(e.target.value as typeof playFormat)}
+            className={`${inputClass} cursor-pointer`}
+          >
+            {PLAY_FORMATS.map((f) => (
+              <option key={f.value} value={f.value}>{f.label}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className={labelClass}>Draw format</label>
+          <select
+            value={drawFormat}
+            onChange={(e) => setDrawFormat(e.target.value)}
+            className={`${inputClass} cursor-pointer`}
+          >
+            {DRAW_FORMATS.map((f) => (
+              <option key={f.value} value={f.value}>{f.label}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {/* Limits */}
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div>
+          <label className={labelClass}>
+            Max entries{isGroupStage ? ' *' : ''}
+          </label>
           <input
-            name="name"
-            type="text"
-            required
-            minLength={2}
-            maxLength={80}
-            placeholder="e.g. Men's Singles Open"
+            type="number"
+            min={2}
+            max={256}
+            required={isGroupStage}
+            placeholder={isGroupStage ? 'Required' : 'Unlimited'}
+            value={maxEntries}
+            onChange={(e) => handleMaxEntriesChange(e.target.value)}
             className={inputClass}
           />
         </div>
-
-        {/* Type + Play format + Draw format */}
-        <div className="grid gap-3 sm:grid-cols-3">
-          <div>
-            <label className={labelClass}>Type</label>
-            <select name="type" className={`${inputClass} cursor-pointer`} defaultValue="open">
-              {CATEGORY_TYPES.map((t) => (
-                <option key={t.value} value={t.value}>{t.label}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className={labelClass}>Play format</label>
-            <select name="play_format" className={`${inputClass} cursor-pointer`} defaultValue="singles">
-              {PLAY_FORMATS.map((f) => (
-                <option key={f.value} value={f.value}>{f.label}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className={labelClass}>Draw format</label>
-            <select
-              name="draw_format"
-              value={drawFormat}
-              onChange={(e) => setDrawFormat(e.target.value)}
-              className={`${inputClass} cursor-pointer`}
-            >
-              {DRAW_FORMATS.map((f) => (
-                <option key={f.value} value={f.value}>{f.label}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {/* Limits */}
-        <div className="grid gap-3 sm:grid-cols-3">
-          <div>
-            <label className={labelClass}>
-              Max entries{isGroupStage ? ' *' : ''}
-            </label>
-            <input
-              name="max_entries"
-              type="number"
-              min={2}
-              max={256}
-              required={isGroupStage}
-              placeholder={isGroupStage ? 'Required' : 'Unlimited'}
-              value={maxEntries}
-              onChange={(e) => handleMaxEntriesChange(e.target.value)}
-              className={inputClass}
-            />
-          </div>
-          <div>
-            <label className={labelClass}>Min age</label>
-            <input name="min_age" type="number" min={5} max={100} placeholder="Any" className={inputClass} />
-          </div>
-          <div>
-            <label className={labelClass}>Max age</label>
-            <input name="max_age" type="number" min={5} max={100} placeholder="Any" className={inputClass} />
-          </div>
-        </div>
-
-        {/* ── Group stage configuration panel ─────────────────────────────── */}
-        {isGroupStage && (
-          <GroupStageConfigPanel
-            maxEntries={hasMaxEntries ? maxEntriesNum : null}
-            suggestedConfig={suggestedConfig}
-            groupsCount={groupsCount}
-            onGroupsCountChange={setGroupsCount}
-            effectiveGroups={effectiveGroups}
-            groupSize={groupSize}
-            advancePerGroup={advancePerGroup}
-            onAdvancePerGroupChange={(v) => { setAdvancePerGroup(v); setGroupsCount(''); }}
-            knockoutTeams={knockoutTeams}
-            knockoutRounds={knockoutRounds}
-            hasThirdPlaceMatch={hasThirdPlaceMatch}
-            onHasThirdPlaceMatchChange={setHasThirdPlaceMatch}
+        <div>
+          <label className={labelClass}>Min age</label>
+          <input
+            type="number"
+            min={5}
+            max={100}
+            placeholder="Any"
+            value={minAge}
+            onChange={(e) => setMinAge(e.target.value)}
+            className={inputClass}
           />
-        )}
+        </div>
+        <div>
+          <label className={labelClass}>Max age</label>
+          <input
+            type="number"
+            min={5}
+            max={100}
+            placeholder="Any"
+            value={maxAge}
+            onChange={(e) => setMaxAge(e.target.value)}
+            className={inputClass}
+          />
+        </div>
+      </div>
 
-        {/* Scoring override */}
-        <div className="rounded-lg border border-surface-border bg-surface px-4 py-3 space-y-3">
-          <label className="flex items-start gap-3 cursor-pointer">
-            <div className="flex-1">
-              <p className="text-xs font-semibold text-slate-300">Override tournament scoring</p>
-              <p className="mt-0.5 text-[11px] text-slate-500">
-                {scoringOverride
-                  ? 'This category uses its own scoring settings.'
-                  : `Using tournament default: ${tournamentScoringFormat === 'rally' ? 'Rally' : 'Service points'}, ${tournamentNumSets} set${tournamentNumSets > 1 ? 's' : ''}, ${tournamentPointsPerSet} pts.`}
-              </p>
+      {/* ── Group stage configuration panel ─────────────────────────────── */}
+      {isGroupStage && (
+        <GroupStageConfigPanel
+          maxEntries={hasMaxEntries ? maxEntriesNum : null}
+          suggestedConfig={suggestedConfig}
+          allOptions={allOptions}
+          groupsCount={groupsCount}
+          onGroupsCountChange={setGroupsCount}
+          effectiveGroups={effectiveGroups}
+          groupSize={groupSize}
+          advancePerGroup={advancePerGroup}
+          onAdvancePerGroupChange={(v) => { setAdvancePerGroup(v); setGroupsCount(''); }}
+          knockoutTeams={knockoutTeams}
+          knockoutRounds={knockoutRounds}
+          hasThirdPlaceMatch={hasThirdPlaceMatch}
+          onHasThirdPlaceMatchChange={setHasThirdPlaceMatch}
+        />
+      )}
+    </div>
+  );
+
+  // ── Step 2: Scoring override ───────────────────────────────────────────────
+  const step2Content = (
+    <div className="space-y-4">
+      <div className="rounded-lg border border-surface-border bg-surface px-4 py-3 space-y-3">
+        <label className="flex items-start gap-3 cursor-pointer">
+          <div className="flex-1">
+            <p className="text-xs font-semibold text-slate-300">Override tournament scoring</p>
+            <p className="mt-0.5 text-[11px] text-slate-500">
+              {scoringOverride
+                ? 'This category uses its own scoring settings.'
+                : `Using tournament default: ${tournamentScoringFormat === 'rally' ? 'Rally' : 'Service points'}, ${tournamentNumSets} set${tournamentNumSets > 1 ? 's' : ''}, ${tournamentPointsPerSet} pts.`}
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={scoringOverride}
+            onClick={() => setScoringOverride((v) => !v)}
+            className={`relative mt-0.5 inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+              scoringOverride ? 'bg-brand-600' : 'bg-slate-700'
+            }`}
+          >
+            <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition duration-200 ${scoringOverride ? 'translate-x-4' : 'translate-x-0'}`} />
+          </button>
+        </label>
+
+        {scoringOverride && (
+          <div className="space-y-3 pt-1 border-t border-surface-border">
+            <div>
+              <p className="mb-1.5 text-[11px] font-medium text-slate-400">Scoring format</p>
+              <div className="flex gap-2">
+                {(['rally', 'traditional'] as const).map((v) => (
+                  <button key={v} type="button" onClick={() => setScoringFormat(v)}
+                    className={`flex-1 rounded border px-2 py-1.5 text-xs transition-colors ${scoringFormat === v ? 'border-brand-500 bg-brand-600/20 text-white' : 'border-slate-700 bg-surface text-slate-400 hover:border-slate-600'}`}>
+                    {v === 'rally' ? 'Rally scoring' : 'Service points'}
+                  </button>
+                ))}
+              </div>
             </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={scoringOverride}
-              onClick={() => setScoringOverride((v) => !v)}
-              className={`relative mt-0.5 inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
-                scoringOverride ? 'bg-brand-600' : 'bg-slate-700'
-              }`}
-            >
-              <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition duration-200 ${scoringOverride ? 'translate-x-4' : 'translate-x-0'}`} />
-            </button>
-          </label>
+            <div>
+              <p className="mb-1.5 text-[11px] font-medium text-slate-400">Number of sets</p>
+              <div className="flex gap-2">
+                {([1, 3, 5] as const).map((n) => (
+                  <button key={n} type="button" onClick={() => setNumSets(n)}
+                    className={`flex-1 rounded border px-2 py-1.5 text-xs transition-colors ${numSets === n ? 'border-brand-500 bg-brand-600/20 text-white' : 'border-slate-700 bg-surface text-slate-400 hover:border-slate-600'}`}>
+                    {n} set{n > 1 ? 's' : ''}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="mb-1.5 block text-[11px] font-medium text-slate-400">Points per set</label>
+              <input
+                type="number"
+                min={5}
+                max={100}
+                value={pointsPerSet}
+                onChange={(e) => setPointsPerSet(e.target.value)}
+                className={`${inputClass} w-28`}
+              />
+            </div>
+            <WinByDeuceFields winBy={winBy} deuceCapValue={deuceCap} onWinByChange={setWinBy} onDeuceCapChange={setDeuceCap} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
 
-          {scoringOverride && (
-            <div className="space-y-3 pt-1 border-t border-surface-border">
-              <div>
-                <p className="mb-1.5 text-[11px] font-medium text-slate-400">Scoring format</p>
-                <div className="flex gap-2">
-                  {(['rally', 'traditional'] as const).map((v) => (
-                    <button key={v} type="button" onClick={() => setScoringFormat(v)}
-                      className={`flex-1 rounded border px-2 py-1.5 text-xs transition-colors ${scoringFormat === v ? 'border-brand-500 bg-brand-600/20 text-white' : 'border-slate-700 bg-surface text-slate-400 hover:border-slate-600'}`}>
-                      {v === 'rally' ? 'Rally scoring' : 'Service points'}
-                    </button>
-                  ))}
-                </div>
+  // ── Step 3: Preview ────────────────────────────────────────────────────────
+  const drawFormatLabel = DRAW_FORMATS.find((f) => f.value === drawFormat)?.label ?? drawFormat;
+  const playFormatLabel = PLAY_FORMATS.find((f) => f.value === playFormat)?.label ?? playFormat;
+  const categoryTypeLabel = CATEGORY_TYPES.find((t) => t.value === categoryType)?.label ?? categoryType;
+
+  const step3Content = (
+    <div className="space-y-4">
+      {/* Category summary */}
+      <div className="rounded-xl border border-surface-border bg-surface-card p-4 space-y-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Category details</p>
+        <div className="grid grid-cols-2 gap-x-6 gap-y-2.5 text-xs">
+          <PreviewRow label="Name" value={name || '—'} highlight />
+          <PreviewRow label="Type" value={categoryTypeLabel} />
+          <PreviewRow label="Play format" value={playFormatLabel} />
+          <PreviewRow label="Draw format" value={drawFormatLabel} />
+          {maxEntries && <PreviewRow label="Max entries" value={maxEntries} />}
+          {(minAge || maxAge) && (
+            <PreviewRow
+              label="Age range"
+              value={`${minAge || 'Any'} – ${maxAge || 'Any'}`}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* Scoring summary */}
+      <div className="rounded-xl border border-surface-border bg-surface-card p-4 space-y-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Scoring</p>
+        {scoringOverride ? (
+          <div className="grid grid-cols-2 gap-x-6 gap-y-2.5 text-xs">
+            <PreviewRow label="Format" value={scoringFormat === 'rally' ? 'Rally scoring' : 'Service points'} />
+            <PreviewRow label="Sets" value={`${numSets} set${numSets > 1 ? 's' : ''}`} />
+            <PreviewRow label="Points per set" value={pointsPerSet || String(tournamentPointsPerSet)} />
+            <PreviewRow label="Win by" value={`${winBy}`} />
+            {deuceCap && <PreviewRow label="Deuce cap" value={deuceCap} />}
+          </div>
+        ) : (
+          <p className="text-xs text-slate-400">
+            Using tournament default —{' '}
+            <span className="text-slate-300">
+              {tournamentScoringFormat === 'rally' ? 'Rally scoring' : 'Service points'},{' '}
+              {tournamentNumSets} set{tournamentNumSets > 1 ? 's' : ''},{' '}
+              {tournamentPointsPerSet} pts
+            </span>
+          </p>
+        )}
+      </div>
+
+      {/* Group stage visual */}
+      {isGroupStage && effectiveGroups > 0 && (
+        <div className="rounded-xl border border-brand-500/20 bg-brand-950/20 p-4 space-y-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-brand-300">
+            Group stage structure
+          </p>
+
+          {/* Groups visual */}
+          <div>
+            <p className="text-[11px] text-slate-500 mb-2">
+              {effectiveGroups} groups · {effectiveAdvance} advance per group
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {Array.from({ length: effectiveGroups }, (_, i) => {
+                const gName = String.fromCharCode(65 + i);
+                const thisGroupSize = i < (maxEntriesNum % effectiveGroups || effectiveGroups)
+                  ? groupSize
+                  : groupSize - 1;
+                const actualSize = maxEntriesNum > 0
+                  ? (i < maxEntriesNum % effectiveGroups
+                    ? Math.ceil(maxEntriesNum / effectiveGroups)
+                    : Math.floor(maxEntriesNum / effectiveGroups))
+                  : groupSize;
+                void thisGroupSize;
+                return (
+                  <div key={gName} className="rounded-lg border border-brand-800/40 bg-brand-900/30 px-3 py-2 min-w-[64px]">
+                    <p className="text-[11px] font-bold text-brand-300 mb-1">Group {gName}</p>
+                    <p className="text-[10px] text-slate-400">{actualSize} teams</p>
+                    <div className="mt-1.5 space-y-0.5">
+                      {Array.from({ length: Math.min(actualSize, 6) }, (_, j) => (
+                        <div
+                          key={j}
+                          className={`h-1.5 rounded-full ${j < effectiveAdvance ? 'bg-brand-500' : 'bg-slate-700'}`}
+                        />
+                      ))}
+                      {actualSize > 6 && <p className="text-[9px] text-slate-600">+{actualSize - 6} more</p>}
+                    </div>
+                    <p className="text-[9px] text-brand-400 mt-1">↑ top {effectiveAdvance}</p>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="mt-2 text-[10px] text-slate-500">
+              <span className="inline-block h-1.5 w-4 rounded-full bg-brand-500 mr-1 align-middle" />
+              advances to knockout
+              <span className="inline-block h-1.5 w-4 rounded-full bg-slate-700 mx-1 ml-3 align-middle" />
+              eliminated
+            </p>
+          </div>
+
+          {/* Knockout flow */}
+          {knockoutRounds.length > 0 && (
+            <div>
+              <p className="text-[11px] text-slate-500 mb-2">
+                Knockout bracket — {knockoutTeams} teams
+              </p>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="rounded bg-slate-800 border border-slate-700 px-2 py-0.5 text-[11px] text-slate-400">
+                  Group stage
+                </span>
+                <span className="text-slate-600 text-xs">→</span>
+                {knockoutRounds.map((round, i) => (
+                  <span key={round} className="flex items-center gap-1.5">
+                    <span className="rounded bg-brand-900/60 px-2 py-0.5 text-[11px] font-medium text-brand-300 border border-brand-800/40">
+                      {round}
+                    </span>
+                    {i < knockoutRounds.length - 1 && (
+                      <span className="text-slate-600 text-xs">→</span>
+                    )}
+                  </span>
+                ))}
               </div>
-              <div>
-                <p className="mb-1.5 text-[11px] font-medium text-slate-400">Number of sets</p>
-                <div className="flex gap-2">
-                  {([1, 3, 5] as const).map((n) => (
-                    <button key={n} type="button" onClick={() => setNumSets(n)}
-                      className={`flex-1 rounded border px-2 py-1.5 text-xs transition-colors ${numSets === n ? 'border-brand-500 bg-brand-600/20 text-white' : 'border-slate-700 bg-surface text-slate-400 hover:border-slate-600'}`}>
-                      {n} set{n > 1 ? 's' : ''}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <label className="mb-1.5 block text-[11px] font-medium text-slate-400">Points per set</label>
-                <input name="points_per_set" type="number" min={5} max={100} defaultValue={tournamentPointsPerSet} className={`${inputClass} w-28`} />
-              </div>
-              <WinByDeuceFields winBy={winBy} deuceCapValue={deuceCap} onWinByChange={setWinBy} onDeuceCapChange={setDeuceCap} />
+              {hasThirdPlaceMatch && (
+                <p className="mt-2 text-[11px] text-slate-500">+ 3rd place match (bronze medal)</p>
+              )}
             </div>
           )}
         </div>
+      )}
 
-        <div className="flex justify-end">
-          <button type="submit" disabled={loading} className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 transition-colors disabled:opacity-50">
-            {loading ? 'Saving…' : 'Save category'}
-          </button>
+      {error && (
+        <div className="rounded-lg border border-red-800 bg-red-950 px-3 py-2 text-xs text-red-400">
+          {error}
         </div>
-      </form>
+      )}
+    </div>
+  );
+
+  // ── Nav buttons ────────────────────────────────────────────────────────────
+  const navButtons = (
+    <div className="mt-6 flex items-center justify-between">
+      <button
+        type="button"
+        onClick={() => {
+          if (step === 1) { resetForm(); setOpen(false); }
+          else setStep((s) => (s - 1) as 1 | 2 | 3);
+        }}
+        className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-400 hover:border-slate-500 hover:text-slate-200 transition-colors"
+      >
+        {step === 1 ? 'Cancel' : '← Back'}
+      </button>
+
+      {step < 3 ? (
+        <button
+          type="button"
+          onClick={() => setStep((s) => (s + 1) as 1 | 2 | 3)}
+          disabled={step === 1 && !canProceedStep1()}
+          className="rounded-lg bg-brand-600 px-5 py-2 text-sm font-semibold text-white hover:bg-brand-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          Next →
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={handleSubmit}
+          disabled={loading}
+          className="rounded-lg bg-brand-600 px-5 py-2 text-sm font-semibold text-white hover:bg-brand-700 transition-colors disabled:opacity-50"
+        >
+          {loading ? 'Saving…' : 'Create category'}
+        </button>
+      )}
+    </div>
+  );
+
+  const modalContent = (
+    <>
+      {stepIndicator}
+      {step === 1 && step1Content}
+      {step === 2 && step2Content}
+      {step === 3 && step3Content}
+      {navButtons}
     </>
   );
 
   return (
     <>
-      {/* Mobile: full-screen overlay so the form isn't squeezed by the parent flex row */}
+      {/* Mobile: full-screen overlay */}
       <div className="fixed inset-0 z-50 overflow-y-auto bg-surface px-5 py-6 sm:hidden">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-white">New category</h3>
@@ -343,20 +605,18 @@ export function AddCategoryInline({
             onClick={() => { resetForm(); setOpen(false); }}
             className="text-slate-500 hover:text-slate-300 transition-colors text-sm"
           >
-            ✕ Cancel
+            ✕
           </button>
         </div>
-        {formContent}
+        {modalContent}
       </div>
 
       {/* Desktop: centered modal dialog */}
       <div className="hidden sm:flex fixed inset-0 z-50 items-center justify-center p-6">
-        {/* Backdrop */}
         <div
           className="absolute inset-0 bg-black/60 backdrop-blur-sm"
           onClick={() => { resetForm(); setOpen(false); }}
         />
-        {/* Dialog */}
         <div className="relative z-10 w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl border border-brand-500/30 bg-surface shadow-2xl p-6">
           <div className="mb-5 flex items-center justify-between">
             <h3 className="text-base font-semibold text-white">New category</h3>
@@ -367,10 +627,21 @@ export function AddCategoryInline({
               ✕
             </button>
           </div>
-          {formContent}
+          {modalContent}
         </div>
       </div>
     </>
+  );
+}
+
+// ── Small helper for preview rows ─────────────────────────────────────────────
+
+function PreviewRow({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+  return (
+    <div>
+      <p className="text-[10px] uppercase tracking-wide text-slate-500">{label}</p>
+      <p className={`mt-0.5 font-medium ${highlight ? 'text-white' : 'text-slate-300'}`}>{value}</p>
+    </div>
   );
 }
 
@@ -379,6 +650,7 @@ export function AddCategoryInline({
 interface GroupStageConfigPanelProps {
   maxEntries: number | null;
   suggestedConfig: { groupsCount: number; groupSize: number } | null;
+  allOptions: ReturnType<typeof getSuggestedGroupOptions>;
   groupsCount: string;
   onGroupsCountChange: (v: string) => void;
   effectiveGroups: number;
@@ -394,6 +666,7 @@ interface GroupStageConfigPanelProps {
 export function GroupStageConfigPanel({
   maxEntries,
   suggestedConfig,
+  allOptions,
   groupsCount,
   onGroupsCountChange,
   effectiveGroups,
@@ -421,51 +694,76 @@ export function GroupStageConfigPanel({
     <div className="rounded-lg border border-brand-500/20 bg-brand-950/20 px-4 py-4 space-y-4">
       <p className="text-xs font-semibold text-brand-300 uppercase tracking-wide">Group stage configuration</p>
 
-      {/* Groups count + group size */}
-      <div className="grid gap-4 sm:grid-cols-2">
+      {/* Advance per group */}
+      <div>
+        <label className="mb-1.5 block text-xs font-medium text-slate-400">
+          Advance per group
+        </label>
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            min={1}
+            max={groupSize > 0 ? groupSize - 1 : 10}
+            value={advancePerGroup}
+            onChange={(e) => onAdvancePerGroupChange(e.target.value)}
+            className="w-20 rounded-lg border border-slate-600 bg-surface px-3 py-1.5 text-sm text-white outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
+          />
+          <span className="text-[11px] text-slate-500">players advance to knockout</span>
+        </div>
+      </div>
+
+      {/* Quick-pick chips for suggested group counts */}
+      {allOptions.length > 0 && (
         <div>
           <label className="mb-1.5 block text-xs font-medium text-slate-400">
             Number of groups
           </label>
-          <div className="flex items-center gap-2">
-            <input
-              type="number"
-              min={1}
-              max={maxEntries}
-              value={groupsCount !== '' ? groupsCount : (suggestedConfig?.groupsCount ?? '')}
-              onChange={(e) => onGroupsCountChange(e.target.value)}
-              placeholder={String(suggestedConfig?.groupsCount ?? '—')}
-              className="w-20 rounded-lg border border-slate-600 bg-surface px-3 py-1.5 text-sm text-white outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
-            />
-            {!isOverriding && suggestedConfig && (
-              <span className="text-[11px] text-slate-500">auto from {maxEntries} ÷ {suggestedConfig.groupSize}</span>
-            )}
+          <div className="flex flex-wrap gap-2 mb-2">
+            {allOptions.map((opt) => {
+              const selected = effectiveGroups === opt.groupsCount;
+              return (
+                <button
+                  key={opt.groupsCount}
+                  type="button"
+                  onClick={() => onGroupsCountChange(String(opt.groupsCount))}
+                  className={`rounded-lg border px-3 py-1.5 text-xs transition-colors ${
+                    selected
+                      ? 'border-brand-500 bg-brand-600/20 text-white'
+                      : 'border-slate-700 bg-surface text-slate-400 hover:border-slate-600 hover:text-slate-200'
+                  }`}
+                >
+                  <span className="font-semibold">{opt.groupsCount}</span>
+                  <span className="ml-1 text-[10px] opacity-70">
+                    ({opt.minGroupSize === opt.groupSize ? `${opt.groupSize} each` : `${opt.minGroupSize}–${opt.groupSize}`})
+                  </span>
+                  {opt.byes === 0 && (
+                    <span className="ml-1.5 text-[9px] text-brand-400 font-medium">✓ clean</span>
+                  )}
+                </button>
+              );
+            })}
+            {/* Custom input */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] text-slate-600">or</span>
+              <input
+                type="number"
+                min={1}
+                max={maxEntries}
+                value={isOverriding && !allOptions.find((o) => o.groupsCount === effectiveGroups) ? groupsCount : ''}
+                onChange={(e) => onGroupsCountChange(e.target.value)}
+                placeholder="custom"
+                className="w-20 rounded-lg border border-slate-600 bg-surface px-2 py-1.5 text-xs text-white outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 placeholder:text-slate-600"
+              />
+            </div>
           </div>
           {effectiveGroups > 0 && groupSize > 0 && (
-            <p className="mt-1.5 text-[11px] text-slate-500">
-              {effectiveGroups} groups · {groupSize} players per group
+            <p className="text-[11px] text-slate-500">
+              {effectiveGroups} groups · approx {groupSize} players per group
               {maxEntries % effectiveGroups !== 0 && ' (last group may be smaller)'}
             </p>
           )}
         </div>
-
-        <div>
-          <label className="mb-1.5 block text-xs font-medium text-slate-400">
-            Advance per group
-          </label>
-          <div className="flex items-center gap-2">
-            <input
-              type="number"
-              min={1}
-              max={groupSize > 0 ? groupSize - 1 : 10}
-              value={advancePerGroup}
-              onChange={(e) => onAdvancePerGroupChange(e.target.value)}
-              className="w-20 rounded-lg border border-slate-600 bg-surface px-3 py-1.5 text-sm text-white outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
-            />
-            <span className="text-[11px] text-slate-500">players advance to knockout</span>
-          </div>
-        </div>
-      </div>
+      )}
 
       {/* Derived knockout info */}
       {knockoutTeams >= 2 && (

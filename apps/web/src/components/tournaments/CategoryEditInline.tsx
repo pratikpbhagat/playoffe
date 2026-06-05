@@ -11,6 +11,7 @@ import {
   deriveGroupSize,
   deriveKnockoutTeams,
   getKnockoutRoundNames,
+  getSuggestedGroupOptions,
 } from '@/lib/utils/groupStageConfig';
 
 interface Props {
@@ -120,6 +121,7 @@ export function CategoryEditInline({
   const groupSize = (hasMaxEntries && effectiveGroups > 0) ? deriveGroupSize(maxEntriesNum, effectiveGroups) : 0;
   const knockoutTeams = effectiveGroups > 0 ? deriveKnockoutTeams(effectiveGroups, effectiveAdvance) : 0;
   const knockoutRounds = knockoutTeams >= 2 ? getKnockoutRoundNames(knockoutTeams) : [];
+  const allOptions = hasMaxEntries ? getSuggestedGroupOptions(maxEntriesNum, effectiveAdvance) : [];
 
   function handleMaxEntriesChange(val: string) {
     setMaxEntries(val);
@@ -287,6 +289,7 @@ export function CategoryEditInline({
             <GroupStageConfigPanel
               maxEntries={hasMaxEntries ? maxEntriesNum : null}
               suggestedConfig={suggestedConfig}
+              allOptions={allOptions}
               groupsCount={groupsCount}
               onGroupsCountChange={setGroupsCount}
               effectiveGroups={effectiveGroups}
