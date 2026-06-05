@@ -93,7 +93,7 @@ export default async function PublicDrawPage({ params }: Props) {
         </div>
 
         {/* Breadcrumb */}
-        <nav className="mb-6 flex items-center gap-2 text-sm text-slate-500" data-print-hide>
+        <nav className="mb-6 flex items-center gap-2 text-xs text-slate-500 sm:text-sm" data-print-hide>
           <Link href="/events" className="hover:text-slate-300 transition-colors">Tournaments</Link>
           <span>/</span>
           <Link href={`/events/${tournamentSlug}`} className="hover:text-slate-300 transition-colors">
