@@ -34,9 +34,9 @@ const CATEGORY_TYPES = [
 ] as const;
 
 const inputClass =
-  'block w-full rounded-lg border border-slate-600 bg-surface px-3 py-2 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30';
+  'block w-full rounded-lg border border-slate-600 bg-surface px-3 py-1.5 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30';
 
-const labelClass = 'mb-1.5 block text-xs font-medium text-slate-400';
+const labelClass = 'mb-1 block text-xs font-medium text-slate-400';
 
 interface Props {
   tournamentId: string;
@@ -188,7 +188,7 @@ export function AddCategoryInline({
   // ── Step indicator ─────────────────────────────────────────────────────────
   const stepLabels = ['Setup', 'Scoring', 'Preview'];
   const stepIndicator = (
-    <div className="mb-6 flex items-center gap-0">
+    <div className="mb-4 flex items-center gap-0">
       {stepLabels.map((label, i) => {
         const n = (i + 1) as 1 | 2 | 3;
         const done = step > n;
@@ -225,7 +225,7 @@ export function AddCategoryInline({
 
   // ── Step 1: Category setup ─────────────────────────────────────────────────
   const step1Content = (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {/* Name */}
       <div>
         <label className={labelClass}>Category name *</label>
@@ -242,7 +242,7 @@ export function AddCategoryInline({
       </div>
 
       {/* Type + Play format + Draw format */}
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-2 sm:grid-cols-3">
         <div>
           <label className={labelClass}>Type</label>
           <select
@@ -282,7 +282,7 @@ export function AddCategoryInline({
       </div>
 
       {/* Limits */}
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-2 sm:grid-cols-3">
         <div>
           <label className={labelClass}>
             Max entries{isGroupStage ? ' *' : ''}
@@ -551,7 +551,7 @@ export function AddCategoryInline({
 
   // ── Nav buttons ────────────────────────────────────────────────────────────
   const navButtons = (
-    <div className="mt-6 flex items-center justify-between">
+    <div className="flex items-center justify-between">
       <button
         type="button"
         onClick={() => {
@@ -585,19 +585,9 @@ export function AddCategoryInline({
     </div>
   );
 
-  const modalContent = (
-    <>
-      {stepIndicator}
-      {step === 1 && step1Content}
-      {step === 2 && step2Content}
-      {step === 3 && step3Content}
-      {navButtons}
-    </>
-  );
-
   return (
     <>
-      {/* Mobile: full-screen overlay */}
+      {/* Mobile: full-screen overlay — natural page scroll */}
       <div className="fixed inset-0 z-50 overflow-y-auto bg-surface px-5 py-6 sm:hidden">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-white">New category</h3>
@@ -608,26 +598,45 @@ export function AddCategoryInline({
             ✕
           </button>
         </div>
-        {modalContent}
+        {stepIndicator}
+        {step === 1 && step1Content}
+        {step === 2 && step2Content}
+        {step === 3 && step3Content}
+        {navButtons}
       </div>
 
-      {/* Desktop: centered modal dialog */}
+      {/* Desktop: centered modal — fixed height, pinned header + footer, scrollable body */}
       <div className="hidden sm:flex fixed inset-0 z-50 items-center justify-center p-6">
         <div
           className="absolute inset-0 bg-black/60 backdrop-blur-sm"
           onClick={() => { resetForm(); setOpen(false); }}
         />
-        <div className="relative z-10 w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl border border-brand-500/30 bg-surface shadow-2xl p-6">
-          <div className="mb-5 flex items-center justify-between">
-            <h3 className="text-base font-semibold text-white">New category</h3>
-            <button
-              onClick={() => { resetForm(); setOpen(false); }}
-              className="text-slate-500 hover:text-slate-300 transition-colors text-sm"
-            >
-              ✕
-            </button>
+        <div className="relative z-10 flex flex-col w-full max-w-2xl h-[90vh] rounded-2xl border border-brand-500/30 bg-surface shadow-2xl">
+          {/* Pinned header */}
+          <div className="flex-none px-6 pt-6 pb-4 border-b border-surface-border">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base font-semibold text-white">New category</h3>
+              <button
+                onClick={() => { resetForm(); setOpen(false); }}
+                className="text-slate-500 hover:text-slate-300 transition-colors text-sm"
+              >
+                ✕
+              </button>
+            </div>
+            {stepIndicator}
           </div>
-          {modalContent}
+
+          {/* Scrollable step content */}
+          <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
+            {step === 1 && step1Content}
+            {step === 2 && step2Content}
+            {step === 3 && step3Content}
+          </div>
+
+          {/* Pinned footer */}
+          <div className="flex-none px-6 py-4 border-t border-surface-border">
+            {navButtons}
+          </div>
         </div>
       </div>
     </>
@@ -691,7 +700,7 @@ export function GroupStageConfigPanel({
   }
 
   return (
-    <div className="rounded-lg border border-brand-500/20 bg-brand-950/20 px-4 py-4 space-y-4">
+    <div className="rounded-lg border border-brand-500/20 bg-brand-950/20 px-4 py-3 space-y-3">
       <p className="text-xs font-semibold text-brand-300 uppercase tracking-wide">Group stage configuration</p>
 
       {/* Advance per group */}
@@ -767,7 +776,7 @@ export function GroupStageConfigPanel({
 
       {/* Derived knockout info */}
       {knockoutTeams >= 2 && (
-        <div className="rounded-md bg-surface-card px-3 py-3 space-y-2 border border-surface-border">
+        <div className="rounded-md bg-surface-card px-3 py-2 space-y-2 border border-surface-border">
           <div className="flex items-center justify-between">
             <span className="text-xs text-slate-400">Total in knockout</span>
             <span className="text-xs font-semibold text-white">{knockoutTeams} teams</span>
