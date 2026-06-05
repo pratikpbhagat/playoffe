@@ -149,7 +149,7 @@ export default async function TournamentPage({ params }: Props) {
 
       <main className="mx-auto max-w-6xl px-6 py-10">
         {/* Breadcrumb */}
-        <nav className="mb-6 flex items-center gap-2 text-sm text-slate-500">
+        <nav className="mb-6 flex items-center gap-2 text-xs text-slate-500 sm:text-sm">
           <Link href={`/clubs/${club.slug}`} className="hover:text-slate-300 transition-colors">
             {club.name}
           </Link>

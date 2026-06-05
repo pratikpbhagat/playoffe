@@ -238,7 +238,7 @@ export default async function ScoringHubPage({ params, searchParams }: Props) {
         <ScoringHubRealtime tournamentId={t.id} />
 
         {/* Breadcrumb */}
-        <nav className="mb-6 flex items-center gap-2 text-sm text-slate-500">
+        <nav className="mb-6 flex items-center gap-2 text-xs text-slate-500 sm:text-sm">
           <Link href={`/tournaments/${slug}`} className="hover:text-slate-300 transition-colors">
             {t.name}
           </Link>
