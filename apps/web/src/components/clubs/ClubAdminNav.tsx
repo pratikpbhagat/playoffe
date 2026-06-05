@@ -22,7 +22,7 @@ export function ClubAdminNav({ clubSlug, activeTab, isOwner }: ClubAdminNavProps
         <Link
           key={tab.id}
           href={tab.href}
-          className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium transition-colors rounded-t-md ${
+          className={`-mb-px flex-1 text-center whitespace-nowrap border-b-2 px-2 py-2 text-sm font-medium transition-colors rounded-t-md sm:flex-none sm:px-4 ${
             activeTab === tab.id
               ? 'border-brand-500 text-white bg-surface-card/40'
               : 'border-transparent text-slate-500 hover:text-slate-300 hover:bg-surface-card/20'

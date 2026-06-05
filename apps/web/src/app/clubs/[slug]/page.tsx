@@ -72,42 +72,67 @@ export default async function ClubPage({ params }: Props) {
 
       <main className="mx-auto max-w-6xl px-6 py-10">
         {/* Club header */}
-        <div className="mb-8 flex items-start justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <div
-              className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl text-xl font-black text-white shadow"
-              style={{ backgroundColor: club.brand_primary_color }}
-            >
-              {club.name[0]}
+        <div className="mb-8">
+          {/* Top row: logo + name always full width on mobile, side-by-side with buttons on sm+ */}
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div
+                className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl text-xl font-black text-white shadow"
+                style={{ backgroundColor: club.brand_primary_color }}
+              >
+                {club.name[0]}
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold text-white">{club.name}</h1>
+                <p className="mt-0.5 text-sm text-slate-400">
+                  {[club.city, club.location].filter(Boolean).join(' · ')}
+                  {role === 'owner' && (
+                    <span className="ml-2 rounded-full bg-brand-600/20 px-2 py-0.5 text-xs font-medium text-brand-300">
+                      Owner
+                    </span>
+                  )}
+                </p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-2xl font-bold text-white">{club.name}</h1>
-              <p className="mt-0.5 text-sm text-slate-400">
-                {[club.city, club.location].filter(Boolean).join(' · ')}
-                {role === 'owner' && (
-                  <span className="ml-2 rounded-full bg-brand-600/20 px-2 py-0.5 text-xs font-medium text-brand-300">
-                    Owner
-                  </span>
-                )}
-              </p>
+
+            {/* Desktop buttons — hidden on mobile */}
+            <div className="hidden sm:flex items-center gap-3">
+              <Link
+                href={`/c/${club.slug}`}
+                className="whitespace-nowrap rounded-lg border border-surface-border px-4 py-2 text-sm font-medium text-slate-400 hover:bg-surface hover:text-white transition-colors"
+                title="View public profile"
+              >
+                Public page ↗
+              </Link>
+              <DigestButton clubId={club.id} />
+              <Link
+                href={`/tournaments/new?club=${club.id}`}
+                className="whitespace-nowrap rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 transition-colors"
+              >
+                + New tournament
+              </Link>
             </div>
           </div>
 
-          <div className="flex items-center gap-3 flex-wrap">
-            <Link
-              href={`/c/${club.slug}`}
-              className="rounded-lg border border-surface-border px-4 py-2 text-sm font-medium text-slate-400 hover:bg-surface hover:text-white transition-colors"
-              title="View public profile"
-            >
-              Public page ↗
-            </Link>
-            <DigestButton clubId={club.id} />
+          {/* Mobile buttons — shown below header on small screens */}
+          <div className="mt-4 flex flex-col gap-2 sm:hidden">
+            {/* Primary action — full width */}
             <Link
               href={`/tournaments/new?club=${club.id}`}
-              className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 transition-colors"
+              className="w-full text-center rounded-lg bg-brand-600 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-700 transition-colors"
             >
               + New tournament
             </Link>
+            {/* Secondary actions — split row */}
+            <div className="flex gap-2">
+              <Link
+                href={`/c/${club.slug}`}
+                className="flex-1 text-center whitespace-nowrap rounded-lg border border-surface-border px-3 py-2 text-xs font-medium text-slate-400 hover:bg-surface hover:text-white transition-colors"
+              >
+                Public page ↗
+              </Link>
+              <div className="flex-1"><DigestButton clubId={club.id} /></div>
+            </div>
           </div>
         </div>
 
@@ -119,7 +144,7 @@ export default async function ClubPage({ params }: Props) {
         <ClubAdminNav clubSlug={slug} activeTab="overview" isOwner={isOwner} />
 
         {/* Quick stats */}
-        <div className="mb-8 grid gap-4 sm:grid-cols-3">
+        <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
           {[
             { label: 'Total members', value: (totalMembers ?? 0).toString() },
             { label: 'Active tournaments', value: (activeTournamentsCount ?? 0).toString() },

@@ -30,7 +30,7 @@ export function DigestButton({ clubId }: Props) {
       <button
         onClick={handleSend}
         disabled={state === 'sending' || state === 'sent'}
-        className={`flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition-colors disabled:opacity-60 ${
+        className={`whitespace-nowrap flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition-colors disabled:opacity-60 ${
           state === 'sent'
             ? 'bg-accent-500/20 text-accent-400 cursor-default'
             : 'border border-surface-border text-slate-400 hover:bg-surface hover:text-white'
