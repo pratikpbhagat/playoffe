@@ -77,12 +77,12 @@ export default async function DisplayControlPage({ params }: Props) {
           <span className="text-slate-400">Display control</span>
         </nav>
 
-        <div className="mb-8 flex items-center justify-between">
+        <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h1 className="text-2xl font-bold text-white">Display control</h1>
           <Link
             href={`/display/${t.display_code}`}
             target="_blank"
-            className="flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 transition-colors"
+            className="flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 transition-colors sm:w-auto w-full justify-center"
           >
             <span>📺</span> Open display
           </Link>
