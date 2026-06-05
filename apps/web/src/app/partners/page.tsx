@@ -168,35 +168,38 @@ export default async function PartnersPage({ searchParams }: Props) {
                 const alreadySent = sentIds.has(p.id);
 
                 return (
-                  <div key={p.id} className="rounded-xl bg-surface-card px-5 py-4 ring-1 ring-surface-border">
-                    <div className="flex items-start gap-3">
+                  <div key={p.id} className="rounded-xl bg-surface-card px-4 py-3 ring-1 ring-surface-border">
+                    <div className="flex items-center gap-3">
                       {/* Avatar */}
                       <div className="shrink-0">
                         {p.photo_url ? (
-                          <div className="relative h-10 w-10 overflow-hidden rounded-full">
+                          <div className="relative h-9 w-9 overflow-hidden rounded-full">
                             <Image src={p.photo_url} alt={p.full_name} fill className="object-cover" />
                           </div>
                         ) : (
-                          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-brand-900 text-sm font-bold text-brand-300">
+                          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-900 text-sm font-bold text-brand-300">
                             {p.full_name.charAt(0).toUpperCase()}
                           </div>
                         )}
                       </div>
 
                       <div className="flex-1 min-w-0">
-                        <Link href={`/p/${p.username}`} className="text-sm font-semibold text-white hover:text-brand-300 transition-colors">
-                          {p.full_name}
-                        </Link>
-                        <p className="text-xs text-slate-500">@{p.username}</p>
-                        {p.location && <p className="text-xs text-slate-600">📍 {p.location}</p>}
-
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          <span className="rounded-full bg-brand-600/20 px-2 py-0.5 text-xs font-medium text-brand-300">
-                            {rating} rating
+                        <div className="flex items-center justify-between gap-2">
+                          <Link href={`/p/${p.username}`} className="text-sm font-semibold text-white hover:text-brand-300 transition-colors truncate">
+                            {p.full_name}
+                          </Link>
+                          <span className="shrink-0 rounded-full bg-brand-600/20 px-2 py-0.5 text-xs font-medium text-brand-300">
+                            {rating}
                           </span>
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                          <p className="text-xs text-slate-500">@{p.username}</p>
+                          {p.location && <p className="text-xs text-slate-600">· 📍 {p.location}</p>}
+                        </div>
+                        <div className="mt-1.5 flex flex-wrap gap-1.5">
                           {doublesWinRate && (
                             <span className="rounded-full bg-surface px-2 py-0.5 text-xs text-slate-400">
-                              {doublesWinRate} doubles WR
+                              {doublesWinRate} WR
                             </span>
                           )}
                           <span className="rounded-full bg-surface px-2 py-0.5 text-xs text-slate-500">
@@ -206,7 +209,7 @@ export default async function PartnersPage({ searchParams }: Props) {
                       </div>
                     </div>
 
-                    <div className="mt-3 flex gap-2">
+                    <div className="mt-2 flex gap-2">
                       {alreadySent ? (
                         <span className="text-xs text-slate-500 italic">Request sent</span>
                       ) : (
