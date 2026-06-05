@@ -50,7 +50,7 @@ function LandingNav() {
 // ── Hero ──────────────────────────────────────────────────────────────────────
 function Hero() {
   return (
-    <section className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-surface px-6 text-center">
+    <section className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-surface px-6 pt-20 text-center">
       {/* Purple glow */}
       <div
         aria-hidden

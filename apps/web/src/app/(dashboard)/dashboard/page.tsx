@@ -60,7 +60,7 @@ export default async function DashboardPage() {
           </h1>
           <p className="mt-1 text-sm text-slate-500">Your admin overview — clubs and tournaments you manage.</p>
 
-          <div className="mt-10 grid gap-6 lg:grid-cols-3">
+          <div className="mt-10 grid grid-cols-1 gap-6 lg:grid-cols-3">
             {/* Quick actions */}
             <div className="rounded-xl bg-surface-card p-6 ring-1 ring-surface-border">
               <h2 className="text-base font-semibold text-white">Quick actions</h2>
@@ -262,7 +262,7 @@ export default async function DashboardPage() {
         </h1>
 
         {/* Stats row */}
-        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {[
             { label: 'Rating',   value: player?.global_stats?.current_rating?.toFixed(2) ?? '3.50' },
             { label: 'Matches',  value: player?.global_stats?.total_matches ?? 0 },
@@ -326,7 +326,7 @@ export default async function DashboardPage() {
           </div>
         )}
 
-        <div className="mt-8 grid gap-6 lg:grid-cols-3">
+        <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-3">
           {/* Quick actions — always first column, mirrors Admin layout */}
           <div className="rounded-xl bg-surface-card p-6 ring-1 ring-surface-border">
             <h2 className="text-base font-semibold text-white">Quick actions</h2>

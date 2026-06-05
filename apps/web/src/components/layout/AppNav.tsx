@@ -143,12 +143,14 @@ export async function AppNav() {
                     userId={user!.id}
                   />
 
-                  {/* Avatar dropdown — profile, settings, sign out */}
-                  <UserMenu
-                    username={player.username ?? ''}
-                    fullName={player.full_name ?? ''}
-                    settingsHref="/settings/profile"
-                  />
+                  {/* Avatar dropdown — profile, settings, sign out (desktop only; mobile uses hamburger drawer) */}
+                  <div className="hidden sm:block">
+                    <UserMenu
+                      username={player.username ?? ''}
+                      fullName={player.full_name ?? ''}
+                      settingsHref="/settings/profile"
+                    />
+                  </div>
                 </>
               ) : (
                 <div className="flex items-center gap-3">

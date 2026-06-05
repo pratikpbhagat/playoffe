@@ -319,20 +319,20 @@ export function EditProfileForm({ initial, username }: Props) {
         </div>
       )}
 
-      <div className="flex items-center gap-3 pt-2">
-        <button
-          type="submit"
-          disabled={saving}
-          className="rounded-lg bg-brand-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 transition-colors disabled:opacity-50"
-        >
-          {saving ? 'Saving…' : 'Save profile'}
-        </button>
+      <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row">
         <button
           type="button"
           onClick={() => router.push(`/p/${username}`)}
-          className="rounded-lg border border-surface-border px-5 py-2.5 text-sm text-slate-400 hover:text-white hover:border-slate-500 transition-colors"
+          className="w-full rounded-lg border border-surface-border px-5 py-2.5 text-sm text-slate-400 hover:text-white hover:border-slate-500 transition-colors sm:w-auto"
         >
           Cancel
+        </button>
+        <button
+          type="submit"
+          disabled={saving}
+          className="w-full rounded-lg bg-brand-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 transition-colors disabled:opacity-50 sm:w-auto"
+        >
+          {saving ? 'Saving…' : 'Save profile'}
         </button>
       </div>
     </form>
