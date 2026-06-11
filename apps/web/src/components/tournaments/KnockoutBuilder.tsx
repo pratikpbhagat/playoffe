@@ -70,6 +70,16 @@ export function KnockoutBuilder({ categoryId, initialState }: Props) {
       ? 'A match between these two entries has already been scheduled in this knockout stage.'
       : null;
 
+  const stageNameOptions = useMemo(() => {
+    const standard = ['Round of 16', 'Quarter-final', 'Semi-final', '3rd place playoff', 'Final'];
+    const used = state.rounds.map((r) => r.roundName);
+    const names = new Set<string>([...standard, ...used]);
+    if (state.suggestedRoundName) names.add(state.suggestedRoundName);
+    if (roundName) names.add(roundName);
+    return [...names];
+  }, [state.rounds, state.suggestedRoundName, roundName]);
+  const [customRoundName, setCustomRoundName] = useState(false);
+
   const suggestions = useMemo(
     () => (state.currentPool ? suggestMatchups(state.currentPool, state.existingPairs) : []),
     [state.currentPool, state.existingPairs],
@@ -211,13 +221,35 @@ export function KnockoutBuilder({ categoryId, initialState }: Props) {
             <h2 className="text-sm font-semibold text-text-primary">
               Available pool ({state.currentPool.length})
             </h2>
-            <input
-              type="text"
-              value={roundName}
-              onChange={(e) => setRoundName(e.target.value)}
-              placeholder="Round name"
-              className="w-40 rounded-lg border border-surface-border bg-surface-base px-2 py-1 text-xs text-text-primary"
-            />
+            {customRoundName ? (
+              <input
+                type="text"
+                value={roundName}
+                onChange={(e) => setRoundName(e.target.value)}
+                onBlur={() => { if (!roundName.trim()) setCustomRoundName(false); }}
+                placeholder="Stage name"
+                autoFocus
+                className="w-40 rounded-lg border border-surface-border bg-surface-base px-2 py-1 text-xs text-text-primary"
+              />
+            ) : (
+              <select
+                value={roundName}
+                onChange={(e) => {
+                  if (e.target.value === '__custom__') {
+                    setCustomRoundName(true);
+                    setRoundName('');
+                  } else {
+                    setRoundName(e.target.value);
+                  }
+                }}
+                className="w-40 rounded-lg border border-surface-border bg-surface-base px-2 py-1 text-xs text-text-primary"
+              >
+                {stageNameOptions.map((name) => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
+                <option value="__custom__">Custom…</option>
+              </select>
+            )}
           </div>
           <p className="mb-3 text-xs text-text-secondary">
             {state.rounds[state.rounds.length - 1]?.standings
