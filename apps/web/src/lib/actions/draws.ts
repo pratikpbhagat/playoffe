@@ -989,6 +989,9 @@ export interface KnockoutPoolEntry {
   entryId: string;
   displayName: string;
   label: string;
+  /** Original group-stage group this entry came from — used to avoid pairing
+   *  two entries that already played each other in the group stage. */
+  groupName: string | null;
 }
 
 export interface KnockoutBuilderMatch {
@@ -1012,6 +1015,8 @@ export interface KnockoutBuilderState {
   /** Suggested name for the round currently being built. */
   suggestedRoundName: string | null;
   champion: KnockoutPoolEntry | null;
+  /** Pairs of entry IDs that already have a knockout match created (any round/status) — used to warn admins before creating a duplicate matchup. */
+  existingPairs: [string, string][];
 }
 
 async function fetchEntryNames(admin: ReturnType<typeof createAdminClient>, entryIds: string[]): Promise<Map<string, string>> {
@@ -1091,17 +1096,18 @@ export async function getKnockoutBuilderStateAction(categoryId: string): Promise
         currentPool: null,
         suggestedRoundName: null,
         champion: null,
+        existingPairs: [],
       },
     };
   }
 
   // Build initial pool from group qualifiers — these entries (the real players)
   // are the entire universe that can ever appear in the knockout bracket.
-  const entryInfo = new Map<string, { displayName: string; label: string }>();
+  const entryInfo = new Map<string, { displayName: string; label: string; groupName: string | null }>();
   for (const gName of groupNames) {
     const ranked = (rankedByGroup.get(gName) ?? []).slice(0, topPerGroup);
     ranked.forEach((entryId, i) => {
-      entryInfo.set(entryId, { displayName: nameMap.get(entryId) ?? 'Unknown', label: `Group ${gName.replace('Group ', '')} #${i + 1}` });
+      entryInfo.set(entryId, { displayName: nameMap.get(entryId) ?? 'Unknown', label: `Group ${gName.replace('Group ', '')} #${i + 1}`, groupName: gName });
     });
   }
 
@@ -1132,7 +1138,11 @@ export async function getKnockoutBuilderStateAction(categoryId: string): Promise
 
   let currentPool: KnockoutPoolEntry[] | null = [...entryInfo.entries()]
     .filter(([entryId]) => !eliminated.has(entryId))
-    .map(([entryId, info]) => ({ entryId, displayName: info.displayName, label: info.label }));
+    .map(([entryId, info]) => ({ entryId, displayName: info.displayName, label: info.label, groupName: info.groupName }));
+
+  const existingPairs: [string, string][] = knockoutMatches
+    .filter((m) => m.entry_a_id && m.entry_b_id)
+    .map((m) => [m.entry_a_id as string, m.entry_b_id as string]);
 
   let champion: KnockoutPoolEntry | null = null;
   if (currentPool.length === 1) {
@@ -1168,6 +1178,7 @@ export async function getKnockoutBuilderStateAction(categoryId: string): Promise
       currentPool,
       suggestedRoundName: currentPool ? suggestRoundName(currentPool.length) : null,
       champion,
+      existingPairs,
     },
   };
 }
@@ -1227,6 +1238,12 @@ export async function createKnockoutMatchAction(
   const poolIds = new Set(pool.map((p) => p.entryId));
   if (!poolIds.has(entryAId) || !poolIds.has(entryBId)) {
     return { error: 'Both entries must be in the current available pool' };
+  }
+  const alreadyPaired = stateResult.data.existingPairs.some(
+    ([a, b]) => (a === entryAId && b === entryBId) || (a === entryBId && b === entryAId),
+  );
+  if (alreadyPaired) {
+    return { error: 'A match between these two entries has already been scheduled in this knockout stage' };
   }
 
   const { round, bracketPosition } = await getNextKnockoutRoundInfo(admin, categoryId);

@@ -1,9 +1,35 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createKnockoutMatchAction, deleteKnockoutMatchAction, getKnockoutBuilderStateAction } from '@/lib/actions/draws';
-import type { KnockoutBuilderState } from '@/lib/actions/draws';
+import type { KnockoutBuilderState, KnockoutPoolEntry } from '@/lib/actions/draws';
+
+function pairAlreadyExists(pairs: [string, string][], a: string, b: string): boolean {
+  return pairs.some(([x, y]) => (x === a && y === b) || (x === b && y === a));
+}
+
+/** Greedy "AI assistant" suggestions: pair up pool entries from different
+ *  groups that haven't already played each other in this knockout stage. */
+function suggestMatchups(pool: KnockoutPoolEntry[], existingPairs: [string, string][]): [KnockoutPoolEntry, KnockoutPoolEntry][] {
+  const used = new Set<string>();
+  const suggestions: [KnockoutPoolEntry, KnockoutPoolEntry][] = [];
+  for (let i = 0; i < pool.length; i++) {
+    const a = pool[i];
+    if (used.has(a.entryId)) continue;
+    for (let j = i + 1; j < pool.length; j++) {
+      const b = pool[j];
+      if (used.has(b.entryId)) continue;
+      if (a.groupName && b.groupName && a.groupName === b.groupName) continue;
+      if (pairAlreadyExists(existingPairs, a.entryId, b.entryId)) continue;
+      suggestions.push([a, b]);
+      used.add(a.entryId);
+      used.add(b.entryId);
+      break;
+    }
+  }
+  return suggestions;
+}
 
 interface Props {
   categoryId: string;
@@ -39,11 +65,27 @@ export function KnockoutBuilder({ categoryId, initialState }: Props) {
     setSelectedB(null);
   }
 
-  async function handleCreateMatch() {
-    if (!selectedA || !selectedB) return;
+  const duplicateWarning =
+    selectedA && selectedB && pairAlreadyExists(state.existingPairs, selectedA, selectedB)
+      ? 'A match between these two entries has already been scheduled in this knockout stage.'
+      : null;
+
+  const suggestions = useMemo(
+    () => (state.currentPool ? suggestMatchups(state.currentPool, state.existingPairs) : []),
+    [state.currentPool, state.existingPairs],
+  );
+
+  async function handleCreateMatch(aId?: string, bId?: string) {
+    const a = aId ?? selectedA;
+    const b = bId ?? selectedB;
+    if (!a || !b) return;
+    if (pairAlreadyExists(state.existingPairs, a, b)) {
+      setError('A match between these two entries has already been scheduled in this knockout stage.');
+      return;
+    }
     setCreating(true);
     setError(null);
-    const result = await createKnockoutMatchAction(categoryId, selectedA, selectedB, roundName);
+    const result = await createKnockoutMatchAction(categoryId, a, b, roundName);
     if ('error' in result && result.error) {
       setError(result.error);
       setCreating(false);
@@ -152,6 +194,12 @@ export function KnockoutBuilder({ categoryId, initialState }: Props) {
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {state.currentPool.map((p) => {
               const isSelected = selectedA === p.entryId || selectedB === p.entryId;
+              const anchor = state.currentPool!.find((e) => e.entryId === selectedA);
+              const isPotentialOpponent =
+                !!anchor &&
+                !isSelected &&
+                (!anchor.groupName || !p.groupName || anchor.groupName !== p.groupName) &&
+                !pairAlreadyExists(state.existingPairs, anchor.entryId, p.entryId);
               return (
                 <button
                   key={p.entryId}
@@ -159,24 +207,68 @@ export function KnockoutBuilder({ categoryId, initialState }: Props) {
                   className={`flex flex-col items-start rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
                     isSelected
                       ? 'border-brand-500 bg-brand-600/10 text-text-primary'
-                      : 'border-surface-border bg-surface-base text-text-primary hover:border-brand-500/50'
+                      : isPotentialOpponent
+                        ? 'border-emerald-500/70 bg-emerald-500/10 text-text-primary'
+                        : 'border-surface-border bg-surface-base text-text-primary hover:border-brand-500/50'
                   }`}
                 >
                   <span className="font-medium">{p.displayName}</span>
-                  <span className="text-xs text-text-secondary">{p.label}</span>
+                  <span className="text-xs text-text-secondary">{p.label}{p.groupName ? ` · ${p.groupName}` : ''}</span>
                 </button>
               );
             })}
           </div>
 
+          {duplicateWarning && (
+            <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-400">
+              ⚠ {duplicateWarning}
+            </p>
+          )}
+
           <div className="mt-4 flex justify-end">
             <button
-              onClick={handleCreateMatch}
-              disabled={!selectedA || !selectedB || creating}
+              onClick={() => handleCreateMatch()}
+              disabled={!selectedA || !selectedB || !!duplicateWarning || creating}
               className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-500 transition-colors disabled:opacity-50"
             >
               {creating ? 'Creating…' : 'Create match'}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* AI assistant: suggested matchups */}
+      {state.currentPool && suggestions.length > 0 && (
+        <div className="rounded-lg border border-surface-border bg-surface-card p-4">
+          <h2 className="mb-1 text-sm font-semibold text-text-primary">✨ AI assistant — suggested matchups</h2>
+          <p className="mb-3 text-xs text-text-secondary">
+            Pairings avoid same-group opponents and matches already scheduled this stage.
+          </p>
+          <div className="space-y-2">
+            {suggestions.map(([a, b]) => (
+              <div key={`${a.entryId}-${b.entryId}`} className="flex items-center justify-between gap-3 rounded-lg border border-surface-border bg-surface-base px-3 py-2 text-sm">
+                <span className="text-text-primary">
+                  <span className="font-medium">{a.displayName}</span>
+                  <span className="text-text-secondary"> vs </span>
+                  <span className="font-medium">{b.displayName}</span>
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => { setSelectedA(a.entryId); setSelectedB(b.entryId); setError(null); }}
+                    className="text-xs text-brand-400 hover:underline"
+                  >
+                    Select
+                  </button>
+                  <button
+                    onClick={() => handleCreateMatch(a.entryId, b.entryId)}
+                    disabled={creating}
+                    className="rounded-lg bg-brand-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-brand-500 transition-colors disabled:opacity-50"
+                  >
+                    Create
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
