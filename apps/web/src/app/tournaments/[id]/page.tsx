@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { notFound, redirect } from 'next/navigation';
 import Link from 'next/link';
 import { cookies } from 'next/headers';
-import { createClient, createAdminClient, getUserRoles } from '@/lib/supabase/server';
+import { createClient, createAdminClient, getUserRoles, isSuperAdmin } from '@/lib/supabase/server';
 import { AppNav } from '@/components/layout/AppNav';
 import { TournamentStatusControl } from '@/components/tournaments/TournamentStatusControl';
 import { AddCategoryInline } from '@/components/tournaments/AddCategoryInline';
@@ -89,6 +89,9 @@ export default async function TournamentPage({ params }: Props) {
     ? (rawMode === 'player' ? 'player' : 'admin')
     : isAdminRole ? 'admin'
     : 'player';
+
+  // Once a tournament is completed, only super admins can edit it or add categories
+  const canEditCompleted = isSuperAdmin(user);
 
   if (activeMode === 'player') {
     // Redirect to the public-facing event page (shows registration, draw, etc.)
@@ -222,12 +225,14 @@ export default async function TournamentPage({ params }: Props) {
 
           {/* Actions — stacked on mobile, inline row on desktop */}
           <div className="flex flex-col gap-2 shrink-0 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
-            <Link
-              href={`/tournaments/${slug}/edit`}
-              className="flex items-center justify-center gap-1.5 rounded-lg border border-slate-600 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-surface-card hover:border-slate-500 transition-colors sm:justify-start"
-            >
-              <span>✏️</span> Edit
-            </Link>
+            {(t.status !== 'completed' || canEditCompleted) && (
+              <Link
+                href={`/tournaments/${slug}/edit`}
+                className="flex items-center justify-center gap-1.5 rounded-lg border border-slate-600 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-surface-card hover:border-slate-500 transition-colors sm:justify-start"
+              >
+                <span>✏️</span> Edit
+              </Link>
+            )}
             <TournamentStatusControl
               tournamentId={t.id}
               currentStatus={t.status as TournamentStatus}
@@ -335,6 +340,7 @@ export default async function TournamentPage({ params }: Props) {
         <div>
           <div className="flex items-center justify-between">
             <h2 className="text-base font-semibold text-white">Categories</h2>
+            {(t.status !== 'completed' || canEditCompleted) && (
             <AddCategoryInline
               tournamentId={t.id}
               tournamentScoringFormat={((t as { scoring_format?: string }).scoring_format ?? 'rally') as 'rally' | 'traditional'}
@@ -343,6 +349,7 @@ export default async function TournamentPage({ params }: Props) {
               tournamentWinBy={((t as { win_by?: number }).win_by ?? 2) as 1 | 2}
               tournamentDeuceCap={(t as { deuce_cap?: number | null }).deuce_cap ?? null}
             />
+            )}
           </div>
 
           {categories.length === 0 ? (

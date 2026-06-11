@@ -943,11 +943,38 @@ export async function promoteGroupWinnersAction(categoryId: string) {
     ? Math.round(totalKnockoutEntries / groupNames.length) || 2
     : 2;
 
-  // Ordered: [A1, A2, B1, B2, …]
+  // Cross-group pairing — a team should never face another team from its own
+  // group again in the knockout stage. Groups are paired up (A with B, C with
+  // D, …) and within each group-pair, rank r from one group plays rank
+  // (topPerGroup + 1 - r) from the other — symmetrically in both directions:
+  // e.g. with top 2 advancing, A1 plays B2 AND A2 plays B1; with top 4
+  // advancing, A1/B4, B1/A4, A2/B3, B2/A3.
+  const n = groupNames.length;
+  const ranked = groupNames.map((g) => rankedByGroup.get(g) ?? []);
   const advancingEntries: string[] = [];
-  for (const gName of groupNames) {
-    const ranked = rankedByGroup.get(gName) ?? [];
-    advancingEntries.push(...ranked.slice(0, topPerGroup));
+
+  for (let i = 0; i + 1 < n; i += 2) {
+    const gi = ranked[i];
+    const gj = ranked[i + 1];
+
+    for (let r = 1; r <= Math.floor(topPerGroup / 2); r++) {
+      const rOpp = topPerGroup + 1 - r;
+      const a1 = gi?.[r - 1];
+      const b1 = gj?.[rOpp - 1];
+      if (a1 && b1) advancingEntries.push(a1, b1);
+
+      const b2 = gj?.[r - 1];
+      const a2 = gi?.[rOpp - 1];
+      if (b2 && a2) advancingEntries.push(b2, a2);
+    }
+
+    // Odd top-per-group count: the middle rank plays across the paired groups
+    if (topPerGroup % 2 === 1) {
+      const mid = (topPerGroup + 1) / 2;
+      const a = gi?.[mid - 1];
+      const b = gj?.[mid - 1];
+      if (a && b) advancingEntries.push(a, b);
+    }
   }
 
   if (advancingEntries.length === 0) return { error: 'No group results to promote' };
