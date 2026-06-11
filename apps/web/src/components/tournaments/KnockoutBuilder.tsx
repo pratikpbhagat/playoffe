@@ -9,6 +9,23 @@ function pairAlreadyExists(pairs: [string, string][], a: string, b: string): boo
   return pairs.some(([x, y]) => (x === a && y === b) || (x === b && y === a));
 }
 
+/** Canonical knockout-stage hierarchy, earliest to latest. */
+const STAGE_HIERARCHY = ['Round of 32', 'Round of 16', 'Quarter-final', 'Semi-final', '3rd place playoff', 'Final'];
+
+/** Given the previous stage's name, return the next stage in the hierarchy.
+ *  Falls back to `fallback` if the previous name isn't recognised or is last. */
+function nextStageName(previousName: string | null, fallback: string): string {
+  if (!previousName) return fallback;
+  const idx = STAGE_HIERARCHY.indexOf(previousName);
+  if (idx === -1 || idx === STAGE_HIERARCHY.length - 1) return fallback;
+  // Skip "3rd place playoff" when stepping forward automatically — it's a side
+  // bracket, not the next stage of the main draw.
+  for (let i = idx + 1; i < STAGE_HIERARCHY.length; i++) {
+    if (STAGE_HIERARCHY[i] !== '3rd place playoff') return STAGE_HIERARCHY[i];
+  }
+  return fallback;
+}
+
 /** Greedy "AI assistant" suggestions: pair up pool entries from different
  *  groups that haven't already played each other in this knockout stage. */
 function suggestMatchups(pool: KnockoutPoolEntry[], existingPairs: [string, string][]): [KnockoutPoolEntry, KnockoutPoolEntry][] {
@@ -36,12 +53,20 @@ interface Props {
   initialState: KnockoutBuilderState;
 }
 
+function previousStageName(state: KnockoutBuilderState): string | null {
+  return state.rounds.length > 0 ? state.rounds[state.rounds.length - 1].roundName : null;
+}
+
+function defaultStageName(state: KnockoutBuilderState): string {
+  return nextStageName(previousStageName(state), state.suggestedRoundName ?? '');
+}
+
 export function KnockoutBuilder({ categoryId, initialState }: Props) {
   const router = useRouter();
   const [state, setState] = useState(initialState);
   const [selectedA, setSelectedA] = useState<string | null>(null);
   const [selectedB, setSelectedB] = useState<string | null>(null);
-  const [roundName, setRoundName] = useState(initialState.suggestedRoundName ?? '');
+  const [roundName, setRoundName] = useState(defaultStageName(initialState));
   const [creating, setCreating] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -71,12 +96,16 @@ export function KnockoutBuilder({ categoryId, initialState }: Props) {
       : null;
 
   const stageNameOptions = useMemo(() => {
-    const standard = ['Round of 16', 'Quarter-final', 'Semi-final', '3rd place playoff', 'Final'];
     const used = state.rounds.map((r) => r.roundName);
-    const names = new Set<string>([...standard, ...used]);
-    if (state.suggestedRoundName) names.add(state.suggestedRoundName);
-    if (roundName) names.add(roundName);
-    return [...names];
+    const extra = new Set<string>([...used]);
+    if (state.suggestedRoundName) extra.add(state.suggestedRoundName);
+    if (roundName) extra.add(roundName);
+    // Hierarchy first (in order), then any other names not already covered.
+    const ordered = STAGE_HIERARCHY.filter((n) => extra.has(n) || !used.includes(n));
+    for (const name of extra) {
+      if (!ordered.includes(name)) ordered.push(name);
+    }
+    return ordered;
   }, [state.rounds, state.suggestedRoundName, roundName]);
   const [customRoundName, setCustomRoundName] = useState(false);
 
@@ -126,7 +155,8 @@ export function KnockoutBuilder({ categoryId, initialState }: Props) {
     const result = await getKnockoutBuilderStateAction(categoryId);
     if ('data' in result) {
       setState(result.data);
-      setRoundName(result.data.suggestedRoundName ?? '');
+      setCustomRoundName(false);
+      setRoundName(defaultStageName(result.data));
     }
   }
 
