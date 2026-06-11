@@ -818,7 +818,7 @@ export function DrawSection({
 
       {/* Live standings — round-robin, swiss, group stage */}
       {showStandings && isDrawn && matches.length > 0 && (
-        <StandingsTable matches={matches} format={drawFormat} />
+        <StandingsTable matches={matches} format={drawFormat} advancePerGroup={gsAdvance} />
       )}
 
       {/* ── Fixed bottom confirmation bar ────────────────────────────────────

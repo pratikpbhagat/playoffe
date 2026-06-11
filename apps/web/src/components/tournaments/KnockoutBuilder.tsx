@@ -145,7 +145,9 @@ export function KnockoutBuilder({ categoryId, initialState }: Props) {
             />
           </div>
           <p className="mb-3 text-xs text-text-secondary">
-            Select two entries to create a match. Entries left unselected carry over to the next round automatically.
+            Select two entries to create a matchup. Entries remain available until they lose a match,
+            so you can pair the same team into multiple matchups if needed. Once you&apos;ve created all
+            the matchups for this round, schedule them from the Schedule tab.
           </p>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {state.currentPool.map((p) => {

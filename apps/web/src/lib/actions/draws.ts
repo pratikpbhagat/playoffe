@@ -1095,12 +1095,13 @@ export async function getKnockoutBuilderStateAction(categoryId: string): Promise
     };
   }
 
-  // Build initial pool from group qualifiers
-  const pool: KnockoutPoolEntry[] = [];
+  // Build initial pool from group qualifiers — these entries (the real players)
+  // are the entire universe that can ever appear in the knockout bracket.
+  const entryInfo = new Map<string, { displayName: string; label: string }>();
   for (const gName of groupNames) {
     const ranked = (rankedByGroup.get(gName) ?? []).slice(0, topPerGroup);
     ranked.forEach((entryId, i) => {
-      pool.push({ entryId, displayName: nameMap.get(entryId) ?? 'Unknown', label: `Group ${gName.replace('Group ', '')} #${i + 1}` });
+      entryInfo.set(entryId, { displayName: nameMap.get(entryId) ?? 'Unknown', label: `Group ${gName.replace('Group ', '')} #${i + 1}` });
     });
   }
 
@@ -1112,46 +1113,32 @@ export async function getKnockoutBuilderStateAction(categoryId: string): Promise
   }
   const sortedRounds = [...roundsMap.keys()].sort((a, b) => a - b);
 
-  let currentPool: KnockoutPoolEntry[] | null = pool;
-  let champion: KnockoutPoolEntry | null = null;
-  let roundInProgress = false;
-
+  // An entry is eliminated once it loses a completed/walkover knockout match.
+  // Winners simply remain in the active pool (with an updated "Winner – …"
+  // label) and can be paired into any number of subsequent matches — the admin
+  // has full discretion over matchups.
+  const eliminated = new Set<string>();
   for (const round of sortedRounds) {
     const roundMatches = roundsMap.get(round)!;
-    const usedIds = new Set<string>();
     for (const m of roundMatches) {
-      if (m.entry_a_id) usedIds.add(m.entry_a_id);
-      if (m.entry_b_id) usedIds.add(m.entry_b_id);
-    }
-    const allDone = roundMatches.every((m) => m.status === 'completed' || m.status === 'walkover');
-
-    if (!allDone) {
-      // This round is still in progress — admins can keep creating more matches
-      // for it. Available pool = current pool minus entries already paired here.
-      currentPool = (currentPool ?? []).filter((p) => !usedIds.has(p.entryId));
-      roundInProgress = true;
-      break;
-    }
-
-    // Round complete — advance pool: winners + carried-over (unused) entries
-    const winners: KnockoutPoolEntry[] = roundMatches
-      .filter((m) => m.winner_entry_id)
-      .map((m) => ({
-        entryId: m.winner_entry_id as string,
-        displayName: nameMap.get(m.winner_entry_id as string) ?? 'Unknown',
-        label: `Winner – ${m.round_name ?? `Round ${round}`}`,
-      }));
-    const carriedOver: KnockoutPoolEntry[] = (currentPool ?? []).filter((p) => !usedIds.has(p.entryId));
-    currentPool = [...winners, ...carriedOver];
-
-    if (currentPool.length === 1 && round === sortedRounds[sortedRounds.length - 1]) {
-      champion = currentPool[0];
-      currentPool = null;
+      if (m.status !== 'completed' && m.status !== 'walkover') continue;
+      if (!m.winner_entry_id) continue;
+      const loserId = m.winner_entry_id === m.entry_a_id ? m.entry_b_id : m.entry_a_id;
+      if (loserId) eliminated.add(loserId);
+      const info = entryInfo.get(m.winner_entry_id);
+      if (info) info.label = `Winner – ${m.round_name ?? `Round ${round}`}`;
     }
   }
 
-  if (!roundInProgress && currentPool && currentPool.length < 2) {
-    if (currentPool.length === 1) champion = currentPool[0];
+  let currentPool: KnockoutPoolEntry[] | null = [...entryInfo.entries()]
+    .filter(([entryId]) => !eliminated.has(entryId))
+    .map(([entryId, info]) => ({ entryId, displayName: info.displayName, label: info.label }));
+
+  let champion: KnockoutPoolEntry | null = null;
+  if (currentPool.length === 1) {
+    champion = currentPool[0];
+    currentPool = null;
+  } else if (currentPool.length === 0) {
     currentPool = null;
   }
 
