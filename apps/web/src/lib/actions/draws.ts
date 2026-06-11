@@ -957,8 +957,12 @@ export async function promoteGroupWinnersAction(categoryId: string) {
     .filter((m) => !m.entry_a_id && !m.entry_b_id)
     .sort((a, b) => a.round - b.round);
 
+  if (knockoutMatches.length === 0) {
+    return { error: 'No knockout bracket found — use "Reset knockout bracket" first, then promote group winners' };
+  }
+
   if (emptyKnockout.length === 0) {
-    return { error: 'Knockout slots are already filled — clear and regenerate if you want to re-promote' };
+    return { error: 'Knockout slots are already filled — use "Reset knockout bracket" if you want to re-promote' };
   }
 
   // Fill knockout slots pair by pair (each match gets entry_a and entry_b)
@@ -982,6 +986,139 @@ export async function promoteGroupWinnersAction(categoryId: string) {
   revalidatePath(`/tournaments/${tSlug}/categories/${cat.slug}`);
   revalidatePath(`/tournaments/${tSlug}/scoring`);
   return { success: true, promoted: advancingEntries.length };
+}
+
+// ── Reset knockout bracket (auto seeding) ──────────────────────────────────────
+// Deletes any existing knockout-stage matches (group_name IS NULL) for this
+// category — as long as none of them have started — and recreates empty
+// knockout placeholder matches from scratch, ready for `promoteGroupWinnersAction`.
+export async function resetKnockoutBracketAction(categoryId: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: 'Not authenticated' };
+
+  const cat = await assertCategoryManager(categoryId, user.id);
+  if (!cat) return { error: 'Permission denied' };
+
+  if (cat.draw_format !== 'group_stage_knockout') {
+    return { error: 'This action is only for group stage + knockout categories' };
+  }
+  if (cat.knockout_seeding === 'manual') {
+    return { error: 'This category uses manual knockout seeding — use the Knockout Builder instead' };
+  }
+
+  const admin = createAdminClient();
+
+  const { data: existingKnockout } = await admin
+    .from('matches')
+    .select('id, status, winner_entry_id')
+    .eq('category_id', categoryId)
+    .is('group_name', null);
+
+  const started = (existingKnockout ?? []).some(
+    (m) => m.status !== 'scheduled' || m.winner_entry_id,
+  );
+  if (started) {
+    return { error: 'Cannot reset — one or more knockout matches have already started or been played' };
+  }
+
+  // Delete existing (unstarted) knockout matches
+  if (existingKnockout && existingKnockout.length > 0) {
+    await admin.from('matches').delete().eq('category_id', categoryId).is('group_name', null);
+  }
+
+  // Rebuild the knockout bracket structure (empty slots) from the draw engine
+  const { data: entries, error: entryErr } = await admin
+    .from('tournament_entries')
+    .select('id, seed, players!player_id(id, full_name, username, global_stats(current_rating))')
+    .eq('category_id', categoryId)
+    .eq('status', 'active');
+  if (entryErr || !entries) return { error: 'Failed to fetch entries' };
+
+  const drawEntries: DrawEntry[] = entries.map((e) => {
+    const player = e.players as {
+      id: string;
+      full_name: string;
+      username: string;
+      global_stats: { current_rating: number } | null;
+    } | null;
+    return {
+      entry_id: e.id,
+      player_ids: player ? [player.id] : [],
+      display_name: player?.full_name ?? 'Unknown',
+      seed: e.seed,
+      rating: player?.global_stats?.current_rating ?? 3.5,
+    };
+  });
+
+  const catAny = cat as typeof cat & {
+    max_entries?: number | null;
+    groups_count?: number | null;
+    group_sizes?: number[] | null;
+    advance_per_group?: number | null;
+    has_third_place_match?: boolean | null;
+    knockout_seeding?: 'auto' | 'manual' | null;
+  };
+  const groupsCount = catAny.groups_count ?? null;
+  const groupSize = groupsCount && catAny.max_entries
+    ? Math.ceil(catAny.max_entries / groupsCount)
+    : 4;
+
+  const config: DrawConfig = {
+    format: cat.draw_format as DrawConfig['format'],
+    entries: drawEntries,
+    category_id: categoryId,
+    group_size: groupSize,
+    ...(catAny.group_sizes?.length && { group_sizes: catAny.group_sizes }),
+    top_per_group_advance: catAny.advance_per_group ?? 2,
+    has_third_place_match: catAny.has_third_place_match ?? false,
+    knockout_seeding: 'auto',
+  };
+
+  let draw;
+  try {
+    draw = generateDraw(config);
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Failed to rebuild knockout bracket' };
+  }
+
+  const knockoutRoundMatches = draw.rounds.flatMap((r) =>
+    r.matches
+      .filter((m) => m.group_name === null)
+      .map((m, i) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const ext = m as any;
+        return {
+          id: m.id,
+          tournament_id: cat.tournamentData.id,
+          category_id: categoryId,
+          round: m.round,
+          round_name: m.round_name,
+          group_name: null,
+          entry_a_id: m.entry_a?.entry_id ?? null,
+          entry_b_id: m.entry_b?.entry_id ?? null,
+          status: 'scheduled' as const,
+          sets: [],
+          bracket_position: i,
+          bracket_type: ext._bracket_type ?? null,
+          winner_to_match_id: ext._winner_to_match_id ?? null,
+          loser_to_match_id: ext._loser_to_match_id ?? null,
+          winner_slot: ext._winner_slot ?? null,
+          loser_slot: ext._loser_slot ?? null,
+        };
+      }),
+  );
+
+  if (knockoutRoundMatches.length === 0) {
+    return { error: 'Failed to rebuild knockout bracket — no knockout rounds found' };
+  }
+
+  const { error: insertErr } = await admin.from('matches').insert(knockoutRoundMatches);
+  if (insertErr) return { error: `Failed to recreate knockout matches: ${insertErr.message}` };
+
+  const tSlug = cat.tournamentData.slug;
+  revalidatePath(`/tournaments/${tSlug}/categories/${cat.slug}`);
+  return { success: true, matchCount: knockoutRoundMatches.length };
 }
 
 // ── Manual Knockout Builder ────────────────────────────────────────────────────

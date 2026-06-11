@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { generateDrawAction, clearDrawAction, generateNextSwissRoundAction, promoteGroupWinnersAction, swapDrawEntriesAction, replaceDrawEntryAction } from '@/lib/actions/draws';
+import { generateDrawAction, clearDrawAction, generateNextSwissRoundAction, promoteGroupWinnersAction, resetKnockoutBracketAction, swapDrawEntriesAction, replaceDrawEntryAction } from '@/lib/actions/draws';
 import { updateCategoryAction } from '@/lib/actions/categories';
 import { getKnockoutRoundNames, deriveKnockoutTeams } from '@/lib/utils/groupStageConfig';
 import { shareDrawOnSocialAction } from '@/lib/actions/social';
@@ -73,6 +73,7 @@ export function DrawSection({
   const [loading, setLoading] = useState(false);
   const [generatingSwissRound, setGeneratingSwissRound] = useState(false);
   const [promotingGroups, setPromotingGroups] = useState(false);
+  const [resettingKnockout, setResettingKnockout] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showRegenConfirm, setShowRegenConfirm] = useState(false);
   const [matches, setMatches] = useState(initialMatches);
@@ -207,10 +208,26 @@ export function DrawSection({
   const allGroupMatchesDone =
     groupMatches.length > 0 &&
     groupMatches.every((m) => m.status === 'completed' || m.status === 'walkover');
-  const knockoutSlotsEmpty = knockoutMatches.some((m) => !m.entry_a && !m.entry_b);
+  // Only the first knockout round is filled by "Promote group winners" — once
+  // those slots are populated, the button should stay hidden even though later
+  // rounds (semis, final) still have empty placeholder slots.
+  const firstKnockoutRound = knockoutMatches.length > 0
+    ? Math.min(...knockoutMatches.map((m) => m.round))
+    : null;
+  const firstRoundKnockoutMatches = knockoutMatches.filter((m) => m.round === firstKnockoutRound);
+  const knockoutSlotsEmpty = firstRoundKnockoutMatches.every((m) => !m.entry_a && !m.entry_b);
   const knockoutSeeding = localKnockoutSeeding;
-  const canPromoteGroups = isGroupKnockout && isDrawn && allGroupMatchesDone && knockoutSlotsEmpty && knockoutSeeding === 'auto';
+  const canPromoteGroups =
+    isGroupKnockout && isDrawn && allGroupMatchesDone && knockoutMatches.length > 0
+    && knockoutSlotsEmpty && knockoutSeeding === 'auto';
   const showKnockoutBuilderLink = isGroupKnockout && isDrawn && allGroupMatchesDone && knockoutSeeding === 'manual';
+
+  // Knockout bracket can be (re)built from group standings as long as no
+  // knockout match has started yet — covers both "no bracket exists" and
+  // "bracket already filled but needs to be redone" cases.
+  const knockoutNotStarted = knockoutMatches.every((m) => m.status === 'scheduled');
+  const canResetKnockout =
+    isGroupKnockout && isDrawn && allGroupMatchesDone && knockoutSeeding === 'auto' && knockoutNotStarted;
 
   async function handlePromoteGroups() {
     setPromotingGroups(true);
@@ -222,6 +239,18 @@ export function DrawSection({
       router.refresh();
     }
     setPromotingGroups(false);
+  }
+
+  async function handleResetKnockout() {
+    setResettingKnockout(true);
+    setError(null);
+    const result = await resetKnockoutBracketAction(categoryId);
+    if ('error' in result && result.error) {
+      setError(result.error);
+    } else {
+      router.refresh();
+    }
+    setResettingKnockout(false);
   }
 
   // True once any match has moved past 'scheduled' — blocks regeneration
@@ -425,6 +454,18 @@ export function DrawSection({
                       className="rounded-lg border border-brand-600 px-3 py-1.5 text-xs text-brand-400 hover:bg-brand-600/10 transition-colors disabled:opacity-50"
                     >
                       {promotingGroups ? 'Promoting…' : 'Promote group winners →'}
+                    </button>
+                  )}
+
+                  {/* Group stage knockout: clear/rebuild empty knockout slots */}
+                  {canResetKnockout && !showRegenConfirm && (
+                    <button
+                      onClick={handleResetKnockout}
+                      disabled={resettingKnockout}
+                      title="Clear the knockout-stage matches and rebuild empty bracket slots from group standings"
+                      className="rounded-lg border border-surface-border px-3 py-1.5 text-xs text-slate-400 hover:bg-surface-border/30 transition-colors disabled:opacity-50"
+                    >
+                      {resettingKnockout ? 'Resetting…' : 'Reset knockout bracket ↺'}
                     </button>
                   )}
 

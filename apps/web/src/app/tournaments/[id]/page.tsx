@@ -123,6 +123,53 @@ export default async function TournamentPage({ params }: Props) {
     countByCategory[e.category_id] = (countByCategory[e.category_id] ?? 0) + 1;
   }
 
+  // Current stage per category — e.g. "Group stage", "Round of 16", "Final"
+  const { data: stageMatches } = await admin
+    .from('matches')
+    .select('category_id, round, round_name, group_name, status, entry_a_id, entry_b_id')
+    .eq('tournament_id', t.id);
+
+  const stageByCategory: Record<string, string> = {};
+  const matchesByCategory = new Map<string, typeof stageMatches extends (infer R)[] | null ? R[] : never>();
+  for (const m of stageMatches ?? []) {
+    const list = matchesByCategory.get(m.category_id) ?? [];
+    list.push(m);
+    matchesByCategory.set(m.category_id, list);
+  }
+  for (const [catId, ms] of matchesByCategory) {
+    const groupMatches = ms.filter((m) => m.group_name !== null);
+    const knockoutMatches = ms.filter((m) => m.group_name === null);
+    const isDone = (m: { status: string }) => m.status === 'completed' || m.status === 'walkover';
+
+    if (groupMatches.length > 0 && !groupMatches.every(isDone)) {
+      stageByCategory[catId] = 'Group stage';
+      continue;
+    }
+
+    if (knockoutMatches.length > 0) {
+      if (knockoutMatches.every(isDone)) {
+        continue; // fully complete — base status badge already says "Completed"
+      }
+      const playable = knockoutMatches
+        .filter((m) => m.entry_a_id && m.entry_b_id && !isDone(m))
+        .sort((a, b) => a.round - b.round);
+      if (playable.length > 0) {
+        stageByCategory[catId] = playable[0].round_name ?? `Round ${playable[0].round}`;
+      } else if (groupMatches.length > 0) {
+        stageByCategory[catId] = 'Group stage complete';
+      }
+      continue;
+    }
+
+    // No group/knockout split (e.g. round robin, swiss, single/double elim)
+    const playable = ms
+      .filter((m) => m.entry_a_id && m.entry_b_id && !isDone(m))
+      .sort((a, b) => a.round - b.round);
+    if (playable.length > 0 && ms.some((m) => isDone(m))) {
+      stageByCategory[catId] = playable[0].round_name ?? `Round ${playable[0].round}`;
+    }
+  }
+
   type Category = {
     id: string;
     name: string;
@@ -309,6 +356,7 @@ export default async function TournamentPage({ params }: Props) {
               {categories.map((cat) => {
                 const entryCount = countByCategory[cat.id] ?? 0;
                 const catStatus = CATEGORY_STATUS[cat.status] ?? CATEGORY_STATUS.pending;
+                const stageLabel = stageByCategory[cat.id];
                 return (
                   <Link
                     key={cat.id}
@@ -321,6 +369,11 @@ export default async function TournamentPage({ params }: Props) {
                         <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${catStatus.className}`}>
                           {catStatus.label}
                         </span>
+                        {stageLabel && (
+                          <span className="shrink-0 rounded-full bg-surface-border/50 px-2 py-0.5 text-[10px] font-semibold text-slate-300">
+                            {stageLabel}
+                          </span>
+                        )}
                       </div>
                       <p className="mt-0.5 text-xs text-slate-500">
                         {PLAY_FORMAT_LABEL[cat.play_format] ?? cat.play_format} ·{' '}
