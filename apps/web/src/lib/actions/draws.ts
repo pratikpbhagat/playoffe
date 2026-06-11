@@ -1252,9 +1252,17 @@ export async function getKnockoutBuilderStateAction(categoryId: string): Promise
 
   let currentPool: KnockoutPoolEntry[] | null = pool;
 
-  const existingPairs: [string, string][] = knockoutMatches
-    .filter((m) => m.entry_a_id && m.entry_b_id)
-    .map((m) => [m.entry_a_id as string, m.entry_b_id as string]);
+  // Duplicate-pairing checks only apply within the current stage (the round
+  // currently being built) — teams may face each other again in a later
+  // stage of the knockout.
+  const maxRound = sortedRounds.length > 0 ? Math.max(...sortedRounds) : null;
+  const maxRoundMatches = maxRound !== null ? roundsMap.get(maxRound)! : [];
+  const maxRoundDone = maxRoundMatches.every((m) => m.status === 'completed' || m.status === 'walkover');
+  const existingPairs: [string, string][] = (maxRound !== null && !maxRoundDone)
+    ? maxRoundMatches
+        .filter((m) => m.entry_a_id && m.entry_b_id)
+        .map((m) => [m.entry_a_id as string, m.entry_b_id as string])
+    : [];
 
   let champion: KnockoutPoolEntry | null = null;
   if (currentPool.length === 1) {
