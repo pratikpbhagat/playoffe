@@ -234,7 +234,38 @@ export async function getAllClubsAction() {
       }> | null;
     };
 
-  return clubs ?? [];
+  const { data: planLimits } = await (admin.from('plan_limits') as any).select('*') as {
+    data: Array<{
+      tier: string;
+      max_active_tournaments: number | null;
+      max_participants_per_tournament: number | null;
+      max_categories_per_tournament: number | null;
+      max_club_managers: number | null;
+    }> | null;
+  };
+  const limitsByTier = new Map((planLimits ?? []).map((p) => [p.tier, p]));
+
+  const clubList = clubs ?? [];
+
+  // Active tournament counts per club, in one query
+  const { data: tournamentCounts } = await (admin.from('tournaments') as any)
+    .select('club_id')
+    .in('status', ['draft', 'registration_open', 'in_progress']) as {
+      data: Array<{ club_id: string }> | null;
+    };
+  const activeCountByClub = new Map<string, number>();
+  for (const row of tournamentCounts ?? []) {
+    activeCountByClub.set(row.club_id, (activeCountByClub.get(row.club_id) ?? 0) + 1);
+  }
+
+  return clubList.map((club) => {
+    const limits = limitsByTier.get(club.subscription_tier);
+    return {
+      ...club,
+      activeTournaments: activeCountByClub.get(club.id) ?? 0,
+      maxActiveTournaments: limits?.max_active_tournaments ?? null,
+    };
+  });
 }
 
 export async function suspendClubAction(clubId: string, suspend: boolean) {

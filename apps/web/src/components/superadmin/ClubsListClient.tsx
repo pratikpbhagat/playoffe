@@ -11,6 +11,8 @@ type Club = {
   subscription_tier: string;
   is_suspended: boolean | null;
   created_at: string;
+  activeTournaments: number;
+  maxActiveTournaments: number | null;
 };
 
 const TIER_STYLE: Record<string, string> = {
@@ -137,6 +139,13 @@ export function ClubsListClient({ clubs }: Props) {
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5">
                   {club.slug} · Created {new Date(club.created_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  {' · '}
+                  {club.activeTournaments}
+                  {club.maxActiveTournaments !== null ? ` / ${club.maxActiveTournaments}` : ''} active tournament
+                  {club.activeTournaments === 1 && club.maxActiveTournaments === 1 ? '' : 's'}
+                  {club.maxActiveTournaments !== null && club.activeTournaments >= club.maxActiveTournaments && (
+                    <span className="ml-1 text-amber-400">(at limit)</span>
+                  )}
                 </p>
               </div>
 

@@ -532,6 +532,81 @@ export type Database = {
         }
         Relationships: []
       }
+      tournament_pricing_tiers: {
+        Row: {
+          id: number
+          min_players: number
+          max_players: number | null
+          fee_paise: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: number
+          min_players: number
+          max_players?: number | null
+          fee_paise: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: number
+          min_players?: number
+          max_players?: number | null
+          fee_paise?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      plan_limits: {
+        Row: {
+          tier: Database["public"]["Enums"]["subscription_tier_enum"]
+          max_active_tournaments: number | null
+          max_participants_per_tournament: number | null
+          max_categories_per_tournament: number | null
+          max_club_managers: number | null
+          feature_live_scoring: boolean
+          feature_referee_app: boolean
+          feature_custom_branding: boolean
+          feature_advanced_analytics: boolean
+          monthly_price_paise: number
+          annual_price_paise: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          tier: Database["public"]["Enums"]["subscription_tier_enum"]
+          max_active_tournaments?: number | null
+          max_participants_per_tournament?: number | null
+          max_categories_per_tournament?: number | null
+          max_club_managers?: number | null
+          feature_live_scoring?: boolean
+          feature_referee_app?: boolean
+          feature_custom_branding?: boolean
+          feature_advanced_analytics?: boolean
+          monthly_price_paise?: number
+          annual_price_paise?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          tier?: Database["public"]["Enums"]["subscription_tier_enum"]
+          max_active_tournaments?: number | null
+          max_participants_per_tournament?: number | null
+          max_categories_per_tournament?: number | null
+          max_club_managers?: number | null
+          feature_live_scoring?: boolean
+          feature_referee_app?: boolean
+          feature_custom_branding?: boolean
+          feature_advanced_analytics?: boolean
+          monthly_price_paise?: number
+          annual_price_paise?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       feed_posts: {
         Row: {
           body: string
