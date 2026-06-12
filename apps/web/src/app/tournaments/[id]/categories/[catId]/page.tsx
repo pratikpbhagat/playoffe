@@ -281,6 +281,7 @@ export default async function CategoryPage({ params }: Props) {
               currentGroupsCount={(category as { groups_count?: number | null }).groups_count ?? null}
               currentAdvancePerGroup={(category as { advance_per_group?: number }).advance_per_group ?? 2}
               currentHasThirdPlaceMatch={(category as { has_third_place_match?: boolean }).has_third_place_match ?? false}
+              currentKnockoutSeeding={(category as { knockout_seeding?: 'auto' | 'manual' }).knockout_seeding ?? 'auto'}
             />
           </div>
         </div>
@@ -348,6 +349,7 @@ export default async function CategoryPage({ params }: Props) {
 
         <DrawSection
           categoryId={categoryId}
+          categorySlug={catSlug}
           tournamentSlug={tournamentSlug}
           drawFormat={drawFormat}
           categoryStatus={categoryStatus}
@@ -356,6 +358,12 @@ export default async function CategoryPage({ params }: Props) {
           showStandings={false}
           stalenessInfo={{ withdrawnInDraw, unplacedActive }}
           shareOnSocialEnabled={canShareOnSocial}
+          groupStageConfig={drawFormat === 'group_stage_knockout' ? {
+            groupsCount: (category as { groups_count?: number | null }).groups_count ?? null,
+            advancePerGroup: (category as { advance_per_group?: number }).advance_per_group ?? 2,
+            hasThirdPlaceMatch: (category as { has_third_place_match?: boolean }).has_third_place_match ?? false,
+            knockoutSeeding: (category as { knockout_seeding?: 'auto' | 'manual' }).knockout_seeding ?? 'auto',
+          } : undefined}
         />
 
         {/* Stage scoring overrides — shown for elimination-type formats */}

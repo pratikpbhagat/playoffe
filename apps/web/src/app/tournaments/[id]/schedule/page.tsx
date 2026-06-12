@@ -81,6 +81,7 @@ export default async function SchedulePage({ params }: Props) {
       tc:tournament_categories!category_id(name)
     `)
     .eq('tournament_id', tData.id)
+    .eq('status', 'scheduled')
     .not('entry_a_id', 'is', null)
     .not('entry_b_id', 'is', null)
     .order('scheduled_time', { ascending: true, nullsFirst: true })

@@ -96,16 +96,30 @@ function buildStandings(matches: MatchWithPlayers[], includeAll = false): Map<st
   return map;
 }
 
-function sortStandings(standings: Standing[]): Standing[] {
+function sortStandings(standings: Standing[], matches?: MatchWithPlayers[]): Standing[] {
   return standings.sort((a, b) => {
     // 1. Most wins
     if (b.wins !== a.wins) return b.wins - a.wins;
-    // 2. Best set differential
-    const aDiff = a.setsWon - a.setsLost;
-    const bDiff = b.setsWon - b.setsLost;
-    if (bDiff !== aDiff) return bDiff - aDiff;
+    // 2. Fewest losses
+    if (a.losses !== b.losses) return a.losses - b.losses;
     // 3. Best point differential
-    return (b.pointsWon - b.pointsLost) - (a.pointsWon - a.pointsLost);
+    const aDiff = a.pointsWon - a.pointsLost;
+    const bDiff = b.pointsWon - b.pointsLost;
+    if (bDiff !== aDiff) return bDiff - aDiff;
+    // 4. Most points scored
+    if (b.pointsWon !== a.pointsWon) return b.pointsWon - a.pointsWon;
+    // 5. Fewest points given
+    if (a.pointsLost !== b.pointsLost) return a.pointsLost - b.pointsLost;
+    // 6. Head-to-head result between the two tied teams
+    if (matches) {
+      const h2h = matches.find((m) =>
+        (m.entry_a?.id === a.entryId && m.entry_b?.id === b.entryId) ||
+        (m.entry_a?.id === b.entryId && m.entry_b?.id === a.entryId),
+      );
+      if (h2h?.winner_entry_id === b.entryId) return 1;
+      if (h2h?.winner_entry_id === a.entryId) return -1;
+    }
+    return 0;
   });
 }
 
@@ -149,7 +163,7 @@ export function StandingsTable({ matches, format, advancePerGroup }: Props) {
             const gTotal = gMatches.filter((m) => m.entry_a !== null && m.entry_b !== null).length;
             // includeAll=true so every player in the group appears even before play starts
             const groupStandings = buildStandings(gMatches, true);
-            const sorted = sortStandings([...groupStandings.values()]);
+            const sorted = sortStandings([...groupStandings.values()], gMatches);
             return (
               <div key={groupName} className="rounded-xl bg-surface-card ring-1 ring-surface-border overflow-hidden">
                 <div className="border-b border-surface-border px-4 py-2.5 flex items-center justify-between">
@@ -165,7 +179,7 @@ export function StandingsTable({ matches, format, advancePerGroup }: Props) {
     );
   }
 
-  const sorted = sortStandings([...standingsMap.values()]);
+  const sorted = sortStandings([...standingsMap.values()], relevantMatches);
 
   return (
     <section className="mt-8">

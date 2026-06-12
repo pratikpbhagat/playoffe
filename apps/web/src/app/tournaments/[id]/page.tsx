@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { notFound, redirect } from 'next/navigation';
 import Link from 'next/link';
 import { cookies } from 'next/headers';
-import { createClient, createAdminClient, getUserRoles } from '@/lib/supabase/server';
+import { createClient, createAdminClient, getUserRoles, isSuperAdmin } from '@/lib/supabase/server';
 import { AppNav } from '@/components/layout/AppNav';
 import { TournamentStatusControl } from '@/components/tournaments/TournamentStatusControl';
 import { AddCategoryInline } from '@/components/tournaments/AddCategoryInline';
@@ -90,6 +90,9 @@ export default async function TournamentPage({ params }: Props) {
     : isAdminRole ? 'admin'
     : 'player';
 
+  // Once a tournament is completed, only super admins can edit it or add categories
+  const canEditCompleted = isSuperAdmin(user);
+
   if (activeMode === 'player') {
     // Redirect to the public-facing event page (shows registration, draw, etc.)
     redirect(`/events/${slug}`);
@@ -121,6 +124,53 @@ export default async function TournamentPage({ params }: Props) {
   const countByCategory: Record<string, number> = {};
   for (const e of entryCounts ?? []) {
     countByCategory[e.category_id] = (countByCategory[e.category_id] ?? 0) + 1;
+  }
+
+  // Current stage per category — e.g. "Group stage", "Round of 16", "Final"
+  const { data: stageMatches } = await admin
+    .from('matches')
+    .select('category_id, round, round_name, group_name, status, entry_a_id, entry_b_id')
+    .eq('tournament_id', t.id);
+
+  const stageByCategory: Record<string, string> = {};
+  const matchesByCategory = new Map<string, typeof stageMatches extends (infer R)[] | null ? R[] : never>();
+  for (const m of stageMatches ?? []) {
+    const list = matchesByCategory.get(m.category_id) ?? [];
+    list.push(m);
+    matchesByCategory.set(m.category_id, list);
+  }
+  for (const [catId, ms] of matchesByCategory) {
+    const groupMatches = ms.filter((m) => m.group_name !== null);
+    const knockoutMatches = ms.filter((m) => m.group_name === null);
+    const isDone = (m: { status: string }) => m.status === 'completed' || m.status === 'walkover';
+
+    if (groupMatches.length > 0 && !groupMatches.every(isDone)) {
+      stageByCategory[catId] = 'Group stage';
+      continue;
+    }
+
+    if (knockoutMatches.length > 0) {
+      if (knockoutMatches.every(isDone)) {
+        continue; // fully complete — base status badge already says "Completed"
+      }
+      const playable = knockoutMatches
+        .filter((m) => m.entry_a_id && m.entry_b_id && !isDone(m))
+        .sort((a, b) => a.round - b.round);
+      if (playable.length > 0) {
+        stageByCategory[catId] = playable[0].round_name ?? `Round ${playable[0].round}`;
+      } else if (groupMatches.length > 0) {
+        stageByCategory[catId] = 'Group stage complete';
+      }
+      continue;
+    }
+
+    // No group/knockout split (e.g. round robin, swiss, single/double elim)
+    const playable = ms
+      .filter((m) => m.entry_a_id && m.entry_b_id && !isDone(m))
+      .sort((a, b) => a.round - b.round);
+    if (playable.length > 0 && ms.some((m) => isDone(m))) {
+      stageByCategory[catId] = playable[0].round_name ?? `Round ${playable[0].round}`;
+    }
   }
 
   type Category = {
@@ -175,12 +225,14 @@ export default async function TournamentPage({ params }: Props) {
 
           {/* Actions — stacked on mobile, inline row on desktop */}
           <div className="flex flex-col gap-2 shrink-0 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
-            <Link
-              href={`/tournaments/${slug}/edit`}
-              className="flex items-center justify-center gap-1.5 rounded-lg border border-slate-600 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-surface-card hover:border-slate-500 transition-colors sm:justify-start"
-            >
-              <span>✏️</span> Edit
-            </Link>
+            {(t.status !== 'completed' || canEditCompleted) && (
+              <Link
+                href={`/tournaments/${slug}/edit`}
+                className="flex items-center justify-center gap-1.5 rounded-lg border border-slate-600 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-surface-card hover:border-slate-500 transition-colors sm:justify-start"
+              >
+                <span>✏️</span> Edit
+              </Link>
+            )}
             <TournamentStatusControl
               tournamentId={t.id}
               currentStatus={t.status as TournamentStatus}
@@ -288,6 +340,7 @@ export default async function TournamentPage({ params }: Props) {
         <div>
           <div className="flex items-center justify-between">
             <h2 className="text-base font-semibold text-white">Categories</h2>
+            {(t.status !== 'completed' || canEditCompleted) && (
             <AddCategoryInline
               tournamentId={t.id}
               tournamentScoringFormat={((t as { scoring_format?: string }).scoring_format ?? 'rally') as 'rally' | 'traditional'}
@@ -296,6 +349,7 @@ export default async function TournamentPage({ params }: Props) {
               tournamentWinBy={((t as { win_by?: number }).win_by ?? 2) as 1 | 2}
               tournamentDeuceCap={(t as { deuce_cap?: number | null }).deuce_cap ?? null}
             />
+            )}
           </div>
 
           {categories.length === 0 ? (
@@ -309,6 +363,7 @@ export default async function TournamentPage({ params }: Props) {
               {categories.map((cat) => {
                 const entryCount = countByCategory[cat.id] ?? 0;
                 const catStatus = CATEGORY_STATUS[cat.status] ?? CATEGORY_STATUS.pending;
+                const stageLabel = stageByCategory[cat.id];
                 return (
                   <Link
                     key={cat.id}
@@ -321,6 +376,11 @@ export default async function TournamentPage({ params }: Props) {
                         <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${catStatus.className}`}>
                           {catStatus.label}
                         </span>
+                        {stageLabel && (
+                          <span className="shrink-0 rounded-full bg-surface-border/50 px-2 py-0.5 text-[10px] font-semibold text-slate-300">
+                            {stageLabel}
+                          </span>
+                        )}
                       </div>
                       <p className="mt-0.5 text-xs text-slate-500">
                         {PLAY_FORMAT_LABEL[cat.play_format] ?? cat.play_format} ·{' '}

@@ -4,9 +4,11 @@ import { singleElimination } from './single-elimination';
 import { makeId } from '../utils';
 
 export function groupStageKnockout(config: DrawConfig): GeneratedDraw {
-  const { entries, category_id, group_size = 4, top_per_group_advance = 2 } = config;
+  const { entries, category_id, group_size = 4, group_sizes, top_per_group_advance = 2 } = config;
 
-  const groups = splitIntoGroups(entries, group_size);
+  const groups = group_sizes && group_sizes.length > 0
+    ? splitIntoGroupsBySizes(entries, group_sizes)
+    : splitIntoGroups(entries, group_size);
   const drawGroups: DrawGroup[] = groups.map((groupEntries, idx) => {
     const groupName = String.fromCharCode(65 + idx);
     const groupDraw = roundRobin({ ...config, entries: groupEntries, category_id });
@@ -16,6 +18,29 @@ export function groupStageKnockout(config: DrawConfig): GeneratedDraw {
     }));
     return { name: `Group ${groupName}`, entries: groupEntries, matches };
   });
+
+  if (config.knockout_seeding === 'manual') {
+    const groupRoundsOnly = drawGroups.flatMap((g) => {
+      const matchesByRound = new Map<number, typeof g.matches>();
+      g.matches.forEach((m) => {
+        const list = matchesByRound.get(m.round) ?? [];
+        list.push(m);
+        matchesByRound.set(m.round, list);
+      });
+      return Array.from(matchesByRound.entries()).map(([round, matches]) => ({
+        round,
+        round_name: `Group Stage - Round ${round}`,
+        matches,
+      }));
+    });
+    return {
+      format: 'group_stage_knockout',
+      category_id,
+      rounds: groupRoundsOnly,
+      groups: drawGroups,
+      generated_at: new Date().toISOString(),
+    };
+  }
 
   const knockoutEntryCount = groups.length * top_per_group_advance;
   // Use placeholder entries just to determine bracket structure — entry IDs are
@@ -81,6 +106,17 @@ function splitIntoGroups<T>(arr: T[], groupSize: number): T[][] {
   const groups: T[][] = [];
   for (let i = 0; i < arr.length; i += groupSize) {
     groups.push(arr.slice(i, i + groupSize));
+  }
+  return groups;
+}
+
+/** Split entries into groups of explicitly specified sizes (ordered). */
+function splitIntoGroupsBySizes<T>(arr: T[], sizes: number[]): T[][] {
+  const groups: T[][] = [];
+  let offset = 0;
+  for (const size of sizes) {
+    groups.push(arr.slice(offset, offset + size));
+    offset += size;
   }
   return groups;
 }

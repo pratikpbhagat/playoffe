@@ -182,14 +182,6 @@ export default async function TournamentResultsPage({ params }: Props) {
                       </p>
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
-                      {/* Finalize button — shown when all matches done but results not yet recorded */}
-                      {!cat.winner_entry_id && (pendingByCat[cat.id] ?? 0) === 0 && (
-                        <FinalizeCategoryButton
-                          categoryId={cat.id}
-                          categoryName={cat.name}
-                          hasResults={!!cat.winner_entry_id}
-                        />
-                      )}
                       <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${
                         cat.status === 'completed'
                           ? 'bg-accent-500/10 text-accent-400 ring-1 ring-accent-500/20'
@@ -222,6 +214,12 @@ export default async function TournamentResultsPage({ params }: Props) {
                         );
                       })}
                     </div>
+                  ) : (pendingByCat[cat.id] ?? 0) === 0 ? (
+                    <FinalizeCategoryButton
+                      categoryId={cat.id}
+                      categoryName={cat.name}
+                      hasResults={!!cat.winner_entry_id}
+                    />
                   ) : (
                     <div className="px-6 py-8 text-center">
                       <p className="text-sm text-slate-600">No results recorded yet</p>

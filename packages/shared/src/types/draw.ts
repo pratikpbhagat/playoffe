@@ -5,6 +5,9 @@ export interface DrawConfig {
   entries: DrawEntry[];
   category_id: string;
   group_size?: number;
+  /** Per-group sizes (ordered). When provided, overrides group_size and allows
+   *  uneven groups — e.g. [6, 5, 5, 5] for 21 entries in 4 groups. */
+  group_sizes?: number[];
   groups_per_page?: number;
   top_per_group_advance?: number;
   min_rest_minutes?: number;
@@ -12,6 +15,11 @@ export interface DrawConfig {
    *  Defaults to true for single_elimination (backward-compat).
    *  Explicitly set to false to suppress it. */
   has_third_place_match?: boolean;
+  /** For group_stage_knockout: 'auto' (default) generates the full knockout
+   *  bracket with byes when groups × advance isn't a power of 2. 'manual'
+   *  generates only the group stage — knockout matches are created later by
+   *  the organiser via the Knockout Builder. */
+  knockout_seeding?: 'auto' | 'manual';
 }
 
 export interface DrawEntry {

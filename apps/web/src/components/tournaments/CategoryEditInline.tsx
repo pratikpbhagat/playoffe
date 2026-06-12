@@ -10,7 +10,9 @@ import {
   suggestGroupConfig,
   deriveGroupSize,
   deriveKnockoutTeams,
+  deriveBracketSize,
   getKnockoutRoundNames,
+  getSuggestedGroupOptions,
 } from '@/lib/utils/groupStageConfig';
 
 interface Props {
@@ -39,6 +41,7 @@ interface Props {
   currentGroupsCount: number | null;
   currentAdvancePerGroup: number;
   currentHasThirdPlaceMatch: boolean;
+  currentKnockoutSeeding?: 'auto' | 'manual';
 }
 
 const PLAY_FORMAT_OPTS = [
@@ -80,6 +83,7 @@ export function CategoryEditInline({
   currentGroupsCount,
   currentAdvancePerGroup,
   currentHasThirdPlaceMatch,
+  currentKnockoutSeeding,
 }: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -95,6 +99,8 @@ export function CategoryEditInline({
   const [groupsCount, setGroupsCount] = useState(currentGroupsCount != null ? String(currentGroupsCount) : '');
   const [advancePerGroup, setAdvancePerGroup] = useState(String(currentAdvancePerGroup));
   const [hasThirdPlaceMatch, setHasThirdPlaceMatch] = useState(currentHasThirdPlaceMatch);
+  const [knockoutSeeding, setKnockoutSeeding] = useState<'auto' | 'manual'>(currentKnockoutSeeding ?? 'auto');
+  const [extraGroupIndex, setExtraGroupIndex] = useState(0);
 
   // Scoring
   const [scoringOverride, setScoringOverride] = useState(currentScoringOverride);
@@ -114,12 +120,25 @@ export function CategoryEditInline({
   const maxEntriesNum = parseInt(maxEntries, 10);
   const hasMaxEntries = !isNaN(maxEntriesNum) && maxEntriesNum >= 2;
 
-  const suggestedConfig = hasMaxEntries ? suggestGroupConfig(maxEntriesNum) : null;
-  const effectiveGroups = groupsCount ? parseInt(groupsCount, 10) : (suggestedConfig?.groupsCount ?? 0);
   const effectiveAdvance = parseInt(advancePerGroup, 10) || 2;
+  const suggestedConfig = hasMaxEntries ? suggestGroupConfig(maxEntriesNum, effectiveAdvance) : null;
+  const effectiveGroups = groupsCount ? parseInt(groupsCount, 10) : (suggestedConfig?.groupsCount ?? 0);
   const groupSize = (hasMaxEntries && effectiveGroups > 0) ? deriveGroupSize(maxEntriesNum, effectiveGroups) : 0;
   const knockoutTeams = effectiveGroups > 0 ? deriveKnockoutTeams(effectiveGroups, effectiveAdvance) : 0;
   const knockoutRounds = knockoutTeams >= 2 ? getKnockoutRoundNames(knockoutTeams) : [];
+  const knockoutByes = knockoutTeams >= 2 ? deriveBracketSize(knockoutTeams).byes : 0;
+  const allOptions = hasMaxEntries ? getSuggestedGroupOptions(maxEntriesNum, effectiveAdvance) : [];
+
+  // Per-group sizes array — handles uneven distribution
+  const groupSizes: number[] = (() => {
+    if (!hasMaxEntries || effectiveGroups <= 0) return [];
+    const base = Math.floor(maxEntriesNum / effectiveGroups);
+    const remainder = maxEntriesNum % effectiveGroups;
+    if (remainder === 0) return Array(effectiveGroups).fill(base);
+    return Array.from({ length: effectiveGroups }, (_, i) =>
+      i === extraGroupIndex ? base + remainder : base,
+    );
+  })();
 
   function handleMaxEntriesChange(val: string) {
     setMaxEntries(val);
@@ -178,6 +197,7 @@ export function CategoryEditInline({
       groups_count: effectiveGroups > 0 ? effectiveGroups : null,
       advance_per_group: effectiveAdvance,
       has_third_place_match: hasThirdPlaceMatch,
+      knockout_seeding: knockoutTeams >= 2 ? knockoutSeeding : 'auto',
     });
 
     setLoading(false);
@@ -287,16 +307,23 @@ export function CategoryEditInline({
             <GroupStageConfigPanel
               maxEntries={hasMaxEntries ? maxEntriesNum : null}
               suggestedConfig={suggestedConfig}
+              allOptions={allOptions}
               groupsCount={groupsCount}
-              onGroupsCountChange={setGroupsCount}
+              onGroupsCountChange={(v) => { setGroupsCount(v); }}
               effectiveGroups={effectiveGroups}
               groupSize={groupSize}
+              groupSizes={groupSizes}
+              extraGroupIndex={extraGroupIndex}
+              onExtraGroupIndexChange={setExtraGroupIndex}
               advancePerGroup={advancePerGroup}
-              onAdvancePerGroupChange={setAdvancePerGroup}
+              onAdvancePerGroupChange={(v) => { setAdvancePerGroup(v); setGroupsCount(''); }}
               knockoutTeams={knockoutTeams}
               knockoutRounds={knockoutRounds}
+              knockoutByes={knockoutByes}
               hasThirdPlaceMatch={hasThirdPlaceMatch}
               onHasThirdPlaceMatchChange={setHasThirdPlaceMatch}
+              knockoutSeeding={knockoutSeeding}
+              onKnockoutSeedingChange={setKnockoutSeeding}
             />
           )}
 

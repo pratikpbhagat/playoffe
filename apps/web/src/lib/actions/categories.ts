@@ -35,8 +35,10 @@ export async function createCategoryAction(
     win_by?: 1 | 2;
     deuce_cap?: number | null;
     groups_count?: number | null;
+    group_sizes?: number[] | null;
     advance_per_group?: number;
     has_third_place_match?: boolean;
+    knockout_seeding?: 'auto' | 'manual';
   },
 ) {
   const supabase = await createClient();
@@ -48,7 +50,7 @@ export async function createCategoryAction(
   // Destructure scoring override fields before schema validation
   const {
     scoring_override, scoring_format, num_sets, points_per_set, win_by, deuce_cap,
-    groups_count, advance_per_group, has_third_place_match,
+    groups_count, group_sizes, advance_per_group, has_third_place_match, knockout_seeding,
     ...rest
   } = input;
 
@@ -72,8 +74,10 @@ export async function createCategoryAction(
       deuce_cap: deuce_cap ?? null,
     }),
     groups_count: groups_count ?? null,
+    group_sizes: group_sizes ?? null,
     advance_per_group: advance_per_group ?? 2,
     has_third_place_match: has_third_place_match ?? false,
+    knockout_seeding: knockout_seeding ?? 'auto',
   });
 
   if (error) return { error: 'Failed to create category. Please try again.' };
@@ -101,6 +105,7 @@ export async function updateCategoryAction(
     groups_count?: number | null;
     advance_per_group?: number;
     has_third_place_match?: boolean;
+    knockout_seeding?: 'auto' | 'manual';
   },
 ) {
   const supabase = await createClient();
@@ -154,8 +159,10 @@ export async function updateCategoryAction(
 
   // Group stage configuration — always editable (doesn't affect existing entries)
   if ('groups_count' in input) update.groups_count = input.groups_count ?? null;
+  if ('group_sizes' in input) update.group_sizes = (input as { group_sizes?: number[] | null }).group_sizes ?? null;
   if (input.advance_per_group !== undefined) update.advance_per_group = input.advance_per_group;
   if (input.has_third_place_match !== undefined) update.has_third_place_match = input.has_third_place_match;
+  if (input.knockout_seeding !== undefined) update.knockout_seeding = input.knockout_seeding;
 
   if (Object.keys(update).length === 0) return { error: 'No changes provided' };
 
@@ -511,13 +518,9 @@ export async function addPlayerByEmailAction(
 }
 
 // ── Finalize category results ──────────────────────────────────────────────────
-// Derives winner / runner-up / 3rd place from the completed bracket and marks
-// the category as 'completed'. Safe to call multiple times (idempotent).
-export async function finalizeCategoryResultsAction(categoryId: string) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: 'Not authenticated' };
-
+// Derives winner / runner-up / 3rd place from the completed bracket. Shared by
+// the preview and finalize actions below so both see identical results.
+async function deriveCategoryResults(categoryId: string, userId: string) {
   const admin = createAdminClient();
 
   // Fetch category + its tournament for auth + path revalidation
@@ -526,13 +529,13 @@ export async function finalizeCategoryResultsAction(categoryId: string) {
     .select('id, tournament_id, slug, draw_format, tournaments(club_id, slug)')
     .eq('id', categoryId)
     .single();
-  if (!cat) return { error: 'Category not found' };
+  if (!cat) return { error: 'Category not found' } as const;
 
   const tournament = cat.tournaments as { club_id: string; slug: string } | null;
-  if (!tournament) return { error: 'Tournament not found' };
+  if (!tournament) return { error: 'Tournament not found' } as const;
 
-  const t = await assertTournamentManager(cat.tournament_id, user.id);
-  if (!t) return { error: 'Permission denied' };
+  const t = await assertTournamentManager(cat.tournament_id, userId);
+  if (!t) return { error: 'Permission denied' } as const;
 
   // Fetch all matches for this category (completed + walkover only)
   const { data: matches } = await admin
@@ -548,14 +551,14 @@ export async function finalizeCategoryResultsAction(categoryId: string) {
     (m) => (m.status === 'completed' || m.status === 'walkover') && m.winner_entry_id,
   );
 
-  if (doneMatches.length === 0) return { error: 'No completed matches found' };
+  if (doneMatches.length === 0) return { error: 'No completed matches found' } as const;
 
   // Check all scheduled/in_progress matches are done
   const pendingCount = allMatches.filter(
     (m) => m.status === 'scheduled' || m.status === 'in_progress',
   ).length;
   if (pendingCount > 0) {
-    return { error: `${pendingCount} match${pendingCount !== 1 ? 'es' : ''} still to be played` };
+    return { error: `${pendingCount} match${pendingCount !== 1 ? 'es' : ''} still to be played` } as const;
   }
 
   // Derive positions -----------------------------------------------------------
@@ -563,9 +566,17 @@ export async function finalizeCategoryResultsAction(categoryId: string) {
   let runnerUpEntryId: string | null = null;
   let thirdPlaceEntryId: string | null = null;
 
-  const standingsFormats = ['round_robin', 'swiss', 'group_stage_knockout'];
+  // group_stage_knockout categories with a completed "Final" match should be
+  // resolved like an elimination bracket (Final + 3rd place playoff), not by
+  // overall win counts — otherwise the 3rd-place playoff loser can outrank
+  // the Final's runner-up.
+  const finalMatch = doneMatches.find((m) => (m.round_name ?? '').toLowerCase() === 'final');
+  const useStandingsRanking =
+    cat.draw_format === 'round_robin' ||
+    cat.draw_format === 'swiss' ||
+    (cat.draw_format === 'group_stage_knockout' && !finalMatch);
 
-  if (standingsFormats.includes(cat.draw_format)) {
+  if (useStandingsRanking) {
     // Round-robin / Swiss: derive standings from wins
     const wins = new Map<string, number>();
     const pointDiff = new Map<string, number>();
@@ -590,8 +601,6 @@ export async function finalizeCategoryResultsAction(categoryId: string) {
     thirdPlaceEntryId  = ranked[2] ?? null;
   } else {
     // Elimination formats: find the highest-round completed match (the final)
-    const maxRound = Math.max(...doneMatches.map((m) => m.round));
-
     // Look specifically for the 3rd place match first (bracket_type or round_name clue)
     const thirdPlaceMatch = doneMatches.find(
       (m) =>
@@ -600,18 +609,19 @@ export async function finalizeCategoryResultsAction(categoryId: string) {
         (m.round_name ?? '').toLowerCase().includes('third'),
     );
 
-    // The final is the highest-round match that is NOT the 3rd place match
-    const finalMatch = doneMatches
+    // The final is the explicitly-named "Final" match if one exists, otherwise
+    // fall back to the highest-round match that isn't the 3rd place match.
+    const resolvedFinal = finalMatch ?? doneMatches
       .filter((m) => m !== thirdPlaceMatch)
       .sort((a, b) => b.round - a.round)[0];
 
-    if (finalMatch?.winner_entry_id) {
-      winnerEntryId = finalMatch.winner_entry_id;
+    if (resolvedFinal?.winner_entry_id) {
+      winnerEntryId = resolvedFinal.winner_entry_id;
       // Runner-up is the loser of the final
       runnerUpEntryId =
-        finalMatch.winner_entry_id === finalMatch.entry_a_id
-          ? finalMatch.entry_b_id
-          : finalMatch.entry_a_id;
+        resolvedFinal.winner_entry_id === resolvedFinal.entry_a_id
+          ? resolvedFinal.entry_b_id
+          : resolvedFinal.entry_a_id;
     }
 
     if (thirdPlaceMatch?.winner_entry_id) {
@@ -622,6 +632,76 @@ export async function finalizeCategoryResultsAction(categoryId: string) {
       thirdPlaceEntryId = null;
     }
   }
+
+  return { cat, tournament, winnerEntryId, runnerUpEntryId, thirdPlaceEntryId } as const;
+}
+
+// Resolve a set of entry IDs to display names ("Player / Partner").
+async function resolveEntryNames(entryIds: string[]) {
+  const admin = createAdminClient();
+  const names = new Map<string, string>();
+  if (entryIds.length === 0) return names;
+
+  const { data: entries } = await admin
+    .from('tournament_entries')
+    .select('id, player_id, partner_id, players!player_id(full_name)')
+    .in('id', entryIds);
+
+  const partnerIds = (entries ?? []).map((e) => e.partner_id).filter((x): x is string => x != null);
+  const partnerMap = new Map<string, string>();
+  if (partnerIds.length > 0) {
+    const { data: partners } = await admin
+      .from('players')
+      .select('id, full_name')
+      .in('id', partnerIds);
+    for (const p of partners ?? []) partnerMap.set(p.id, p.full_name);
+  }
+
+  for (const e of entries ?? []) {
+    const pn = (e.players as { full_name: string } | null)?.full_name ?? 'Unknown';
+    const partner = e.partner_id ? partnerMap.get(e.partner_id) : null;
+    names.set(e.id, partner ? `${pn} / ${partner}` : pn);
+  }
+  return names;
+}
+
+// ── Preview category results ─────────────────────────────────────────────────
+// Computes the would-be winner / runner-up / 3rd place without persisting
+// anything, so the UI can show a confirmation preview before finalizing.
+export async function previewCategoryResultsAction(categoryId: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: 'Not authenticated' };
+
+  const result = await deriveCategoryResults(categoryId, user.id);
+  if ('error' in result) return { error: result.error };
+
+  const { winnerEntryId, runnerUpEntryId, thirdPlaceEntryId } = result;
+  const names = await resolveEntryNames(
+    [winnerEntryId, runnerUpEntryId, thirdPlaceEntryId].filter((x): x is string => x != null),
+  );
+
+  return {
+    success: true,
+    winner:     winnerEntryId    ? { id: winnerEntryId,    name: names.get(winnerEntryId)    ?? 'Unknown' } : null,
+    runnerUp:   runnerUpEntryId  ? { id: runnerUpEntryId,  name: names.get(runnerUpEntryId)  ?? 'Unknown' } : null,
+    thirdPlace: thirdPlaceEntryId ? { id: thirdPlaceEntryId, name: names.get(thirdPlaceEntryId) ?? 'Unknown' } : null,
+  } as const;
+}
+
+// ── Finalize category results ──────────────────────────────────────────────────
+// Derives winner / runner-up / 3rd place from the completed bracket and marks
+// the category as 'completed'. Safe to call multiple times (idempotent).
+export async function finalizeCategoryResultsAction(categoryId: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: 'Not authenticated' };
+
+  const result = await deriveCategoryResults(categoryId, user.id);
+  if ('error' in result) return { error: result.error };
+
+  const { cat, tournament, winnerEntryId, runnerUpEntryId, thirdPlaceEntryId } = result;
+  const admin = createAdminClient();
 
   // Persist results + mark category completed
   const { error: updateErr } = await admin

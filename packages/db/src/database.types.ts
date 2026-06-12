@@ -1620,9 +1620,11 @@ export type Database = {
           created_at: string
           deuce_cap: number | null
           draw_format: Database["public"]["Enums"]["draw_format_enum"]
+          group_sizes: number[] | null
           groups_count: number | null
           has_third_place_match: boolean
           id: string
+          knockout_seeding: string
           max_age: number | null
           max_entries: number | null
           min_age: number | null
@@ -1647,9 +1649,11 @@ export type Database = {
           created_at?: string
           deuce_cap?: number | null
           draw_format: Database["public"]["Enums"]["draw_format_enum"]
+          group_sizes?: number[] | null
           groups_count?: number | null
           has_third_place_match?: boolean
           id?: string
+          knockout_seeding?: string
           max_age?: number | null
           max_entries?: number | null
           min_age?: number | null
@@ -1674,9 +1678,11 @@ export type Database = {
           created_at?: string
           deuce_cap?: number | null
           draw_format?: Database["public"]["Enums"]["draw_format_enum"]
+          group_sizes?: number[] | null
           groups_count?: number | null
           has_third_place_match?: boolean
           id?: string
+          knockout_seeding?: string
           max_age?: number | null
           max_entries?: number | null
           min_age?: number | null
@@ -2301,3 +2307,4 @@ export const Constants = {
     },
   },
 } as const
+

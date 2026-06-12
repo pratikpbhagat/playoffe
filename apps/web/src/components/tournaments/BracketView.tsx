@@ -4,6 +4,17 @@ import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import type { MatchWithPlayers } from '@/lib/actions/draws';
 
+/** Canonical knockout-stage hierarchy, earliest to latest — used to order
+ *  bracket columns chronologically regardless of the order in which the
+ *  matches were created (and thus regardless of their `round` numbers). */
+const STAGE_HIERARCHY = ['Round of 32', 'Round of 16', 'Quarter-final', 'Semi-final', '3rd place playoff', 'Final'];
+
+function stageRank(roundName: string | null | undefined, fallback: number): number {
+  if (!roundName) return fallback;
+  const idx = STAGE_HIERARCHY.indexOf(roundName);
+  return idx === -1 ? fallback : idx;
+}
+
 interface Props {
   matches: MatchWithPlayers[];
   format: string;
@@ -142,7 +153,11 @@ function MatchCard({
   const inner = (
     <>
       <PlayerRow entry={match.entry_a} isWinner={aWins} setScores={aScores} />
-      <div className="border-t border-surface-border" />
+      <div className="relative border-t border-surface-border">
+        <span className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 rounded-full border border-surface-border bg-surface-card px-1.5 text-[9px] font-semibold uppercase tracking-wide text-slate-500">
+          vs
+        </span>
+      </div>
       <PlayerRow entry={match.entry_b} isWinner={bWins} setScores={bScores} />
     </>
   );
@@ -188,7 +203,7 @@ function RoundColumn({
       </div>
       <div className="flex flex-1 flex-col">
         {matches.map((m) => (
-          <div key={m.id} className="flex items-center justify-center" style={{ flex: slotsPerMatch }}>
+          <div key={m.id} className="flex items-center justify-center py-2" style={{ flex: slotsPerMatch }}>
             <MatchCard
               match={m} tournamentSlug={tournamentSlug} readOnly={readOnly}
               adjustMode={adjustMode} selectedEntryId={selectedEntryId}
@@ -285,7 +300,12 @@ function EliminationBracket({
     list.push(m);
     roundMap.set(m.round, list);
   }
-  const rounds = Array.from(roundMap.entries()).sort(([a], [b]) => a - b);
+  const rounds = Array.from(roundMap.entries()).sort(([a, aMatches], [b, bMatches]) => {
+    const aRank = stageRank(aMatches[0]?.round_name, a + STAGE_HIERARCHY.length);
+    const bRank = stageRank(bMatches[0]?.round_name, b + STAGE_HIERARCHY.length);
+    if (aRank !== bRank) return aRank - bRank;
+    return a - b;
+  });
   if (rounds.length === 0) return null;
 
   const maxSlots = rounds[0][1].length; // first round has the most matches
@@ -550,7 +570,12 @@ function GroupSection({
     list.push(m);
     roundMap.set(m.round, list);
   }
-  const rounds = Array.from(roundMap.entries()).sort(([a], [b]) => a - b);
+  const rounds = Array.from(roundMap.entries()).sort(([a, aMatches], [b, bMatches]) => {
+    const aRank = stageRank(aMatches[0]?.round_name, a + STAGE_HIERARCHY.length);
+    const bRank = stageRank(bMatches[0]?.round_name, b + STAGE_HIERARCHY.length);
+    if (aRank !== bRank) return aRank - bRank;
+    return a - b;
+  });
 
   const rowClass = `flex items-center gap-3 rounded-lg bg-surface-card px-4 py-2.5 ring-1 ring-surface-border transition-all ${
     readOnly ? '' : 'hover:ring-brand-500/40'
@@ -570,7 +595,9 @@ function GroupSection({
           </div>
         </div>
 
-        {/* Participant list */}
+        {/* Participant list — only needed in adjust mode for swap selection;
+            standings are already shown in the Group Standings table above. */}
+        {adjustMode && (
         <div className="space-y-1.5">
           {participants.map((p, i) => {
             const displayName = p.partnerName ? `${p.playerName} / ${p.partnerName}` : p.playerName;
@@ -635,6 +662,7 @@ function GroupSection({
             );
           })}
         </div>
+        )}
       </div>
 
       {/* Matches, grouped by round */}
@@ -762,7 +790,12 @@ function RoundRobinBracket({
     list.push(m);
     roundMap.set(m.round, list);
   }
-  const rounds = Array.from(roundMap.entries()).sort(([a], [b]) => a - b);
+  const rounds = Array.from(roundMap.entries()).sort(([a, aMatches], [b, bMatches]) => {
+    const aRank = stageRank(aMatches[0]?.round_name, a + STAGE_HIERARCHY.length);
+    const bRank = stageRank(bMatches[0]?.round_name, b + STAGE_HIERARCHY.length);
+    if (aRank !== bRank) return aRank - bRank;
+    return a - b;
+  });
 
   return (
     <div className="space-y-6">

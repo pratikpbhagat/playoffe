@@ -5,29 +5,101 @@
  */
 
 /**
- * Suggest a sensible group configuration for a given max_entries count.
- *
- * Priority order for group size: 4 (most common in pickleball), 3, 5, 6, 8.
- * Falls back to rounding to the nearest group of 4 for awkward entry counts.
- *
- * Returns:
- *  - groupsCount : number of groups
- *  - groupSize   : players per group (may be uneven if max_entries is not evenly divisible)
+ * A single scored suggestion for group configuration.
  */
-export function suggestGroupConfig(maxEntries: number): { groupsCount: number; groupSize: number } {
-  if (maxEntries < 2) return { groupsCount: 1, groupSize: maxEntries };
+export interface SuggestedOption {
+  groupsCount: number;
+  groupSize: number;        // ceil(maxEntries / groupsCount)
+  minGroupSize: number;     // floor(maxEntries / groupsCount)
+  knockoutTeams: number;    // groupsCount × advancePerGroup
+  byes: number;             // 0 when knockoutTeams is a power of 2
+  balance: number;          // 0 = all groups same size, 1 = ±1 imbalance
+}
 
-  const preferredSizes = [4, 3, 5, 6, 8];
-  for (const size of preferredSizes) {
-    if (maxEntries % size === 0) {
-      return { groupsCount: maxEntries / size, groupSize: size };
+/**
+ * Suggest the best group configuration for a given entry count and advance-per-group.
+ *
+ * The algorithm guarantees that knockoutTeams = groupsCount × advancePerGroup is
+ * always a power of 2 (no byes, clean bracket). If no such configuration exists
+ * for the given advancePerGroup (e.g. advance=3), it falls back to the option
+ * with the fewest byes.
+ *
+ * Optimisation priority (lower = better):
+ *   1. balance  — prefer all groups same size (0) over ±1 (1)
+ *   2. sizePref — prefer group size closest to 4
+ */
+export function suggestGroupConfig(
+  maxEntries: number,
+  advancePerGroup = 2,
+): { groupsCount: number; groupSize: number } {
+  const options = getSuggestedGroupOptions(maxEntries, advancePerGroup);
+  if (options.length === 0) return { groupsCount: 1, groupSize: maxEntries };
+  return { groupsCount: options[0].groupsCount, groupSize: options[0].groupSize };
+}
+
+/**
+ * Return up to 3 ranked valid group configurations (best first).
+ * Useful for rendering quick-pick chips in the UI.
+ */
+export function getSuggestedGroupOptions(
+  maxEntries: number,
+  advancePerGroup = 2,
+): SuggestedOption[] {
+  if (maxEntries < 2 || advancePerGroup < 1) return [];
+
+  const candidates: SuggestedOption[] = [];
+
+  // ── Phase 1: power-of-2 knockout sizes (no byes) ──────────────────────────
+  const powersOf2 = [2, 4, 8, 16, 32, 64];
+  for (const ks of powersOf2) {
+    if (ks % advancePerGroup !== 0) continue;          // must divide evenly into groups
+    const groupsCount = ks / advancePerGroup;
+    if (groupsCount < 2) continue;                     // need ≥2 groups for group stage
+    const minGroupSize = Math.floor(maxEntries / groupsCount);
+    if (minGroupSize <= advancePerGroup) continue;     // someone doesn't advance → need losers
+    const maxGroupSize = Math.ceil(maxEntries / groupsCount);
+    if (maxGroupSize > 8) continue;                    // groups too large
+    candidates.push({
+      groupsCount,
+      groupSize: maxGroupSize,
+      minGroupSize,
+      knockoutTeams: ks,
+      byes: 0,
+      balance: maxGroupSize - minGroupSize,
+    });
+  }
+
+  // ── Phase 2: fallback — minimise byes when no power-of-2 solution exists ──
+  if (candidates.length === 0) {
+    for (let gc = 2; gc <= Math.floor(maxEntries / (advancePerGroup + 1)); gc++) {
+      const minGroupSize = Math.floor(maxEntries / gc);
+      if (minGroupSize <= advancePerGroup) continue;
+      const maxGroupSize = Math.ceil(maxEntries / gc);
+      if (maxGroupSize > 8) continue;
+      const kt = gc * advancePerGroup;
+      const { byes } = deriveBracketSize(kt);
+      candidates.push({
+        groupsCount: gc,
+        groupSize: maxGroupSize,
+        minGroupSize,
+        knockoutTeams: kt,
+        byes,
+        balance: maxGroupSize - minGroupSize,
+      });
     }
   }
 
-  // Fallback — target groups of ~4
-  const groupsCount = Math.max(2, Math.round(maxEntries / 4));
-  const groupSize = Math.ceil(maxEntries / groupsCount);
-  return { groupsCount, groupSize };
+  if (candidates.length === 0) return [];
+
+  // ── Sort: balance ASC → sizePref (|avgSize - 4|) ASC ──────────────────────
+  candidates.sort((a, b) => {
+    if (a.balance !== b.balance) return a.balance - b.balance;
+    const avgA = (a.groupSize + a.minGroupSize) / 2;
+    const avgB = (b.groupSize + b.minGroupSize) / 2;
+    return Math.abs(avgA - 4) - Math.abs(avgB - 4);
+  });
+
+  return candidates.slice(0, 3);
 }
 
 /**

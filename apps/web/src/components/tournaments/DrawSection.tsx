@@ -3,7 +3,9 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { generateDrawAction, clearDrawAction, generateNextSwissRoundAction, promoteGroupWinnersAction, swapDrawEntriesAction, replaceDrawEntryAction } from '@/lib/actions/draws';
+import { generateDrawAction, clearDrawAction, generateNextSwissRoundAction, promoteGroupWinnersAction, resetKnockoutBracketAction, swapDrawEntriesAction, replaceDrawEntryAction } from '@/lib/actions/draws';
+import { updateCategoryAction } from '@/lib/actions/categories';
+import { getKnockoutRoundNames, deriveKnockoutTeams } from '@/lib/utils/groupStageConfig';
 import { shareDrawOnSocialAction } from '@/lib/actions/social';
 import { useToast } from '@/components/ui/ToastProvider';
 import type { MatchWithPlayers } from '@/lib/actions/draws';
@@ -18,6 +20,7 @@ interface StalenessEntry {
 
 interface Props {
   categoryId: string;
+  categorySlug?: string;
   tournamentSlug: string;
   drawFormat: string;
   categoryStatus: string;
@@ -33,6 +36,13 @@ interface Props {
     withdrawnInDraw: StalenessEntry[];
     unplacedActive: StalenessEntry[];
   };
+  /** Group stage config — required for group_stage_knockout to show the pre-generate preview */
+  groupStageConfig?: {
+    groupsCount: number | null;
+    advancePerGroup: number;
+    hasThirdPlaceMatch: boolean;
+    knockoutSeeding?: 'auto' | 'manual';
+  };
 }
 
 const FORMAT_LABEL: Record<string, string> = {
@@ -45,6 +55,7 @@ const FORMAT_LABEL: Record<string, string> = {
 
 export function DrawSection({
   categoryId,
+  categorySlug,
   tournamentSlug,
   drawFormat,
   categoryStatus,
@@ -55,15 +66,63 @@ export function DrawSection({
   readOnly = false,
   shareOnSocialEnabled = false,
   stalenessInfo,
+  groupStageConfig,
 }: Props) {
   const router    = useRouter();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [generatingSwissRound, setGeneratingSwissRound] = useState(false);
   const [promotingGroups, setPromotingGroups] = useState(false);
+  const [resettingKnockout, setResettingKnockout] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showRegenConfirm, setShowRegenConfirm] = useState(false);
   const [matches, setMatches] = useState(initialMatches);
+
+  // ── Group stage draw preview (before generating) ─────────────────────────
+  const [showDrawPreview, setShowDrawPreview] = useState(false);
+  const [extraGroupIndex, setExtraGroupIndex] = useState(0);
+
+  const isGroupStage = drawFormat === 'group_stage_knockout';
+  const gsGroupsCount = groupStageConfig?.groupsCount ?? null;
+  const gsAdvance = groupStageConfig?.advancePerGroup ?? 2;
+
+  // Compute actual group sizes from live entryCount (not max_entries)
+  const gsGroupSizes: number[] = (() => {
+    if (!isGroupStage || !gsGroupsCount || gsGroupsCount < 1 || entryCount < 2) return [];
+    const base = Math.floor(entryCount / gsGroupsCount);
+    const remainder = entryCount % gsGroupsCount;
+    if (remainder === 0) return Array(gsGroupsCount).fill(base);
+    return Array.from({ length: gsGroupsCount }, (_, i) =>
+      i === extraGroupIndex ? base + remainder : base,
+    );
+  })();
+  const gsKnockoutTeams = gsGroupsCount ? deriveKnockoutTeams(gsGroupsCount, gsAdvance) : 0;
+  const gsKnockoutRounds = gsKnockoutTeams >= 2 ? getKnockoutRoundNames(gsKnockoutTeams) : [];
+  const gsIsUneven = gsGroupsCount !== null && entryCount % gsGroupsCount !== 0;
+
+  // ── Knockout seeding mode (auto vs manual) — editable from the draw preview ──
+  const [localKnockoutSeeding, setLocalKnockoutSeeding] = useState<'auto' | 'manual'>(
+    groupStageConfig?.knockoutSeeding ?? 'auto',
+  );
+  const [savingKnockoutSeeding, setSavingKnockoutSeeding] = useState(false);
+
+  useEffect(() => {
+    setLocalKnockoutSeeding(groupStageConfig?.knockoutSeeding ?? 'auto');
+  }, [groupStageConfig?.knockoutSeeding]);
+
+  async function handleKnockoutSeedingToggle() {
+    const next = localKnockoutSeeding === 'manual' ? 'auto' : 'manual';
+    setLocalKnockoutSeeding(next);
+    setSavingKnockoutSeeding(true);
+    const result = await updateCategoryAction(categoryId, { knockout_seeding: next });
+    if (result?.error) {
+      setLocalKnockoutSeeding(localKnockoutSeeding);
+      toast(result.error, 'error');
+    } else {
+      router.refresh();
+    }
+    setSavingKnockoutSeeding(false);
+  }
 
   // ── Replace-entry state ──────────────────────────────────────────────────────
   const [replaceFrom, setReplaceFrom] = useState('');
@@ -93,6 +152,7 @@ export function DrawSection({
   } | null>(null);
   const [swapping, setSwapping] = useState(false);
   const [swapError, setSwapError] = useState<string | null>(null);
+  const [showAdjustWarning, setShowAdjustWarning] = useState(false);
 
   // Sync matches when server re-renders after router.refresh() passes new initialMatches
   useEffect(() => {
@@ -149,8 +209,26 @@ export function DrawSection({
   const allGroupMatchesDone =
     groupMatches.length > 0 &&
     groupMatches.every((m) => m.status === 'completed' || m.status === 'walkover');
-  const knockoutSlotsEmpty = knockoutMatches.some((m) => !m.entry_a && !m.entry_b);
-  const canPromoteGroups = isGroupKnockout && isDrawn && allGroupMatchesDone && knockoutSlotsEmpty;
+  // Only the first knockout round is filled by "Promote group winners" — once
+  // those slots are populated, the button should stay hidden even though later
+  // rounds (semis, final) still have empty placeholder slots.
+  const firstKnockoutRound = knockoutMatches.length > 0
+    ? Math.min(...knockoutMatches.map((m) => m.round))
+    : null;
+  const firstRoundKnockoutMatches = knockoutMatches.filter((m) => m.round === firstKnockoutRound);
+  const knockoutSlotsEmpty = firstRoundKnockoutMatches.every((m) => !m.entry_a && !m.entry_b);
+  const knockoutSeeding = localKnockoutSeeding;
+  const canPromoteGroups =
+    isGroupKnockout && isDrawn && allGroupMatchesDone && knockoutMatches.length > 0
+    && knockoutSlotsEmpty && knockoutSeeding === 'auto';
+  const showKnockoutBuilderLink = isGroupKnockout && isDrawn && allGroupMatchesDone && knockoutSeeding === 'manual';
+
+  // Knockout bracket can be (re)built from group standings as long as no
+  // knockout match has started yet — covers both "no bracket exists" and
+  // "bracket already filled but needs to be redone" cases.
+  const knockoutNotStarted = knockoutMatches.every((m) => m.status === 'scheduled');
+  const canResetKnockout =
+    isGroupKnockout && isDrawn && allGroupMatchesDone && knockoutSeeding === 'auto' && knockoutNotStarted;
 
   async function handlePromoteGroups() {
     setPromotingGroups(true);
@@ -164,6 +242,23 @@ export function DrawSection({
     setPromotingGroups(false);
   }
 
+  async function handleResetKnockout() {
+    setResettingKnockout(true);
+    setError(null);
+    const result = await resetKnockoutBracketAction(categoryId);
+    if ('error' in result && result.error) {
+      setError(result.error);
+    } else {
+      router.refresh();
+    }
+    setResettingKnockout(false);
+  }
+
+  // True once any match has moved past 'scheduled' — blocks regeneration
+  const anyMatchStarted = matches.some(
+    (m) => m.status !== 'scheduled',
+  );
+
   // Can adjust: draw exists, category not completed, not swiss
   const canAdjust =
     isDrawn &&
@@ -171,6 +266,14 @@ export function DrawSection({
     drawFormat !== 'swiss' &&
     matches.length > 0 &&
     !readOnly;
+
+  function handleAdjustClick() {
+    if (anyMatchStarted) {
+      setShowAdjustWarning(true);
+    } else {
+      setAdjustMode(true);
+    }
+  }
 
   function handleEntryClick(entryId: string, entryName: string) {
     setSwapError(null);
@@ -210,10 +313,21 @@ export function DrawSection({
   // Live subscription — auto-refreshes bracket when any match in this category changes
   const liveStatus = useRealtimeCategoryMatches(categoryId);
 
-  async function handleGenerate() {
+  function handleGenerate() {
+    // For group stage: show the preview panel first so the organiser can confirm
+    // the group structure based on the actual (live) entry count.
+    if (isGroupStage && gsGroupsCount) {
+      setShowDrawPreview(true);
+      return;
+    }
+    void handleGenerateConfirmed();
+  }
+
+  async function handleGenerateConfirmed(sizes?: number[]) {
+    setShowDrawPreview(false);
     setLoading(true);
     setError(null);
-    const result = await generateDrawAction(categoryId);
+    const result = await generateDrawAction(categoryId, sizes);
     if (result.error) {
       setError(result.error);
     } else {
@@ -311,7 +425,7 @@ export function DrawSection({
                   {/* Adjust draw button */}
                   {canAdjust && !showRegenConfirm && (
                     <button
-                      onClick={() => setAdjustMode(true)}
+                      onClick={handleAdjustClick}
                       className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs text-slate-300 hover:border-amber-500 hover:text-amber-400 transition-colors"
                     >
                       ✏️ Adjust draw
@@ -352,7 +466,29 @@ export function DrawSection({
                     </button>
                   )}
 
-                  {categoryStatus === 'draw_generated' && !showRegenConfirm && (
+                  {/* Group stage knockout: clear/rebuild empty knockout slots */}
+                  {canResetKnockout && !showRegenConfirm && (
+                    <button
+                      onClick={handleResetKnockout}
+                      disabled={resettingKnockout}
+                      title="Clear the knockout-stage matches and rebuild empty bracket slots from group standings"
+                      className="rounded-lg border border-surface-border px-3 py-1.5 text-xs text-slate-400 hover:bg-surface-border/30 transition-colors disabled:opacity-50"
+                    >
+                      {resettingKnockout ? 'Resetting…' : 'Reset knockout bracket ↺'}
+                    </button>
+                  )}
+
+                  {/* Group stage knockout (manual seeding): open the knockout builder */}
+                  {showKnockoutBuilderLink && !showRegenConfirm && (
+                    <Link
+                      href={`/tournaments/${tournamentSlug}/categories/${categorySlug ?? categoryId}/knockout-builder`}
+                      className="rounded-lg border border-brand-600 px-3 py-1.5 text-xs text-brand-400 hover:bg-brand-600/10 transition-colors"
+                    >
+                      Open Knockout Builder →
+                    </Link>
+                  )}
+
+                  {categoryStatus === 'draw_generated' && !showRegenConfirm && !anyMatchStarted && (
                     <button
                       onClick={() => setShowRegenConfirm(true)}
                       className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs text-slate-300 hover:border-red-600 hover:text-red-400 transition-colors"
@@ -361,7 +497,7 @@ export function DrawSection({
                     </button>
                   )}
 
-                  {showRegenConfirm && (
+                  {showRegenConfirm && !anyMatchStarted && (
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-red-400">Delete existing draw?</span>
                       <button
@@ -463,16 +599,18 @@ export function DrawSection({
               {replaceError && (
                 <p className="text-xs text-red-400">{replaceError}</p>
               )}
-              <p className="text-xs text-amber-500/60">
-                Or{' '}
-                <button
-                  onClick={() => setShowRegenConfirm(true)}
-                  className="underline hover:text-amber-400 transition-colors"
-                >
-                  regenerate the draw
-                </button>{' '}
-                to rebuild the bracket from all current active entries.
-              </p>
+              {!anyMatchStarted && (
+                <p className="text-xs text-amber-500/60">
+                  Or{' '}
+                  <button
+                    onClick={() => setShowRegenConfirm(true)}
+                    className="underline hover:text-amber-400 transition-colors"
+                  >
+                    regenerate the draw
+                  </button>{' '}
+                  to rebuild the bracket from all current active entries.
+                </p>
+              )}
             </div>
           )}
 
@@ -480,13 +618,9 @@ export function DrawSection({
           {stalenessInfo.withdrawnInDraw.length > 0 && stalenessInfo.unplacedActive.length === 0 && (
             <p className="text-xs text-amber-400/70">
               Withdrawn {stalenessInfo.withdrawnInDraw.length === 1 ? 'entry remains' : 'entries remain'} in the bracket.{' '}
-              <button
-                onClick={() => setShowRegenConfirm(true)}
-                className="underline hover:text-amber-300 transition-colors"
-              >
-                Regenerate the draw
-              </button>{' '}
-              to remove {stalenessInfo.withdrawnInDraw.length === 1 ? 'it' : 'them'}.
+              {anyMatchStarted
+                ? 'Use Adjust draw to swap them out manually.'
+                : <><button onClick={() => setShowRegenConfirm(true)} className="underline hover:text-amber-300 transition-colors">Regenerate the draw</button>{' '}to remove {stalenessInfo.withdrawnInDraw.length === 1 ? 'it' : 'them'}.</>}
             </p>
           )}
 
@@ -494,15 +628,36 @@ export function DrawSection({
           {stalenessInfo.withdrawnInDraw.length === 0 && stalenessInfo.unplacedActive.length > 0 && (
             <p className="text-xs text-amber-400/70">
               {stalenessInfo.unplacedActive.length} new entr{stalenessInfo.unplacedActive.length === 1 ? 'y is' : 'ies are'} not in the draw.{' '}
-              <button
-                onClick={() => setShowRegenConfirm(true)}
-                className="underline hover:text-amber-300 transition-colors"
-              >
-                Regenerate the draw
-              </button>{' '}
-              to include {stalenessInfo.unplacedActive.length === 1 ? 'it' : 'them'}.
+              {anyMatchStarted
+                ? 'Use Adjust draw to place them manually.'
+                : <><button onClick={() => setShowRegenConfirm(true)} className="underline hover:text-amber-300 transition-colors">Regenerate the draw</button>{' '}to include {stalenessInfo.unplacedActive.length === 1 ? 'it' : 'them'}.</>}
             </p>
           )}
+        </div>
+      )}
+
+      {/* ── Adjust-draw warning: matches already started/completed ───────── */}
+      {showAdjustWarning && (
+        <div className="mb-4 rounded-lg border border-amber-700/50 bg-amber-950/40 px-4 py-3 space-y-2">
+          <p className="text-sm font-semibold text-amber-200">⚠️ Some matches have already started or been completed</p>
+          <p className="text-xs text-amber-400/80">
+            Adjusting the draw now may change matchups for matches that have already been played or are in progress.
+            Are you sure you want to continue?
+          </p>
+          <div className="flex items-center gap-2 pt-1">
+            <button
+              onClick={() => { setShowAdjustWarning(false); setAdjustMode(true); }}
+              className="rounded-lg bg-amber-700 px-3 py-1.5 text-xs font-semibold text-amber-100 hover:bg-amber-600 transition-colors"
+            >
+              Yes, adjust draw
+            </button>
+            <button
+              onClick={() => setShowAdjustWarning(false)}
+              className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       )}
 
@@ -533,8 +688,185 @@ export function DrawSection({
         </div>
       )}
 
+      {/* ── Group stage draw preview panel ───────────────────────────────── */}
+      {showDrawPreview && isGroupStage && gsGroupsCount && (
+        <div className="mb-4 rounded-xl border border-brand-500/30 bg-brand-950/20 p-4 space-y-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-white">Group stage structure</p>
+              <p className="mt-0.5 text-xs text-slate-500">
+                Based on <span className="text-slate-300 font-medium">{entryCount} actual entries</span>
+                {' '}· {gsGroupsCount} groups · {gsAdvance} advance per group
+              </p>
+            </div>
+            <button
+              onClick={() => setShowDrawPreview(false)}
+              className="text-slate-500 hover:text-slate-300 transition-colors text-sm shrink-0"
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Group cards */}
+          <div className="flex flex-wrap gap-2">
+            {Array.from({ length: gsGroupsCount }, (_, i) => {
+              const gName = String.fromCharCode(65 + i);
+              const sz = gsGroupSizes[i] ?? Math.floor(entryCount / gsGroupsCount);
+              const isExtra = gsIsUneven && i === extraGroupIndex;
+              return (
+                <div
+                  key={gName}
+                  className={`rounded-lg border px-3 py-2 min-w-[72px] ${
+                    isExtra
+                      ? 'border-brand-500/50 bg-brand-900/40'
+                      : 'border-brand-800/40 bg-brand-900/30'
+                  }`}
+                >
+                  <p className="text-[11px] font-bold text-brand-300 mb-1">
+                    Group {gName}
+                    {isExtra && <span className="ml-1 text-[9px] text-brand-400">+1</span>}
+                  </p>
+                  <p className="text-[10px] text-slate-400">{sz} teams</p>
+                  <div className="mt-1.5 space-y-0.5">
+                    {Array.from({ length: Math.min(sz, 6) }, (_, j) => (
+                      <div
+                        key={j}
+                        className={`h-1.5 rounded-full ${j < gsAdvance ? 'bg-brand-500' : 'bg-slate-700'}`}
+                      />
+                    ))}
+                    {sz > 6 && <p className="text-[9px] text-slate-600">+{sz - 6} more</p>}
+                  </div>
+                  <p className="text-[9px] text-brand-400 mt-1">↑ top {gsAdvance}</p>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Knockout flow */}
+          {gsKnockoutTeams >= 2 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="rounded bg-slate-800 border border-slate-700 px-2 py-0.5 text-[11px] text-slate-400">
+                Group stage
+              </span>
+              <span className="text-slate-600 text-xs">→</span>
+              {localKnockoutSeeding === 'manual' ? (
+                <span className="rounded bg-brand-900/60 px-2 py-0.5 text-[11px] font-medium text-brand-300 border border-brand-800/40">
+                  Knockout Builder ({gsKnockoutTeams} qualifiers, manual pairing)
+                </span>
+              ) : (
+                <>
+                  {gsKnockoutRounds.map((round, i) => (
+                    <span key={round} className="flex items-center gap-1.5">
+                      <span className="rounded bg-brand-900/60 px-2 py-0.5 text-[11px] font-medium text-brand-300 border border-brand-800/40">
+                        {round}
+                      </span>
+                      {i < gsKnockoutRounds.length - 1 && (
+                        <span className="text-slate-600 text-xs">→</span>
+                      )}
+                    </span>
+                  ))}
+                  {groupStageConfig?.hasThirdPlaceMatch && (
+                    <span className="text-[11px] text-slate-500 ml-1">+ 3rd place</span>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Knockout seeding toggle */}
+          {gsKnockoutTeams >= 2 && (
+            <label className="flex items-center justify-between gap-3 cursor-pointer rounded-lg border border-amber-800/40 bg-amber-950/20 p-3">
+              <div>
+                <span className="text-xs font-medium text-slate-300">
+                  {localKnockoutSeeding === 'manual' ? 'Manual seeding' : 'Automatic seeding'}
+                </span>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  {localKnockoutSeeding === 'manual'
+                    ? "After the group stage, you'll manually pair qualifiers for crossover/playoff matches via the Knockout Builder — no auto-byes."
+                    : 'The bracket is generated automatically; top seeds receive byes into the next round.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={localKnockoutSeeding === 'manual'}
+                disabled={savingKnockoutSeeding}
+                onClick={handleKnockoutSeedingToggle}
+                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ${
+                  localKnockoutSeeding === 'manual' ? 'bg-brand-600' : 'bg-slate-700'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    localKnockoutSeeding === 'manual' ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </label>
+          )}
+
+          {/* Extra player picker — only when uneven */}
+          {gsIsUneven && (
+            <div>
+              <p className="text-xs font-medium text-slate-400 mb-1.5">
+                Extra player assignment
+                <span className="ml-1.5 text-[10px] text-slate-500">
+                  ({entryCount} entries ÷ {gsGroupsCount} groups — pick which group gets the extra player)
+                </span>
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {Array.from({ length: gsGroupsCount }, (_, i) => {
+                  const gName = String.fromCharCode(65 + i);
+                  const sz = gsGroupSizes[i] ?? Math.floor(entryCount / gsGroupsCount);
+                  return (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => setExtraGroupIndex(i)}
+                      className={`rounded-lg border px-2.5 py-1 text-xs transition-colors ${
+                        i === extraGroupIndex
+                          ? 'border-brand-500 bg-brand-600/20 text-white'
+                          : 'border-slate-700 bg-surface text-slate-400 hover:border-slate-600 hover:text-slate-200'
+                      }`}
+                    >
+                      Group {gName}
+                      <span className="ml-1 text-[10px] opacity-60">({sz})</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Legend */}
+          <p className="text-[10px] text-slate-500">
+            <span className="inline-block h-1.5 w-4 rounded-full bg-brand-500 mr-1 align-middle" />
+            advances to knockout
+            <span className="inline-block h-1.5 w-4 rounded-full bg-slate-700 mx-1 ml-3 align-middle" />
+            eliminated
+          </p>
+
+          {/* Action buttons */}
+          <div className="flex items-center gap-3 pt-1 border-t border-surface-border">
+            <button
+              onClick={() => handleGenerateConfirmed(gsIsUneven ? gsGroupSizes : undefined)}
+              disabled={loading}
+              className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 transition-colors disabled:opacity-50"
+            >
+              {loading ? 'Generating…' : 'Confirm & generate draw'}
+            </button>
+            <button
+              onClick={() => setShowDrawPreview(false)}
+              className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Draw not yet generated */}
-      {!isDrawn && !loading && (
+      {!isDrawn && !loading && !showDrawPreview && (
         <div className="rounded-xl bg-surface-card p-8 text-center ring-1 ring-surface-border">
           <p className="text-2xl mb-2">🎯</p>
           <p className="text-sm font-medium text-white mb-1">Draw not generated yet</p>
@@ -561,7 +893,7 @@ export function DrawSection({
 
       {/* Live standings — round-robin, swiss, group stage */}
       {showStandings && isDrawn && matches.length > 0 && (
-        <StandingsTable matches={matches} format={drawFormat} />
+        <StandingsTable matches={matches} format={drawFormat} advancePerGroup={gsAdvance} />
       )}
 
       {/* ── Fixed bottom confirmation bar ────────────────────────────────────
