@@ -7,6 +7,7 @@
  * by the Realtime subscription in DrawSection).  No separate data-fetch needed.
  */
 
+import { memo, useMemo } from 'react';
 import type { MatchWithPlayers } from '@/lib/actions/draws';
 
 interface Props {
@@ -123,28 +124,26 @@ function sortStandings(standings: Standing[], matches?: MatchWithPlayers[]): Sta
   });
 }
 
-export function StandingsTable({ matches, format, advancePerGroup }: Props) {
+export const StandingsTable = memo(function StandingsTable({ matches, format, advancePerGroup }: Props) {
+  // For group_stage_knockout, only count group-stage matches.
+  // Group stage matches have group_name set; knockout matches have group_name=null.
+  const relevantMatches = useMemo(
+    () => (format === 'group_stage_knockout' ? matches.filter((m) => m.group_name !== null) : matches),
+    [matches, format],
+  );
+
+  const { completed, total, standingsMap } = useMemo(() => ({
+    completed: relevantMatches.filter((m) => m.status === 'completed' || m.status === 'walkover').length,
+    total: relevantMatches.filter((m) => m.entry_a !== null && m.entry_b !== null).length,
+    standingsMap: buildStandings(relevantMatches),
+  }), [relevantMatches]);
+
   // Only show for formats where standings are meaningful
   if (format !== 'round_robin' && format !== 'swiss' && format !== 'group_stage_knockout') {
     return null;
   }
 
-  // For group_stage_knockout, only count group-stage matches.
-  // Group stage matches have group_name set; knockout matches have group_name=null.
-  const relevantMatches = format === 'group_stage_knockout'
-    ? matches.filter((m) => m.group_name !== null)
-    : matches;
-
-  const completed = relevantMatches.filter(
-    (m) => m.status === 'completed' || m.status === 'walkover',
-  ).length;
-  const total = relevantMatches.filter(
-    (m) => m.entry_a !== null && m.entry_b !== null,
-  ).length;
-
   if (total === 0) return null;
-
-  const standingsMap = buildStandings(relevantMatches);
 
   // For group_stage_knockout, group standings by group_name
   if (format === 'group_stage_knockout') {
@@ -192,7 +191,7 @@ export function StandingsTable({ matches, format, advancePerGroup }: Props) {
       </div>
     </section>
   );
-}
+});
 
 /** Renders a single player name or stacked doubles pair. */
 function PlayerNameCell({ name }: { name: string }) {

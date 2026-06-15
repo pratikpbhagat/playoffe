@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, memo } from 'react';
 import Link from 'next/link';
 import { LiveScoreDisplay } from './LiveScoreDisplay';
 import { RestartApproveButton } from './RestartApproveButton';
@@ -69,7 +69,7 @@ const STATUS_OPTS = [
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function ScoringMatchList({
+export const ScoringMatchList = memo(function ScoringMatchList({
   matches,
   restartMatches,
   tournamentSlug,
@@ -120,17 +120,24 @@ export function ScoringMatchList({
   const isFiltered = !!(q || statusFilter || courtFilter);
 
   // ── Filtered sections ─────────────────────────────────────────────────────
-  const filtered = applyFilters(matches);
-
-  const liveActive         = filtered.filter((m) => m.status === 'in_progress' && !m.pausedForReassignment);
-  const livePaused         = filtered.filter((m) => m.status === 'in_progress' && m.pausedForReassignment);
-  const assignedNotStarted = filtered.filter((m) => m.status === 'scheduled' && !!m.court && !!m.assignedRefereeName);
-  const upcoming           = filtered.filter((m) => m.status === 'scheduled' && (!m.court || !m.assignedRefereeName));
-  const done               = filtered.filter((m) => m.status === 'completed' || m.status === 'walkover');
+  const { liveActive, livePaused, assignedNotStarted, upcoming, done } = useMemo(() => {
+    const filtered = applyFilters(matches);
+    return {
+      liveActive: filtered.filter((m) => m.status === 'in_progress' && !m.pausedForReassignment),
+      livePaused: filtered.filter((m) => m.status === 'in_progress' && m.pausedForReassignment),
+      assignedNotStarted: filtered.filter((m) => m.status === 'scheduled' && !!m.court && !!m.assignedRefereeName),
+      upcoming: filtered.filter((m) => m.status === 'scheduled' && (!m.court || !m.assignedRefereeName)),
+      done: filtered.filter((m) => m.status === 'completed' || m.status === 'walkover'),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matches, q, statusFilter, courtFilter]);
 
   // Restart requests: apply only search filter (they're global, not date-filtered)
-  const filteredRestarts = restartMatches.filter((m) =>
-    !q || m.playerA.toLowerCase().includes(q) || m.playerB.toLowerCase().includes(q) || m.categoryName.toLowerCase().includes(q),
+  const filteredRestarts = useMemo(
+    () => restartMatches.filter((m) =>
+      !q || m.playerA.toLowerCase().includes(q) || m.playerB.toLowerCase().includes(q) || m.categoryName.toLowerCase().includes(q),
+    ),
+    [restartMatches, q],
   );
 
   const totalVisible =
@@ -384,7 +391,7 @@ export function ScoringMatchList({
       )}
     </div>
   );
-}
+});
 
 // ── Internal card components ──────────────────────────────────────────────────
 

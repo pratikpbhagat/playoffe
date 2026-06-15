@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, memo } from 'react';
 import Link from 'next/link';
 import type { MatchWithPlayers } from '@/lib/actions/draws';
 
@@ -877,7 +877,7 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 // ── Main export ───────────────────────────────────────────────────────────────
-export function BracketView({
+export const BracketView = memo(function BracketView({
   matches, format, tournamentSlug, readOnly,
   adjustMode, selectedEntryId, onEntryClick,
 }: Props) {
@@ -932,4 +932,4 @@ export function BracketView({
       {...adjustProps} lockedGroupNames={lockedGroupNames}
     />
   );
-}
+});
