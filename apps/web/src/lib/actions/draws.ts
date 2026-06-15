@@ -184,34 +184,50 @@ export async function generateDrawAction(
         && (m.bracket_type === 'winners' || m.bracket_type === null), // only WB byes
     );
 
-    for (const bye of byeMatches) {
-      const winnerEntryId = bye.entry_a_id ?? bye.entry_b_id;
-      if (!winnerEntryId) continue;
-
-      await admin
+    // Pre-fetch every next-round match that positional (SE) byes might advance into,
+    // in one query, instead of one SELECT per bye.
+    const positionalByes = byeMatches.filter((b) => !(b.winner_to_match_id && b.winner_slot));
+    const nextRounds = [...new Set(positionalByes.map((b) => b.round + 1))];
+    const nextMatchByRoundPos = new Map<string, string>();
+    if (nextRounds.length > 0) {
+      const { data: nextMatches } = await admin
         .from('matches')
-        .update({ status: 'walkover', winner_entry_id: winnerEntryId, completed_at: new Date().toISOString() })
-        .eq('id', bye.id);
-
-      // Advance winner using explicit link (DE) or positional (SE)
-      if (bye.winner_to_match_id && bye.winner_slot) {
-        const slot = bye.winner_slot === 'a' ? 'entry_a_id' : 'entry_b_id';
-        await admin.from('matches').update({ [slot]: winnerEntryId }).eq('id', bye.winner_to_match_id);
-      } else {
-        const nextPos = Math.floor(bye.bracket_position / 2);
-        const slot = bye.bracket_position % 2 === 0 ? 'entry_a_id' : 'entry_b_id';
-        const { data: nextMatch } = await admin
-          .from('matches')
-          .select('id')
-          .eq('category_id', categoryId)
-          .eq('round', bye.round + 1)
-          .eq('bracket_position', nextPos)
-          .maybeSingle();
-        if (nextMatch) {
-          await admin.from('matches').update({ [slot]: winnerEntryId }).eq('id', nextMatch.id);
-        }
+        .select('id, round, bracket_position')
+        .eq('category_id', categoryId)
+        .in('round', nextRounds);
+      for (const nm of nextMatches ?? []) {
+        if (nm.bracket_position !== null) nextMatchByRoundPos.set(`${nm.round}:${nm.bracket_position}`, nm.id);
       }
     }
+
+    const completedAt = new Date().toISOString();
+    await Promise.all(
+      byeMatches.map((bye) => {
+        const winnerEntryId = bye.entry_a_id ?? bye.entry_b_id;
+        if (!winnerEntryId) return Promise.resolve();
+
+        const walkoverUpdate = admin
+          .from('matches')
+          .update({ status: 'walkover', winner_entry_id: winnerEntryId, completed_at: completedAt })
+          .eq('id', bye.id);
+
+        // Advance winner using explicit link (DE) or positional (SE)
+        let advanceUpdate: PromiseLike<unknown> = Promise.resolve();
+        if (bye.winner_to_match_id && bye.winner_slot) {
+          const slot = bye.winner_slot === 'a' ? 'entry_a_id' : 'entry_b_id';
+          advanceUpdate = admin.from('matches').update({ [slot]: winnerEntryId }).eq('id', bye.winner_to_match_id);
+        } else {
+          const nextPos = Math.floor(bye.bracket_position / 2);
+          const slot = bye.bracket_position % 2 === 0 ? 'entry_a_id' : 'entry_b_id';
+          const nextMatchId = nextMatchByRoundPos.get(`${bye.round + 1}:${nextPos}`);
+          if (nextMatchId) {
+            advanceUpdate = admin.from('matches').update({ [slot]: winnerEntryId }).eq('id', nextMatchId);
+          }
+        }
+
+        return Promise.all([walkoverUpdate, advanceUpdate]);
+      }),
+    );
   }
 
   // Update category status
