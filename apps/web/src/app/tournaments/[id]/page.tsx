@@ -98,39 +98,44 @@ export default async function TournamentPage({ params }: Props) {
     redirect(`/events/${slug}`);
   }
 
-  // Entry count per category (active only)
-  const { data: entryCounts } = await admin
-    .from('tournament_entries')
-    .select('category_id')
-    .eq('tournament_id', t.id)
-    .eq('status', 'active');
-
-  // Pending entry count (for approval badge)
-  const { count: pendingCount } = await admin
-    .from('tournament_entries')
-    .select('id', { count: 'exact', head: true })
-    .eq('tournament_id', t.id)
-    .eq('status', 'pending');
-
-  // Pending score approvals (player self-reports awaiting organiser review)
-  const { count: pendingScoreCount } = await admin
-    .from('matches')
-    .select('id', { count: 'exact', head: true })
-    .eq('tournament_id', t.id)
-    .not('player_reported_winner_id', 'is', null)
-    .neq('status', 'completed')
-    .neq('status', 'walkover');
+  // Entry counts, pending approvals, and match stages — all independent, run in parallel.
+  const [
+    { data: entryCounts },
+    { count: pendingCount },
+    { count: pendingScoreCount },
+    { data: stageMatches },
+  ] = await Promise.all([
+    // Entry count per category (active only)
+    admin
+      .from('tournament_entries')
+      .select('category_id')
+      .eq('tournament_id', t.id)
+      .eq('status', 'active'),
+    // Pending entry count (for approval badge)
+    admin
+      .from('tournament_entries')
+      .select('id', { count: 'exact', head: true })
+      .eq('tournament_id', t.id)
+      .eq('status', 'pending'),
+    // Pending score approvals (player self-reports awaiting organiser review)
+    admin
+      .from('matches')
+      .select('id', { count: 'exact', head: true })
+      .eq('tournament_id', t.id)
+      .not('player_reported_winner_id', 'is', null)
+      .neq('status', 'completed')
+      .neq('status', 'walkover'),
+    // Current stage per category — e.g. "Group stage", "Round of 16", "Final"
+    admin
+      .from('matches')
+      .select('category_id, round, round_name, group_name, status, entry_a_id, entry_b_id')
+      .eq('tournament_id', t.id),
+  ]);
 
   const countByCategory: Record<string, number> = {};
   for (const e of entryCounts ?? []) {
     countByCategory[e.category_id] = (countByCategory[e.category_id] ?? 0) + 1;
   }
-
-  // Current stage per category — e.g. "Group stage", "Round of 16", "Final"
-  const { data: stageMatches } = await admin
-    .from('matches')
-    .select('category_id, round, round_name, group_name, status, entry_a_id, entry_b_id')
-    .eq('tournament_id', t.id);
 
   const stageByCategory: Record<string, string> = {};
   const matchesByCategory = new Map<string, typeof stageMatches extends (infer R)[] | null ? R[] : never>();

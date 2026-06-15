@@ -23,34 +23,12 @@ export default async function RankingsPage({
   const { data: { user } } = await supabase.auth.getUser();
   const admin = createAdminClient();
 
-  // ── Viewer's own rank (if signed in) ───────────────────────────────────────
-  type MyRank = { rank: number; rating: number } | null;
-  let myRank: MyRank = null;
-
-  if (user) {
-    const { data: myStats } = await admin
-      .from('global_stats')
-      .select('current_rating')
-      .eq('player_id', user.id)
-      .maybeSingle();
-
-    if (myStats) {
-      // Count players with a strictly higher rating
-      const { count } = await admin
-        .from('global_stats')
-        .select('player_id', { count: 'exact', head: true })
-        .gt('current_rating', myStats.current_rating);
-
-      myRank = { rank: (count ?? 0) + 1, rating: myStats.current_rating };
-    }
-  }
-
   // ── Club scope: resolve the viewer's club and its member IDs ─────────────
-  let clubName: string | null = null;
-  let clubPlayerIds: string[] | null = null;
-  let noClub = false;
+  type ClubScope = { clubName: string | null; clubPlayerIds: string[] | null; noClub: boolean };
 
-  if (scope === 'club' && user) {
+  async function resolveClubScope(): Promise<ClubScope> {
+    if (!(scope === 'club' && user)) return { clubName: null, clubPlayerIds: null, noClub: false };
+
     // Find the viewer's current club affiliation
     const { data: affil } = await admin
       .from('club_affiliations')
@@ -61,7 +39,7 @@ export default async function RankingsPage({
 
     if (affil) {
       const clubId = affil.club_id;
-      clubName = (affil.clubs as { name: string } | null)?.name ?? null;
+      const clubName = (affil.clubs as { name: string } | null)?.name ?? null;
 
       // Get all current members of that club
       const { data: members } = await admin
@@ -70,38 +48,62 @@ export default async function RankingsPage({
         .eq('club_id', clubId)
         .eq('is_current', true);
 
-      clubPlayerIds = (members ?? []).map((m) => m.player_id);
-    } else {
-      // Try club_managers as fallback
-      const { data: mgr } = await admin
-        .from('club_managers')
-        .select('club_id, clubs!inner(name)')
-        .eq('player_id', user.id)
-        .maybeSingle();
-
-      if (mgr) {
-        const clubId = mgr.club_id;
-        clubName = (mgr.clubs as { name: string } | null)?.name ?? null;
-
-        const { data: mgrMembers } = await admin
-          .from('club_managers')
-          .select('player_id')
-          .eq('club_id', clubId);
-        clubPlayerIds = (mgrMembers ?? []).map((m) => m.player_id);
-      } else {
-        noClub = true;
-      }
+      return { clubName, clubPlayerIds: (members ?? []).map((m) => m.player_id), noClub: false };
     }
+
+    // Try club_managers as fallback
+    const { data: mgr } = await admin
+      .from('club_managers')
+      .select('club_id, clubs!inner(name)')
+      .eq('player_id', user.id)
+      .maybeSingle();
+
+    if (mgr) {
+      const clubId = mgr.club_id;
+      const clubName = (mgr.clubs as { name: string } | null)?.name ?? null;
+
+      const { data: mgrMembers } = await admin
+        .from('club_managers')
+        .select('player_id')
+        .eq('club_id', clubId);
+      return { clubName, clubPlayerIds: (mgrMembers ?? []).map((m) => m.player_id), noClub: false };
+    }
+
+    return { clubName: null, clubPlayerIds: null, noClub: true };
   }
 
-  // ── Player search: resolve matching IDs first ─────────────────────────────
-  let searchPlayerIds: string[] | null = null;
-  if (searchQuery) {
+  // ── Player search: resolve matching IDs ────────────────────────────────────
+  async function resolveSearchPlayerIds(): Promise<string[] | null> {
+    if (!searchQuery) return null;
     const { data: matched } = await admin
       .from('players')
       .select('id')
       .or(`full_name.ilike.%${searchQuery}%,username.ilike.%${searchQuery}%`);
-    searchPlayerIds = (matched ?? []).map((p) => p.id);
+    return (matched ?? []).map((p) => p.id);
+  }
+
+  // Independent lookups run in parallel; the viewer's rank-count query depends
+  // on their own rating, so it's issued after myStats resolves.
+  const [myStats, { clubName, clubPlayerIds, noClub }, searchPlayerIds] = await Promise.all([
+    user
+      ? admin.from('global_stats').select('current_rating').eq('player_id', user.id).maybeSingle()
+      : Promise.resolve({ data: null }),
+    resolveClubScope(),
+    resolveSearchPlayerIds(),
+  ]);
+
+  // ── Viewer's own rank (if signed in) ───────────────────────────────────────
+  type MyRank = { rank: number; rating: number } | null;
+  let myRank: MyRank = null;
+
+  if (myStats?.data) {
+    // Count players with a strictly higher rating
+    const { count } = await admin
+      .from('global_stats')
+      .select('player_id', { count: 'exact', head: true })
+      .gt('current_rating', myStats.data.current_rating);
+
+    myRank = { rank: (count ?? 0) + 1, rating: myStats.data.current_rating };
   }
 
   // Build query — global_stats joined with players

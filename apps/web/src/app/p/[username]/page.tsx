@@ -64,27 +64,21 @@ export default async function PlayerProfilePage({ params }: Props) {
 
   const isOwnProfile = user?.id === player.id;
 
-  // Fetch viewer's own username (for H2H link) if not own profile
-  let viewerUsername: string | null = null;
-  if (user && !isOwnProfile) {
-    const { data: viewerPlayer } = await supabase
-      .from('players')
-      .select('username')
-      .eq('id', user.id)
-      .maybeSingle();
-    viewerUsername = viewerPlayer?.username ?? null;
-  }
-
-  // Fetch badges, follower count, and following state in parallel
-  const [badges, isFollowing, followerCountResult] = await Promise.all([
+  // Fetch badges, follower count, following state, and (if viewing someone
+  // else's profile) the viewer's own username for the H2H link — in parallel.
+  const [badges, isFollowing, followerCountResult, viewerPlayer] = await Promise.all([
     getPlayerBadges(player.id),
     user && !isOwnProfile ? getIsFollowing(player.id) : Promise.resolve(false),
     createAdminClient()
       .from('player_follows')
       .select('*', { count: 'exact', head: true })
       .eq('following_id', player.id),
+    user && !isOwnProfile
+      ? supabase.from('players').select('username').eq('id', user.id).maybeSingle()
+      : Promise.resolve({ data: null }),
   ]);
   const followerCount = followerCountResult.count ?? 0;
+  const viewerUsername: string | null = viewerPlayer?.data?.username ?? null;
 
   // Fetch rating history for sparkline (last 30 matches, chronological)
   const { data: ratingHistoryRaw } = await admin

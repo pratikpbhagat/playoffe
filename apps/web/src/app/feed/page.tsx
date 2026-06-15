@@ -92,36 +92,34 @@ export default async function FeedPage({ searchParams }: Props) {
     playerIds.add(f.following_id);
   }
 
-  const { data: players } = playerIds.size > 0
-    ? await admin.from('players').select('id, full_name, username').in('id', [...playerIds])
-    : { data: [] };
-
-  const playerMap = new Map((players ?? []).map((p) => [p.id, p]));
-
-  // ── Resolve opponent names for matches ───────────────────────────────────
   const entryIds = (matchesRes.data ?? [])
     .map((m) => m.opponent_entry_id)
     .filter(Boolean) as string[];
 
-  let opponentMap = new Map<string, string>();
-  if (entryIds.length > 0) {
-    const { data: entries } = await admin
-      .from('tournament_entries')
-      .select('id, players!player_id(full_name)')
-      .in('id', entryIds);
-    opponentMap = new Map(
-      (entries ?? []).map((e) => [
-        e.id,
-        (e.players as { full_name: string } | null)?.full_name ?? 'Unknown',
-      ]),
-    );
-  }
-
-  // ── Tournament names ─────────────────────────────────────────────────────
   const tournamentIds = [...new Set((matchesRes.data ?? []).map((m) => m.tournament_id).filter(Boolean))];
-  const { data: tournaments } = tournamentIds.length > 0
-    ? await admin.from('tournaments').select('id, name').in('id', tournamentIds)
-    : { data: [] };
+
+  // ── Resolve players, opponents, and tournament names in parallel ─────────
+  const [{ data: players }, { data: entries }, { data: tournaments }] = await Promise.all([
+    playerIds.size > 0
+      ? admin.from('players').select('id, full_name, username').in('id', [...playerIds])
+      : Promise.resolve({ data: [] }),
+    entryIds.length > 0
+      ? admin.from('tournament_entries').select('id, players!player_id(full_name)').in('id', entryIds)
+      : Promise.resolve({ data: [] }),
+    tournamentIds.length > 0
+      ? admin.from('tournaments').select('id, name').in('id', tournamentIds)
+      : Promise.resolve({ data: [] }),
+  ]);
+
+  const playerMap = new Map((players ?? []).map((p) => [p.id, p]));
+
+  const opponentMap = new Map(
+    (entries ?? []).map((e) => [
+      e.id,
+      (e.players as { full_name: string } | null)?.full_name ?? 'Unknown',
+    ]),
+  );
+
   const tournamentMap = new Map((tournaments ?? []).map((t) => [t.id, t.name]));
 
   // ── Build feed items ─────────────────────────────────────────────────────
@@ -177,17 +175,13 @@ export default async function FeedPage({ searchParams }: Props) {
 
   const followingCount = scopedPlayerIds ? scopedPlayerIds.length - 1 : 0; // excludes self
 
-  // ── Fetch user-generated posts ────────────────────────────────────────────
-  const feedPosts: FeedPost[] = await getFeedPostsAction(showAll ? 'all' : 'following');
-
-  // Get current player info for CreatePostCard
-  const { data: currentPlayer } = user
-    ? await createAdminClient()
-        .from('players')
-        .select('full_name, photo_url, username')
-        .eq('id', user.id)
-        .maybeSingle()
-    : { data: null };
+  // ── Fetch user-generated posts and current player info in parallel ────────
+  const [feedPosts, { data: currentPlayer }] = await Promise.all([
+    getFeedPostsAction(showAll ? 'all' : 'following'),
+    user
+      ? admin.from('players').select('full_name, photo_url, username').eq('id', user.id).maybeSingle()
+      : Promise.resolve({ data: null }),
+  ]);
 
   // ── Merge posts + activity items ─────────────────────────────────────────
   type MergedItem =

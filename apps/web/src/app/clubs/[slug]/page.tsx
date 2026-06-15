@@ -35,36 +35,38 @@ export default async function ClubPage({ params }: Props) {
 
   if (!club) notFound();
 
-  // Fetch this club's tournaments
-  const { data: tournaments } = await admin
-    .from('tournaments')
-    .select('id, name, slug, status, start_date, end_date, display_code')
-    .eq('club_id', club.id)
-    .order('start_date', { ascending: false });
-
   const role = (club.club_managers as { role: string }[])[0]?.role ?? 'manager';
   const isOwner = role === 'owner';
 
-  // Fetch club managers for the team panel
-  const managers = await getClubManagers(club.id);
-
-  // Quick stats
-  const { count: totalMembers } = await admin
-    .from('club_affiliations')
-    .select('player_id', { count: 'exact', head: true })
-    .eq('club_id', club.id)
-    .eq('is_current', true);
-
-  const { count: activeTournamentsCount } = await admin
-    .from('tournaments')
-    .select('id', { count: 'exact', head: true })
-    .eq('club_id', club.id)
-    .in('status', ['registration_open', 'in_progress']);
-
-  const { count: allTournamentsCount } = await admin
-    .from('tournaments')
-    .select('id', { count: 'exact', head: true })
-    .eq('club_id', club.id);
+  // Fetch this club's tournaments, managers, and quick stats in parallel.
+  const [
+    { data: tournaments },
+    managers,
+    { count: totalMembers },
+    { count: activeTournamentsCount },
+    { count: allTournamentsCount },
+  ] = await Promise.all([
+    admin
+      .from('tournaments')
+      .select('id, name, slug, status, start_date, end_date, display_code')
+      .eq('club_id', club.id)
+      .order('start_date', { ascending: false }),
+    getClubManagers(club.id),
+    admin
+      .from('club_affiliations')
+      .select('player_id', { count: 'exact', head: true })
+      .eq('club_id', club.id)
+      .eq('is_current', true),
+    admin
+      .from('tournaments')
+      .select('id', { count: 'exact', head: true })
+      .eq('club_id', club.id)
+      .in('status', ['registration_open', 'in_progress']),
+    admin
+      .from('tournaments')
+      .select('id', { count: 'exact', head: true })
+      .eq('club_id', club.id),
+  ]);
 
   return (
     <div className="min-h-screen bg-surface">
