@@ -786,6 +786,7 @@ type GroupMatchRow = {
   entry_a_id: string | null;
   entry_b_id: string | null;
   winner_entry_id: string | null;
+  sets: unknown;
 };
 
 async function computeGroupStandings(categoryId: string): Promise<
@@ -801,7 +802,7 @@ async function computeGroupStandings(categoryId: string): Promise<
 
   const { data: allMatches } = await admin
     .from('matches')
-    .select('id, round, group_name, status, entry_a_id, entry_b_id, winner_entry_id')
+    .select('id, round, group_name, status, entry_a_id, entry_b_id, winner_entry_id, sets')
     .eq('category_id', categoryId)
     .order('round', { ascending: true });
 
@@ -815,12 +816,8 @@ async function computeGroupStandings(categoryId: string): Promise<
   );
   const allGroupMatchesDone = pendingGroup.length === 0;
 
-  // Compute standings — fetch sets for point totals
-  const { data: matchesWithSets } = await admin
-    .from('matches')
-    .select('id, group_name, entry_a_id, entry_b_id, winner_entry_id, sets')
-    .eq('category_id', categoryId)
-    .not('group_name', 'is', null);
+  // Standings/point totals are computed from the same group-stage rows fetched above.
+  const matchesWithSets = groupMatches;
 
   const groupNames = [...new Set(groupMatches.map((m) => m.group_name as string))].sort();
 

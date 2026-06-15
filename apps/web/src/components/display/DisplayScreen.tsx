@@ -138,7 +138,7 @@ export function DisplayScreen({ tournament, initialDisplayState }: Props) {
 
   const safeIndex = rotationSlides.length > 0 ? rotationIndex % rotationSlides.length : 0;
   const effectiveSlide: DisplaySlide = displayState.is_pinned ? displayState.current_slide : (rotationSlides[safeIndex] ?? 'live_scores');
-  const entryLabel = (id: string | null): string => { if (!id) return 'TBD'; const ep = entryPlayers.get(id); if (!ep) return '—'; return ep.partnerName ? ep.playerName + ' / ' + ep.partnerName : ep.playerName; };
+  const entryLabel = useCallback((id: string | null): string => { if (!id) return 'TBD'; const ep = entryPlayers.get(id); if (!ep) return '—'; return ep.partnerName ? ep.playerName + ' / ' + ep.partnerName : ep.playerName; }, [entryPlayers]);
   const formatTime = (s: string | null): string => { if (!s) return '—'; return new Date(s).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: true }); };
   const parseSets = (s: unknown): SetScore[] => Array.isArray(s) ? s as SetScore[] : [];
   const catName = (id: string) => categories.find((c) => c.id === id)?.name ?? '';
