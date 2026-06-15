@@ -18,27 +18,32 @@ export async function searchEventSuggestionsAction(query: string): Promise<Event
   const q = trimmed.toLowerCase();
   const admin = createAdminClient();
 
-  const { data } = await admin
-    .from('tournaments')
-    .select('id, name, slug, venue, clubs!inner(name)')
-    .not('status', 'eq', 'cancelled')
-    .order('start_date', { ascending: true });
-
-  if (!data) return [];
+  // Match tournament name/venue and club name at the DB level instead of fetching
+  // every tournament and filtering in JS.
+  const [{ data: tournamentRows }, { data: clubRows }] = await Promise.all([
+    admin
+      .from('tournaments')
+      .select('id, name, slug, venue, clubs!inner(name)')
+      .not('status', 'eq', 'cancelled')
+      .or(`name.ilike.%${q}%,venue.ilike.%${q}%`)
+      .order('start_date', { ascending: true })
+      .limit(20),
+    admin
+      .from('clubs')
+      .select('name')
+      .ilike('name', `%${q}%`)
+      .limit(10),
+  ]);
 
   type Row = { id: string; name: string; slug: string; venue: string | null; clubs: { name: string } };
-  const rows = data as unknown as Row[];
+  const rows = (tournamentRows ?? []) as unknown as Row[];
 
   const suggestions: EventSuggestion[] = [];
-  const seenClubs  = new Set<string>();
   const seenVenues = new Set<string>();
 
   for (const t of rows) {
     const nameMatch  = t.name.toLowerCase().includes(q);
     const venueMatch = (t.venue ?? '').toLowerCase().includes(q);
-    const clubMatch  = t.clubs.name.toLowerCase().includes(q);
-
-    if (!nameMatch && !venueMatch && !clubMatch) continue;
 
     // Direct tournament match → link to that event
     if (nameMatch) {
@@ -50,17 +55,16 @@ export async function searchEventSuggestionsAction(query: string): Promise<Event
       });
     }
 
-    // Club match → de-duped filter suggestion
-    if (clubMatch && !seenClubs.has(t.clubs.name)) {
-      seenClubs.add(t.clubs.name);
-      suggestions.push({ type: 'club', label: t.clubs.name, query: t.clubs.name });
-    }
-
     // Venue match → de-duped filter suggestion
     if (venueMatch && t.venue && !seenVenues.has(t.venue)) {
       seenVenues.add(t.venue);
       suggestions.push({ type: 'venue', label: t.venue, query: t.venue });
     }
+  }
+
+  // Club name match → filter suggestion
+  for (const c of clubRows ?? []) {
+    suggestions.push({ type: 'club', label: c.name, query: c.name });
   }
 
   return suggestions.slice(0, 8);

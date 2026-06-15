@@ -41,7 +41,7 @@ export default async function EventsPage({
   const admin = createAdminClient();
 
   // Fetch public tournaments (not cancelled, show upcoming and recent)
-  const { data: tournaments } = await admin
+  let tournamentsQuery = admin
     .from('tournaments')
     .select(`
       id, name, slug, start_date, end_date, venue, status, registration_deadline,
@@ -49,7 +49,15 @@ export default async function EventsPage({
       tournament_categories(id, play_format, status, max_entries)
     `)
     .not('status', 'eq', 'cancelled')
-    .order('start_date', { ascending: true });
+    .order('start_date', { ascending: true })
+    .limit(200);
+
+  // Push the status filter down to the DB when set, instead of fetching every row.
+  if (filterStatus !== 'all') {
+    tournamentsQuery = tournamentsQuery.eq('status', filterStatus);
+  }
+
+  const { data: tournaments } = await tournamentsQuery;
 
   const allRows = (tournaments ?? []) as Array<{
     id: string;

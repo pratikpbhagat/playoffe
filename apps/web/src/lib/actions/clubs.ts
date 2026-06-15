@@ -4,6 +4,21 @@ import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { createClient, createAdminClient } from '@/lib/supabase/server';
 
+/** Returns the caller's club_managers role for a club, or null if not a manager. */
+async function getClubManagerRole(
+  admin: ReturnType<typeof createAdminClient>,
+  clubId: string,
+  playerId: string,
+): Promise<string | null> {
+  const { data } = await admin
+    .from('club_managers')
+    .select('role')
+    .eq('club_id', clubId)
+    .eq('player_id', playerId)
+    .maybeSingle();
+  return data?.role ?? null;
+}
+
 function slugify(name: string): string {
   return name
     .toLowerCase()
@@ -104,13 +119,8 @@ export async function addClubManagerAction(clubId: string, username: string) {
   const admin = createAdminClient();
 
   // Verify caller is owner of this club
-  const { data: myRole } = await admin
-    .from('club_managers')
-    .select('role')
-    .eq('club_id', clubId)
-    .eq('player_id', user.id)
-    .maybeSingle();
-  if (!myRole || myRole.role !== 'owner') return { error: 'Only club owners can add managers.' };
+  const myRole = await getClubManagerRole(admin, clubId, user.id);
+  if (myRole !== 'owner') return { error: 'Only club owners can add managers.' };
 
   // Look up the target player by username
   const { data: target } = await admin
@@ -148,13 +158,8 @@ export async function removeClubManagerAction(clubId: string, playerId: string) 
   const admin = createAdminClient();
 
   // Verify caller is owner
-  const { data: myRole } = await admin
-    .from('club_managers')
-    .select('role')
-    .eq('club_id', clubId)
-    .eq('player_id', user.id)
-    .maybeSingle();
-  if (!myRole || myRole.role !== 'owner') return { error: 'Only club owners can remove managers.' };
+  const myRole = await getClubManagerRole(admin, clubId, user.id);
+  if (myRole !== 'owner') return { error: 'Only club owners can remove managers.' };
 
   if (playerId === user.id) return { error: 'You cannot remove yourself as owner.' };
 
@@ -239,12 +244,7 @@ export async function addClubMemberAction(clubId: string, clubSlug: string, user
   const admin = createAdminClient();
 
   // Verify caller is a manager or owner of this club
-  const { data: myRole } = await admin
-    .from('club_managers')
-    .select('role')
-    .eq('club_id', clubId)
-    .eq('player_id', user.id)
-    .maybeSingle();
+  const myRole = await getClubManagerRole(admin, clubId, user.id);
   if (!myRole) return { error: 'Not authorized.' };
 
   // Look up target player by username

@@ -40,29 +40,30 @@ export async function awardBadgesForPlayer(playerId: string): Promise<void> {
       .select('id, category_id')
       .eq('player_id', playerId);
 
-    for (const entry of entries ?? []) {
-      // Find the max round in the category
-      const { data: maxRow } = await admin
-        .from('matches')
-        .select('round')
-        .eq('category_id', entry.category_id)
-        .order('round', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+    if (!entries || entries.length === 0) return false;
 
-      if (!maxRow) continue;
+    const categoryIds = [...new Set(entries.map((e) => e.category_id))];
+    const entryIds = new Set(entries.map((e) => e.id));
 
-      // Check if this entry won a match at that max round
-      const { count } = await admin
-        .from('matches')
-        .select('*', { count: 'exact', head: true })
-        .eq('category_id', entry.category_id)
-        .eq('round', maxRow.round)
-        .eq('winner_entry_id', entry.id);
+    // One query for every match in the relevant categories, instead of two
+    // round trips per entry (max-round lookup + winner check).
+    const { data: catMatches } = await admin
+      .from('matches')
+      .select('category_id, round, winner_entry_id')
+      .in('category_id', categoryIds);
 
-      if ((count ?? 0) > 0) return true;
+    const maxRoundByCategory = new Map<string, number>();
+    for (const m of catMatches ?? []) {
+      const current = maxRoundByCategory.get(m.category_id) ?? -Infinity;
+      if (m.round > current) maxRoundByCategory.set(m.category_id, m.round);
     }
-    return false;
+
+    return (catMatches ?? []).some(
+      (m) =>
+        m.winner_entry_id != null &&
+        entryIds.has(m.winner_entry_id) &&
+        m.round === maxRoundByCategory.get(m.category_id),
+    );
   })();
 
   // ── Follower count ─────────────────────────────────────────────────────────

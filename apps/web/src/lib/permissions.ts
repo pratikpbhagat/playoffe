@@ -5,6 +5,7 @@
  * Always uses the admin client so RLS does not interfere.
  */
 
+import { cache } from 'react';
 import { createAdminClient } from '@/lib/supabase/server';
 
 /**
@@ -15,8 +16,11 @@ import { createAdminClient } from '@/lib/supabase/server';
  *   1. Club-level override (scope = 'club', club_id = clubId) — if present, wins
  *   2. Global default (scope = 'global')
  *   3. Falls back to `defaultValue` when no row exists at all
+ *
+ * Memoized per request via React's `cache()` so repeated checks for the same
+ * (role, feature, subFeature, clubId) within one render don't re-query.
  */
-export async function checkPermission(
+export const checkPermission = cache(async function checkPermission(
   role: string,
   feature: string,
   subFeature: string,
@@ -51,4 +55,4 @@ export async function checkPermission(
   if (globalRow) return globalRow.is_enabled;
 
   return defaultValue;
-}
+});
