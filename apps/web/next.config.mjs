@@ -26,7 +26,8 @@ const securityHeaders = [
     value: [
       "default-src 'self'",
       // Next.js inline scripts + Supabase auth
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+      // 'unsafe-eval' is only needed in dev (HMR/eval-source-maps); strip it in prod.
+      `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ''}`,
       // Tailwind inline styles
       "style-src 'self' 'unsafe-inline'",
       // Images: self + Supabase storage CDN + data URIs
@@ -58,6 +59,7 @@ const nextConfig = {
   ],
 
   images: {
+    formats: ['image/avif', 'image/webp'],
     remotePatterns: [
       { protocol: 'https', hostname: '*.supabase.co' },
       { protocol: 'https', hostname: 'supabase.co' },

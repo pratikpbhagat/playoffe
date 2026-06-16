@@ -10,7 +10,14 @@ import type { ScheduleUpdate, ConflictInfo } from '@/lib/actions/scheduling';
 import { detectConflictsFromUpdates } from '@/lib/scheduling-utils';
 import { ScheduleSettingsModal } from './ScheduleSettingsModal';
 import type { ScheduleSettings } from './ScheduleSettingsModal';
-import { ScheduleAIPanel } from './ScheduleAIPanel';
+import dynamic from 'next/dynamic';
+
+// Loaded on demand — only rendered when the user opens the AI panel,
+// so there's no reason to include it in the schedule page's initial bundle.
+const ScheduleAIPanel = dynamic(
+  () => import('./ScheduleAIPanel').then((m) => ({ default: m.ScheduleAIPanel })),
+  { ssr: false },
+);
 
 export interface MatchForScheduling {
   id: string;
