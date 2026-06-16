@@ -33,31 +33,17 @@ export async function createClient() {
 }
 
 /**
- * Returns the current user by decoding the JWT from the session cookie
- * locally — no HTTPS round-trip to the Supabase Auth server.
+ * Returns the current authenticated user, memoized per request via React's
+ * cache(). Many server components on the same page (AppNav + the page itself)
+ * each need the user — cache() ensures at most one Auth-server round trip per
+ * request regardless of how many callers there are.
  *
- * Safe for: page personalisation, display logic, FK writes in server actions.
- * The JWT is cryptographically signed so the user ID cannot be forged, and
- * RLS policies remain the real enforcement layer regardless.
- *
- * NOT safe for: operations that must detect mid-session revocation (banned
- * user, role change). Use getVerifiedUser() for those instead.
+ * Uses getUser() (not getSession()) so the JWT is verified server-side and
+ * the session is refreshed if the access token has expired. Using getSession()
+ * here produces a Supabase security warning and can leave server components
+ * with stale/unverified user data.
  */
 export const getCurrentUser = cache(async () => {
-  const supabase = await createClient();
-  const { data: { session } } = await supabase.auth.getSession();
-  return session?.user ?? null;
-});
-
-/**
- * Returns the current user with a live round-trip to the Supabase Auth server
- * (~80–150 ms). Guarantees the token hasn't been revoked since it was issued.
- *
- * Use only where the cost is justified by the security requirement:
- * superadmin mutations, permission writes, or any action that could affect
- * other users' data if called by a compromised session.
- */
-export const getVerifiedUser = cache(async () => {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   return user;
