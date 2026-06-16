@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
+import { unstable_cache } from 'next/cache';
 import { createAdminClient, createClient, getCurrentUser } from '@/lib/supabase/server';
 import { checkPermission } from '@/lib/permissions';
 import { AppNav } from '@/components/layout/AppNav';
@@ -66,12 +67,15 @@ const DRAW_FORMAT_LABEL: Record<string, string> = {
   swiss:                'Swiss',
 };
 
-export default async function PublicTournamentPage({ params }: Props) {
-  const { id: slug } = await params;
+// Public tournament data — same for every visitor, cache for 60 s so scores
+// and registrations reflect recent changes without a full DB hit per request.
+// Invalidated immediately by scoring/draw actions via revalidateTag('event-{slug}').
+type CatRow = { id: string; name: string; slug: string; play_format: string; draw_format: string; status: string; max_entries: number | null };
+type MatchProgressRow = { category_id: string; status: string };
 
+async function getPublicTournamentData(slug: string) {
   const admin = createAdminClient();
 
-  // Look up tournament by slug
   const { data: t } = await admin
     .from('tournaments')
     .select(`
@@ -83,48 +87,23 @@ export default async function PublicTournamentPage({ params }: Props) {
     .neq('status', 'cancelled')
     .single();
 
-  if (!t) notFound();
+  if (!t) return null;
 
-  const tournamentId = t.id;
-  const club = t.clubs as { id: string; name: string; brand_primary_color: string };
-  const banner = STATUS_BANNER[t.status] ?? STATUS_BANNER.draft;
-
-  // Fetch categories with their slugs
-  const { data: categories } = await admin
-    .from('tournament_categories')
-    .select('id, name, slug, play_format, draw_format, status, max_entries')
-    .eq('tournament_id', tournamentId)
-    .order('created_at');
-
-  const cats = (categories ?? []) as Array<{
-    id: string;
-    name: string;
-    slug: string;
-    play_format: string;
-    draw_format: string;
-    status: string;
-    max_entries: number | null;
-  }>;
-
-  // Entry counts per category (active only)
-  const { data: entryCounts } = await admin
-    .from('tournament_entries')
-    .select('category_id')
-    .eq('tournament_id', tournamentId)
-    .eq('status', 'active');
+  const [{ data: categories }, { data: entryCounts }] = await Promise.all([
+    admin.from('tournament_categories').select('id, name, slug, play_format, draw_format, status, max_entries').eq('tournament_id', t.id).order('created_at'),
+    admin.from('tournament_entries').select('category_id').eq('tournament_id', t.id).eq('status', 'active'),
+  ]);
 
   const countByCategory: Record<string, number> = {};
   for (const e of entryCounts ?? []) {
     countByCategory[e.category_id] = (countByCategory[e.category_id] ?? 0) + 1;
   }
 
-  // Match progress for in-progress/completed categories (for standings formats)
   const standingsFormats = new Set(['round_robin', 'swiss', 'group_stage_knockout']);
   const standingsCatIds = (categories ?? [])
     .filter((c) => standingsFormats.has(c.draw_format) && ['draw_generated', 'in_progress', 'completed'].includes(c.status))
     .map((c) => c.id);
 
-  type MatchProgressRow = { category_id: string; status: string };
   let matchProgressRaw: MatchProgressRow[] = [];
   if (standingsCatIds.length > 0) {
     const { data: mpRows } = await admin
@@ -136,7 +115,6 @@ export default async function PublicTournamentPage({ params }: Props) {
     matchProgressRaw = (mpRows ?? []) as MatchProgressRow[];
   }
 
-  // Build per-category { total, completed } counts
   const matchProgress: Record<string, { total: number; completed: number }> = {};
   for (const m of matchProgressRaw) {
     if (!matchProgress[m.category_id]) matchProgress[m.category_id] = { total: 0, completed: 0 };
@@ -144,7 +122,28 @@ export default async function PublicTournamentPage({ params }: Props) {
     if (m.status === 'completed' || m.status === 'walkover') matchProgress[m.category_id].completed++;
   }
 
-  // Who is the current viewer?
+  return { t, categories: (categories ?? []) as CatRow[], countByCategory, matchProgress };
+}
+
+const getCachedTournamentData = unstable_cache(
+  getPublicTournamentData,
+  ['public-tournament'],
+  { revalidate: 60, tags: ['public-tournament'] },
+);
+
+export default async function PublicTournamentPage({ params }: Props) {
+  const { id: slug } = await params;
+
+  const publicData = await getCachedTournamentData(slug);
+  if (!publicData) notFound();
+
+  const { t, categories: cats, countByCategory, matchProgress } = publicData;
+  const tournamentId = t.id;
+  const club = t.clubs as { id: string; name: string; brand_primary_color: string };
+  const banner = STATUS_BANNER[t.status] ?? STATUS_BANNER.draft;
+
+  // Who is the current viewer? (dynamic — not cached, user-specific)
+  const admin = createAdminClient();
   const supabase = await createClient();
   const user = await getCurrentUser();
 
