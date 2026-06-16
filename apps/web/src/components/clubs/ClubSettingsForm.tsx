@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useTransition, useRef } from 'react';
+import Image from 'next/image';
 import { updateClubAction, uploadClubLogoAction } from '@/lib/actions/clubs';
 import type { UpdateClubInput } from '@/lib/actions/clubs';
 import { useToast } from '@/components/ui/ToastProvider';
@@ -103,7 +104,7 @@ export function ClubSettingsForm({ clubId, clubSlug, initialValues }: Props) {
         <h3 className="mb-4 text-sm font-semibold text-white">Club logo</h3>
         <div className="flex items-center gap-4">
           {logoUrl ? (
-            <img src={logoUrl} alt="Club logo" className="h-16 w-16 rounded-xl object-cover" />
+            <Image src={logoUrl} alt="Club logo" width={64} height={64} className="h-16 w-16 rounded-xl object-cover" />
           ) : (
             <div
               className="flex h-16 w-16 items-center justify-center rounded-xl text-2xl font-black text-white"

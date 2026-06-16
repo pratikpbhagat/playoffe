@@ -109,8 +109,7 @@ export function FeedPostCard({
       {/* Image */}
       {post.image_url && (
         <div className="mt-3 overflow-hidden rounded-lg">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={post.image_url} alt="Post image" className="w-full max-h-80 object-cover" />
+          <Image src={post.image_url} alt="Post image" width={800} height={450} className="w-full max-h-80 object-cover" />
         </div>
       )}
 

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { addClubManagerAction, removeClubManagerAction } from '@/lib/actions/clubs';
 import { useConfirm } from '@/components/ui/ConfirmProvider';
@@ -75,8 +76,7 @@ export function ClubManagersPanel({ clubId, managers, isOwner, currentUserId }: 
                 {/* Avatar */}
                 <div className="h-9 w-9 shrink-0 rounded-full bg-brand-600/30 flex items-center justify-center text-sm font-bold text-brand-400 overflow-hidden">
                   {p.photo_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={p.photo_url} alt="" className="h-full w-full object-cover" />
+                    <Image src={p.photo_url} alt="" width={36} height={36} className="h-full w-full object-cover" />
                   ) : (
                     p.full_name.charAt(0)
                   )}
