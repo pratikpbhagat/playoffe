@@ -7,7 +7,7 @@
  * All reads use the admin client (service role) to bypass RLS.
  */
 
-import { createAdminClient, createClient, getCurrentUser, isSuperAdmin } from '@/lib/supabase/server';
+import { createAdminClient, createClient, getVerifiedUser, isSuperAdmin } from '@/lib/supabase/server';
 import { sendEmail } from '@/lib/email/service';
 import { buildAdminInviteEmail } from '@/lib/email/templates/admin-invite';
 import { revalidatePath } from 'next/cache';
@@ -21,7 +21,7 @@ const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
 
 async function assertSuperAdmin() {
   const supabase = await createClient();
-  const user = await getCurrentUser();
+  const user = await getVerifiedUser();
   if (!isSuperAdmin(user)) throw new Error('Forbidden: Super Admin only');
   return { user: user!, admin: createAdminClient() };
 }
@@ -836,7 +836,7 @@ export async function resetClubPermissionsAction(clubId: string) {
 export async function activatePlayerProfileAction() {
   'use server';
   const supabase = await createClient();
-  const user = await getCurrentUser();
+  const user = await getVerifiedUser();
   if (!user) return { error: 'Not authenticated' };
 
   const roles = (user.app_metadata?.roles as string[] | undefined) ?? [];
