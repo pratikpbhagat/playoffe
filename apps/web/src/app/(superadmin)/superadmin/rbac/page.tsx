@@ -1,7 +1,9 @@
 import type { Metadata } from 'next';
+import dynamic from 'next/dynamic';
 import { createAdminClient } from '@/lib/supabase/server';
 import { getRolePermissionsAction } from '@/lib/actions/superadmin';
-import { PermissionMatrix } from '@/components/superadmin/PermissionMatrix';
+
+const PermissionMatrix = dynamic(() => import('@/components/superadmin/PermissionMatrix').then((m) => m.PermissionMatrix));
 
 export const metadata: Metadata = { title: 'Permissions · Super Admin' };
 

@@ -1,9 +1,11 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { PendingEntriesPanel } from './PendingEntriesPanel';
+import dynamic from 'next/dynamic';
 import { AddPlayerByEmail } from './AddPlayerByEmail';
-import { ImportPlayersPanel } from './ImportPlayersPanel';
+
+const PendingEntriesPanel = dynamic(() => import('./PendingEntriesPanel').then((m) => m.PendingEntriesPanel));
+const ImportPlayersPanel = dynamic(() => import('./ImportPlayersPanel').then((m) => m.ImportPlayersPanel));
 
 interface EntryRow {
   id: string;
