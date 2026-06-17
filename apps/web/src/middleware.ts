@@ -125,14 +125,16 @@ export async function middleware(request: NextRequest) {
     },
   );
 
-  // Local JWT decode (no Auth-server round trip) — sufficient for the outer
-  // "are you logged in at all" gate. Pages that need an authoritative user
-  // record for RLS-sensitive logic call supabase.auth.getUser() themselves.
+  // getUser() validates the token with the Supabase Auth server and, if the
+  // access token is expired, silently refreshes it using the refresh token.
+  // This ensures server components always run with fresh, valid cookies.
+  // getSession() does not reliably trigger refresh in all cases — using it
+  // here caused intermittent 404s when access tokens expired mid-session.
   const {
-    data: { session },
-  } = await supabase.auth.getSession();
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  if (!session) {
+  if (!user) {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
     url.searchParams.set('redirectTo', pathname);

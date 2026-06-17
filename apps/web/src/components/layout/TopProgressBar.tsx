@@ -61,13 +61,23 @@ function ProgressBarInner() {
     <div
       role="progressbar"
       aria-hidden="true"
-      className="pointer-events-none fixed left-0 top-0 z-[9999] h-[2px] bg-brand-500"
+      className="pointer-events-none fixed left-0 top-0 z-[9999] h-[3px]"
       style={{
         width: `${width}%`,
         transition: width === 100 ? 'width 150ms ease-out' : 'width 400ms ease-in-out',
-        boxShadow: '0 0 6px 0 rgb(124 58 237 / 0.7)',
+        background: 'linear-gradient(to right, #7c3aed, #a78bfa)',
+        boxShadow: '0 0 12px 3px rgb(139 92 246 / 0.8), 0 0 24px 6px rgb(139 92 246 / 0.4)',
       }}
-    />
+    >
+      {/* bright leading-edge shimmer */}
+      <div
+        className="absolute right-0 top-0 h-full w-24"
+        style={{
+          background: 'linear-gradient(to right, transparent, rgb(196 181 253 / 0.9))',
+          borderRadius: '0 2px 2px 0',
+        }}
+      />
+    </div>
   );
 }
 

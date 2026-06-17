@@ -34,9 +34,14 @@ export async function createClient() {
 
 /**
  * Returns the current authenticated user, memoized per request via React's
- * cache(). Many server components on the same page (e.g. AppNav + the page
- * itself) each need the user — this avoids issuing a separate Auth-server
- * round trip for every one of them.
+ * cache(). Many server components on the same page (AppNav + the page itself)
+ * each need the user — cache() ensures at most one Auth-server round trip per
+ * request regardless of how many callers there are.
+ *
+ * Uses getUser() (not getSession()) so the JWT is verified server-side and
+ * the session is refreshed if the access token has expired. Using getSession()
+ * here produces a Supabase security warning and can leave server components
+ * with stale/unverified user data.
  */
 export const getCurrentUser = cache(async () => {
   const supabase = await createClient();
