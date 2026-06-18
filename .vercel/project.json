@@ -1,0 +1,16 @@
+{
+  "projectId": "prj_zW6AqMNcjD8DppViaDgE3VrcTbT4",
+  "orgId": "team_y1V6qjLziunDC1nqcVMMs024",
+  "projectName": "pf-core",
+  "settings": {
+    "createdAt": 1781765592576,
+    "framework": "nextjs",
+    "devCommand": null,
+    "installCommand": "corepack enable && corepack prepare pnpm@10.12.1 --activate && pnpm install --frozen-lockfile",
+    "buildCommand": "pnpm --filter @pickleball/web build",
+    "outputDirectory": "apps/web/.next",
+    "rootDirectory": null,
+    "directoryListing": false,
+    "nodeVersion": "24.x"
+  }
+}

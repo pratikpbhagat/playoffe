@@ -18,6 +18,8 @@ out
 .env
 .env.local
 .env.*.local
+staging.env
+prod.env
 
 # Supabase
 supabase/.branches
@@ -63,3 +65,5 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 workers/.env
+.vercel
+!.vercel/project.json
