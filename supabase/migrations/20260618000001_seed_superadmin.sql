@@ -22,7 +22,7 @@ begin
   values (
     gen_random_uuid(),
     'admin@playoffe.com',
-    crypt('Playoffe@2025!', gen_salt('bf')),
+    crypt('Playoffe@2026!', gen_salt('bf')),
     now(),
     '{"provider":"email","providers":["email"],"role":"super_admin"}'::jsonb,
     '{"full_name":"Alex"}'::jsonb,
