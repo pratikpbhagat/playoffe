@@ -121,7 +121,9 @@ export function WizardChat({ clubId, clubName }: Props) {
         setError(`Failed to reach the server: ${msg}`);
       } finally {
         setLoading(false);
-        inputRef.current?.focus();
+        // Defer focus so it runs after React re-renders the chips section
+        // (which would otherwise steal focus from the input)
+        setTimeout(() => inputRef.current?.focus(), 0);
       }
     },
     [clubId, messages, loading, router],
@@ -197,7 +199,7 @@ export function WizardChat({ clubId, clubName }: Props) {
                 <button
                   key={chip}
                   onClick={() => void sendMessage(chip)}
-                  className="rounded-lg border border-brand-600 bg-brand-950 px-3 py-1.5 text-xs font-medium text-brand-300 hover:bg-brand-900 hover:border-brand-400 hover:text-brand-200 active:scale-95 transition-all"
+                  className="rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-brand-500 active:scale-95 transition-all"
                 >
                   {chip}
                 </button>
