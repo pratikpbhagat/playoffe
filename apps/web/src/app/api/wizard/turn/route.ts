@@ -182,15 +182,15 @@ async function fetchClubContext(clubId: string): Promise<ClubContext> {
   const mostCommonCategories = topCats.length > 0 ? topCats.join(', ') : '';
 
   // Players who have competed at this club recently
-  const { data: entryData } = await admin
-    .from('tournament_entries')
-    .select('player_id, players!player_id(full_name, global_stats(current_rating))')
-    .in(
-      'tournament_id',
-      past.slice(0, 3).map((t) => (t as { id: string }).id),
-    )
-    .eq('status', 'active')
-    .limit(50);
+  const recentIds = past.slice(0, 3).map((t) => (t as { id: string }).id);
+  const { data: entryData } = recentIds.length > 0
+    ? await admin
+        .from('tournament_entries')
+        .select('player_id, players!player_id(full_name, global_stats(current_rating))')
+        .in('tournament_id', recentIds)
+        .eq('status', 'active')
+        .limit(50)
+    : { data: [] };
 
   const playersSeen = new Map<string, { name: string; rating: number }>();
   for (const entry of entryData ?? []) {
@@ -298,98 +298,105 @@ async function createTournamentFromConfig(
 
 export async function POST(req: NextRequest) {
   if (!process.env.ANTHROPIC_API_KEY) {
-    return NextResponse.json({ error: 'AI wizard is not configured' }, { status: 503 });
+    return NextResponse.json({ error: 'AI wizard is not configured. Add ANTHROPIC_API_KEY to your environment.' }, { status: 503 });
   }
 
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+  try {
+    const user = await getCurrentUser();
+    if (!user) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
-  const body = (await req.json()) as {
-    clubId: string;
-    messages: WizardMessage[];
-    userMessage: string;
-  };
+    const body = (await req.json()) as {
+      clubId: string;
+      messages: WizardMessage[];
+      userMessage: string;
+    };
 
-  const { clubId, messages, userMessage } = body;
-  if (!clubId) return NextResponse.json({ error: 'clubId required' }, { status: 400 });
+    const { clubId, messages, userMessage } = body;
+    if (!clubId) return NextResponse.json({ error: 'clubId required' }, { status: 400 });
 
-  // Verify the user manages this club
-  const admin = createAdminClient();
-  const { data: mgr } = await admin
-    .from('club_managers')
-    .select('role')
-    .eq('club_id', clubId)
-    .eq('player_id', user.id)
-    .maybeSingle();
+    // Verify the user manages this club
+    const admin = createAdminClient();
+    const { data: mgr } = await admin
+      .from('club_managers')
+      .select('role')
+      .eq('club_id', clubId)
+      .eq('player_id', user.id)
+      .maybeSingle();
 
-  if (!mgr) return NextResponse.json({ error: 'Permission denied' }, { status: 403 });
+    if (!mgr) return NextResponse.json({ error: 'Permission denied — you are not a manager of this club.' }, { status: 403 });
 
-  // Fetch club context and build system prompt
-  const ctx = await fetchClubContext(clubId);
-  const systemPrompt = buildSystemPrompt(ctx);
+    // Fetch club context and build system prompt
+    const ctx = await fetchClubContext(clubId);
+    const systemPrompt = buildSystemPrompt(ctx);
 
-  // Build conversation
-  const updatedMessages: WizardMessage[] = [
-    ...messages,
-    { role: 'user', content: userMessage },
-  ];
+    // Build conversation
+    const updatedMessages: WizardMessage[] = [
+      ...messages,
+      { role: 'user', content: userMessage },
+    ];
 
-  // Call Claude with prompt caching on the system prompt
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    // Call Claude with prompt caching on the system prompt
+    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-  const response = await client.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 1024,
-    system: [
-      {
-        type: 'text',
-        text: systemPrompt,
-        // @ts-expect-error cache_control is supported but not yet in SDK types
-        cache_control: { type: 'ephemeral' },
-      },
-    ],
-    messages: updatedMessages.map((m) => ({ role: m.role, content: m.content })),
-  });
+    const response = await client.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1024,
+      system: [
+        {
+          type: 'text',
+          text: systemPrompt,
+          // @ts-expect-error cache_control is supported but not yet in SDK types
+          cache_control: { type: 'ephemeral' },
+        },
+      ],
+      messages: updatedMessages.map((m) => ({ role: m.role, content: m.content })),
+    });
 
-  const rawReply = response.content[0]?.type === 'text' ? response.content[0].text : '';
+    const rawReply = response.content[0]?.type === 'text' ? response.content[0].text : '';
 
-  // Extract and strip the config-state block
-  const { clean: displayReply, config: partialConfig } = extractConfigState(rawReply);
+    // Extract and strip the config-state block
+    const { clean: displayReply, config: partialConfig } = extractConfigState(rawReply);
 
-  // Check if this response contains the final TOURNAMENT_CONFIG
-  const tournamentConfig = extractTournamentConfig(displayReply);
+    // Check if this response contains the final TOURNAMENT_CONFIG
+    const tournamentConfig = extractTournamentConfig(displayReply);
 
-  let tournamentCreated = false;
-  let tournamentSlug: string | null = null;
+    let tournamentCreated = false;
+    let tournamentSlug: string | null = null;
 
-  if (tournamentConfig) {
-    const result = await createTournamentFromConfig(tournamentConfig, user.id);
-    if ('slug' in result) {
-      tournamentCreated = true;
-      tournamentSlug = result.slug;
+    if (tournamentConfig) {
+      const result = await createTournamentFromConfig(tournamentConfig, user.id);
+      if ('slug' in result) {
+        tournamentCreated = true;
+        tournamentSlug = result.slug;
+      }
     }
+
+    const finalMessages: WizardMessage[] = [
+      ...updatedMessages,
+      { role: 'assistant', content: displayReply },
+    ];
+
+    const defaultConfig: WizardPartialConfig = {
+      step: 1,
+      name: null,
+      date: null,
+      venue: null,
+      courts: null,
+      categories: null,
+      notes: null,
+    };
+
+    return NextResponse.json({
+      reply: displayReply,
+      messages: finalMessages,
+      partialConfig: partialConfig ?? defaultConfig,
+      tournamentCreated,
+      tournamentSlug,
+    } satisfies WizardTurnResponse);
+
+  } catch (err) {
+    console.error('[wizard/turn] unhandled error:', err);
+    const message = err instanceof Error ? err.message : 'An unexpected error occurred';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
-
-  const finalMessages: WizardMessage[] = [
-    ...updatedMessages,
-    { role: 'assistant', content: displayReply },
-  ];
-
-  const defaultConfig: WizardPartialConfig = {
-    step: 1,
-    name: null,
-    date: null,
-    venue: null,
-    courts: null,
-    categories: null,
-    notes: null,
-  };
-
-  return NextResponse.json({
-    reply: displayReply,
-    messages: finalMessages,
-    partialConfig: partialConfig ?? defaultConfig,
-    tournamentCreated,
-    tournamentSlug,
-  } satisfies WizardTurnResponse);
 }

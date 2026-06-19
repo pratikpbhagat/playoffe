@@ -87,29 +87,38 @@ export function WizardChat({ clubId, clubName }: Props) {
           body: JSON.stringify({ clubId, messages, userMessage: userText }),
         });
 
-        const data = await res.json();
-
-        if (!res.ok || data.error) {
-          setError(data.error ?? 'Something went wrong. Please try again.');
+        let data: Record<string, unknown>;
+        try {
+          data = await res.json();
+        } catch {
+          setError(`Server error (${res.status}). Check that ANTHROPIC_API_KEY is set in your environment.`);
           setLoading(false);
           return;
         }
 
-        setMessages(data.messages);
+        if (!res.ok || data.error) {
+          setError((data.error as string | undefined) ?? 'Something went wrong. Please try again.');
+          setLoading(false);
+          return;
+        }
+
+        const typed = data as unknown as import('@/app/api/wizard/turn/route').WizardTurnResponse;
+        setMessages(typed.messages);
         setDisplayMessages((prev) => [
           ...prev,
-          { role: 'assistant', content: data.reply },
+          { role: 'assistant', content: typed.reply },
         ]);
-        setPartialConfig(data.partialConfig ?? DEFAULT_PARTIAL_CONFIG);
+        setPartialConfig(typed.partialConfig ?? DEFAULT_PARTIAL_CONFIG);
 
-        if (data.tournamentCreated && data.tournamentSlug) {
+        if (typed.tournamentCreated && typed.tournamentSlug) {
           // Small delay so the user sees the success message before redirect
           setTimeout(() => {
-            router.push(`/tournaments/${data.tournamentSlug}`);
+            router.push(`/tournaments/${typed.tournamentSlug!}`);
           }, 1500);
         }
-      } catch {
-        setError('Failed to reach the server. Please check your connection and try again.');
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setError(`Failed to reach the server: ${msg}`);
       } finally {
         setLoading(false);
         inputRef.current?.focus();
