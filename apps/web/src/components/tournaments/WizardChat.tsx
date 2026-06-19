@@ -188,16 +188,21 @@ export function WizardChat({ clubId, clubName }: Props) {
 
         {/* Quick-reply chips */}
         {chips.length > 0 && !loading && (
-          <div className="px-4 pb-2 flex flex-wrap gap-1.5 shrink-0">
-            {chips.map((chip) => (
-              <button
-                key={chip}
-                onClick={() => void sendMessage(chip)}
-                className="rounded-full border border-brand-700/60 bg-brand-950/40 px-3 py-1 text-xs text-brand-300 hover:bg-brand-900/60 hover:border-brand-500 transition-colors"
-              >
-                {chip}
-              </button>
-            ))}
+          <div className="shrink-0 border-t border-surface-border bg-surface px-4 py-3">
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+              Suggested replies
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {chips.map((chip) => (
+                <button
+                  key={chip}
+                  onClick={() => void sendMessage(chip)}
+                  className="rounded-lg border border-brand-600 bg-brand-950 px-3 py-1.5 text-xs font-medium text-brand-300 hover:bg-brand-900 hover:border-brand-400 hover:text-brand-200 active:scale-95 transition-all"
+                >
+                  {chip}
+                </button>
+              ))}
+            </div>
           </div>
         )}
 

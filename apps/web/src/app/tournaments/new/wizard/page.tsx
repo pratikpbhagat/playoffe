@@ -32,7 +32,7 @@ export default async function WizardPage({ searchParams }: Props) {
   if (!club) redirect('/tournaments/new');
 
   return (
-    <div className="min-h-screen bg-surface flex flex-col">
+    <div className="h-screen bg-surface flex flex-col overflow-hidden">
       <AppNav />
 
       {/* Page header */}
