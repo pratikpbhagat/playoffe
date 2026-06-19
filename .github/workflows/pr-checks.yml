@@ -102,17 +102,11 @@ jobs:
 
       - name: Pull Vercel environment (preview)
         run: vercel pull --yes --environment=preview --token=${{ secrets.VERCEL_TOKEN }}
-        working-directory: apps/web
-
-      - name: Build project
-        run: vercel build --token=${{ secrets.VERCEL_TOKEN }}
-        working-directory: apps/web
 
       - name: Deploy to Vercel preview
         id: deploy
-        working-directory: apps/web
         run: |
-          URL=$(vercel deploy --prebuilt --token=${{ secrets.VERCEL_TOKEN }})
+          URL=$(vercel deploy --token=${{ secrets.VERCEL_TOKEN }})
           echo "preview_url=$URL" >> $GITHUB_OUTPUT
           echo "Deployed to: $URL"
 
