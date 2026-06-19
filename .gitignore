@@ -67,3 +67,7 @@ pnpm-debug.log*
 workers/.env
 .vercel
 !.vercel/project.json
+
+# Handover/handoff documents
+docs/handover-*.md
+docs/handoff-*.md
