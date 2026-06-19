@@ -13,7 +13,8 @@ export interface WizardMessage {
 export interface WizardPartialConfig {
   step: number;
   name: string | null;
-  date: string | null;
+  start_date: string | null;
+  end_date: string | null;
   venue: string | null;
   courts: number | null;
   categories: Array<{
@@ -28,7 +29,8 @@ export interface WizardPartialConfig {
 
 export interface WizardTournamentConfig {
   name: string;
-  date: string;
+  start_date: string;
+  end_date: string;
   venue: string;
   courts: number;
   club_id: string;
@@ -39,6 +41,12 @@ export interface WizardTournamentConfig {
     draw_format: string;
     player_count: number;
     scoring: { points_per_set: number; sets_per_match: number; deuce_rule: boolean };
+    stage_scoring?: Array<{
+      stage: 'group_stage' | 'knockout' | 'semifinal' | 'final';
+      points_per_set: number;
+      sets_per_match: number;
+      deuce_rule: boolean;
+    }>;
   }>;
   notes: string | null;
   created_via: string;
@@ -60,7 +68,18 @@ function extractConfigState(text: string): { clean: string; config: WizardPartia
 
   const clean = text.replace(/\n?```config-state\n[\s\S]*?\n```/, '').trimEnd();
   try {
-    const config = JSON.parse(match[1].trim()) as WizardPartialConfig;
+    const raw = JSON.parse(match[1].trim()) as Record<string, unknown>;
+    // Normalise: Claude may still emit legacy "date" field instead of start_date/end_date
+    const config: WizardPartialConfig = {
+      step: (raw.step as number) ?? 1,
+      name: (raw.name as string | null) ?? null,
+      start_date: (raw.start_date as string | null) ?? (raw.date as string | null) ?? null,
+      end_date: (raw.end_date as string | null) ?? (raw.date as string | null) ?? null,
+      venue: (raw.venue as string | null) ?? null,
+      courts: (raw.courts as number | null) ?? null,
+      categories: (raw.categories as WizardPartialConfig['categories']) ?? null,
+      notes: (raw.notes as string | null) ?? null,
+    };
     return { clean, config };
   } catch {
     return { clean, config: null };
@@ -116,7 +135,7 @@ function toCategoryType(
 async function fetchClubContext(clubId: string): Promise<ClubContext> {
   const admin = createAdminClient();
 
-  const [clubRes, pastTournamentsRes] = await Promise.all([
+  const [clubRes, pastTournamentsRes, allNamesRes] = await Promise.all([
     admin.from('clubs').select('name').eq('id', clubId).single(),
     admin
       .from('tournaments')
@@ -125,6 +144,11 @@ async function fetchClubContext(clubId: string): Promise<ClubContext> {
       .eq('status', 'completed')
       .order('created_at', { ascending: false })
       .limit(10),
+    admin
+      .from('tournaments')
+      .select('name')
+      .eq('club_id', clubId)
+      .order('created_at', { ascending: false }),
   ]);
 
   const clubName = (clubRes.data as { name: string } | null)?.name ?? 'Your Club';
@@ -220,6 +244,9 @@ async function fetchClubContext(clubId: string): Promise<ClubContext> {
       month: 'long',
       day: 'numeric',
     }),
+    existingTournamentNames: (allNamesRes.data ?? []).map(
+      (t) => (t as { name: string }).name,
+    ),
   };
 }
 
@@ -247,8 +274,8 @@ async function createTournamentFromConfig(
       club_id: config.club_id,
       name: config.name,
       venue: config.venue,
-      start_date: config.date,
-      end_date: config.date,
+      start_date: config.start_date,
+      end_date: config.end_date,
       court_count: config.courts,
       status: 'draft',
       scoring_format: 'rally',
@@ -282,13 +309,48 @@ async function createTournamentFromConfig(
   }));
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { error: catErr } = await (admin as any)
+  const { data: createdCats, error: catErr } = await (admin as any)
     .from('tournament_categories')
-    .insert(categoryRows);
+    .insert(categoryRows)
+    .select('id, name');
 
   if (catErr) {
-    // Tournament was created — still return the slug so organizer can add categories manually
     console.error('Failed to create wizard categories:', catErr);
+    return { slug: (tournament as { slug: string }).slug };
+  }
+
+  // Create per-stage scoring overrides for each category
+  const stageScoringRows: Array<{
+    category_id: string;
+    stage: string;
+    points_per_set: number;
+    num_sets: number;
+    win_by: number;
+  }> = [];
+
+  for (const cat of config.categories) {
+    if (!cat.stage_scoring?.length) continue;
+    const created = (createdCats as Array<{ id: string; name: string }>).find(
+      (c) => c.name === cat.name,
+    );
+    if (!created) continue;
+    for (const ss of cat.stage_scoring) {
+      stageScoringRows.push({
+        category_id: created.id,
+        stage: ss.stage,
+        points_per_set: ss.points_per_set,
+        num_sets: ss.sets_per_match,
+        win_by: ss.deuce_rule ? 2 : 1,
+      });
+    }
+  }
+
+  if (stageScoringRows.length > 0) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error: ssErr } = await (admin as any)
+      .from('category_stage_scoring')
+      .insert(stageScoringRows);
+    if (ssErr) console.error('Failed to create stage scoring overrides:', ssErr);
   }
 
   return { slug: (tournament as { slug: string }).slug };
@@ -379,7 +441,8 @@ export async function POST(req: NextRequest) {
     const defaultConfig: WizardPartialConfig = {
       step: 1,
       name: null,
-      date: null,
+      start_date: null,
+      end_date: null,
       venue: null,
       courts: null,
       categories: null,

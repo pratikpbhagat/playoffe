@@ -34,7 +34,7 @@ function Field({ label, value }: { label: string; value: string | null | undefin
 export function WizardPreview({ config }: Props) {
   const completedSteps = [
     config.name,
-    config.date,
+    config.start_date,
     config.venue,
     config.courts != null ? String(config.courts) : null,
     config.categories,
@@ -66,8 +66,8 @@ export function WizardPreview({ config }: Props) {
       </div>
 
       {/* Config fields */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 min-h-0">
-        {!config.name && !config.date && !config.venue && (
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 min-h-0 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-700 hover:[&::-webkit-scrollbar-thumb]:bg-slate-600">
+        {!config.name && !config.start_date && !config.venue && (
           <p className="text-xs text-slate-600 italic">
             Answers will appear here as you confirm them.
           </p>
@@ -77,13 +77,10 @@ export function WizardPreview({ config }: Props) {
         <Field
           label="Date"
           value={
-            config.date
-              ? new Date(config.date + 'T00:00:00').toLocaleDateString('en-GB', {
-                  weekday: 'long',
-                  year: 'numeric',
-                  month: 'long',
-                  day: 'numeric',
-                })
+            config.start_date
+              ? config.end_date && config.end_date !== config.start_date
+                ? `${new Date(config.start_date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} – ${new Date(config.end_date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`
+                : new Date(config.start_date + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
               : null
           }
         />

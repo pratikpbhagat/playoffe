@@ -12,12 +12,86 @@ interface Props {
 
 // ── Quick-reply chip definitions per step ─────────────────────────────────────
 
+const ALL_CATEGORIES = [
+  "Men's Singles",
+  "Women's Singles",
+  "Men's Doubles",
+  "Women's Doubles",
+  "Mixed Doubles",
+  "Open Singles",
+  "Open Doubles",
+  "Men's A",
+  "Men's B",
+  "Women's A",
+  "Women's B",
+];
+
+function getCategoryChips(
+  tournamentName: string | null,
+  chatHistory: Array<{ role: 'user' | 'assistant'; content: string }>,
+): string[] {
+  const name = (tournamentName ?? '').toLowerCase();
+  const history = chatHistory.map((m) => m.content.toLowerCase()).join(' ');
+  const combined = `${name} ${history}`;
+
+  const score: Record<string, number> = {};
+  for (const cat of ALL_CATEGORIES) {
+    score[cat] = 0;
+  }
+
+  // Boost by keywords in name / history
+  if (combined.includes('single')) {
+    score["Men's Singles"] += 3;
+    score["Women's Singles"] += 3;
+    score["Open Singles"] += 2;
+  }
+  if (combined.includes('double')) {
+    score["Men's Doubles"] += 3;
+    score["Women's Doubles"] += 3;
+    score["Open Doubles"] += 2;
+  }
+  if (combined.includes('mixed')) {
+    score["Mixed Doubles"] += 4;
+  }
+  if (combined.match(/\bmen\b|men's/)) {
+    score["Men's Singles"] += 2;
+    score["Men's Doubles"] += 2;
+    score["Men's A"] += 1;
+    score["Men's B"] += 1;
+  }
+  if (combined.match(/\bwomen\b|women's/)) {
+    score["Women's Singles"] += 2;
+    score["Women's Doubles"] += 2;
+    score["Women's A"] += 1;
+    score["Women's B"] += 1;
+  }
+  if (combined.includes('open')) {
+    score["Open Singles"] += 2;
+    score["Open Doubles"] += 2;
+  }
+  if (combined.match(/\b[ab]\b|skill|level|beginner|advanced/)) {
+    score["Men's A"] += 2;
+    score["Men's B"] += 2;
+    score["Women's A"] += 2;
+    score["Women's B"] += 2;
+  }
+
+  // Sort by score desc, return top 6 with any score > 0, else defaults
+  const sorted = ALL_CATEGORIES.filter((c) => score[c] > 0).sort(
+    (a, b) => score[b] - score[a],
+  );
+
+  return sorted.length > 0
+    ? sorted.slice(0, 6)
+    : ["Men's Doubles", "Women's Doubles", "Mixed Doubles", "Men's Singles", "Women's Singles"];
+}
+
 function getChips(step: number): string[] {
   switch (step) {
     case 4:
       return ['1', '2', '3', '4', '5', '6', '8'];
     case 6:
-      return ['Suggest a split based on ratings', 'I\'ll enter the counts manually'];
+      return ['Suggest a split based on ratings', "I'll enter the counts manually"];
     case 7:
       return ['Round Robin', 'Single Elimination', 'Group Stage + Knockout', 'Swiss'];
     case 8:
@@ -36,12 +110,90 @@ function getChips(step: number): string[] {
   }
 }
 
+// ── Date range picker for step 2 ─────────────────────────────────────────────
+
+function DateRangePicker({ onSelect }: { onSelect: (msg: string) => void }) {
+  const today = new Date().toISOString().split('T')[0];
+  const [start, setStart] = useState('');
+  const [end, setEnd] = useState('');
+
+  const fmt = (iso: string) =>
+    new Date(iso + 'T00:00:00').toLocaleDateString('en-GB', {
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+    });
+
+  const handleConfirm = () => {
+    if (!start) return;
+    const msg = end && end !== start
+      ? `${fmt(start)} to ${fmt(end)}`
+      : fmt(start);
+    onSelect(msg);
+    setStart('');
+    setEnd('');
+  };
+
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <input
+        type="date"
+        min={today}
+        value={start}
+        onChange={(e) => {
+          setStart(e.target.value);
+          if (end && e.target.value > end) setEnd('');
+        }}
+        className="rounded-lg border border-teal-700 bg-surface px-3 py-1.5 text-xs text-slate-200 outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500/30 [color-scheme:dark]"
+      />
+      <span className="text-xs text-slate-500">to</span>
+      <input
+        type="date"
+        min={start || today}
+        value={end}
+        onChange={(e) => setEnd(e.target.value)}
+        className="rounded-lg border border-teal-700 bg-surface px-3 py-1.5 text-xs text-slate-200 outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500/30 [color-scheme:dark]"
+      />
+      {start && (
+        <button
+          onClick={handleConfirm}
+          className="rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-500 active:scale-95 transition-all"
+        >
+          Use {end && end !== start ? 'these dates' : 'this date'}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── Simple markdown renderer (bold + line breaks only) ────────────────────────
+
+function SimpleMarkdown({ text }: { text: string }) {
+  const lines = text.split('\n');
+  return (
+    <>
+      {lines.map((line, i) => {
+        // Split on **bold** patterns
+        const parts = line.split(/\*\*(.*?)\*\*/g);
+        const rendered = parts.map((part, j) =>
+          j % 2 === 1 ? <strong key={j}>{part}</strong> : part,
+        );
+        return (
+          <span key={i}>
+            {rendered}
+            {i < lines.length - 1 && <br />}
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 const DEFAULT_PARTIAL_CONFIG: WizardPartialConfig = {
   step: 1,
   name: null,
-  date: null,
+  start_date: null,
+  end_date: null,
   venue: null,
   courts: null,
   categories: null,
@@ -67,6 +219,13 @@ export function WizardChat({ clubId, clubName }: Props) {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [displayMessages, loading]);
+
+  // Return focus to input after each response (runs after DOM commits)
+  useEffect(() => {
+    if (!loading) {
+      inputRef.current?.focus();
+    }
+  }, [loading]);
 
   const sendMessage = useCallback(
     async (text: string) => {
@@ -108,7 +267,20 @@ export function WizardChat({ clubId, clubName }: Props) {
           ...prev,
           { role: 'assistant', content: typed.reply },
         ]);
-        setPartialConfig(typed.partialConfig ?? DEFAULT_PARTIAL_CONFIG);
+        // Merge: never replace a confirmed field with null — prevents preview flicker
+        setPartialConfig((prev) => {
+          const next = typed.partialConfig ?? DEFAULT_PARTIAL_CONFIG;
+          return {
+            step: next.step,
+            name: next.name ?? prev.name,
+            start_date: next.start_date ?? prev.start_date,
+            end_date: next.end_date ?? prev.end_date,
+            venue: next.venue ?? prev.venue,
+            courts: next.courts ?? prev.courts,
+            categories: next.categories ?? prev.categories,
+            notes: next.notes ?? prev.notes,
+          };
+        });
 
         if (typed.tournamentCreated && typed.tournamentSlug) {
           // Small delay so the user sees the success message before redirect
@@ -121,9 +293,6 @@ export function WizardChat({ clubId, clubName }: Props) {
         setError(`Failed to reach the server: ${msg}`);
       } finally {
         setLoading(false);
-        // Defer focus so it runs after React re-renders the chips section
-        // (which would otherwise steal focus from the input)
-        setTimeout(() => inputRef.current?.focus(), 0);
       }
     },
     [clubId, messages, loading, router],
@@ -137,14 +306,46 @@ export function WizardChat({ clubId, clubName }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const chips = getChips(partialConfig.step);
+  const stepChips = partialConfig.step === 5
+    ? getCategoryChips(partialConfig.name, displayMessages)
+    : getChips(partialConfig.step);
+
+  // Extract inline suggestions from the latest assistant message:
+  // catches "quoted text" and **bold text** that look like clickable options
+  const lastAssistantMsg = [...displayMessages].reverse().find((m) => m.role === 'assistant');
+  const quotedSuggestions: string[] = lastAssistantMsg
+    ? [
+        ...[...lastAssistantMsg.content.matchAll(/[""]([^"""]{3,60})[""]|"([^"]{3,60})"/g)]
+          .map((m) => m[1] ?? m[2] ?? ''),
+        ...lastAssistantMsg.content
+          .split('\n')
+          .filter((line) => !/^(got it|confirmed|perfect|locked|✓|done —)/i.test(line.trim()) && /\*\*/.test(line))
+          .flatMap((line) => [...line.matchAll(/\*\*([^*]{3,60})\*\*/g)].map((m) => m[1] ?? ''))
+          .filter((s) => !s.endsWith('?') && !/^(what|where|when|how|who|is it|are|do you|does|shall|would|can|could)\b/i.test(s)),
+      ].filter(Boolean)
+    : [];
+
+  // Detect confirmation questions and inject Yes / No chips
+  const isConfirmationQuestion = lastAssistantMsg
+    ? /is that right\??|does that (look|sound) (right|correct)\??|sound(s)? good\??|correct\??|shall we (go|move|proceed)\??|want to (change|adjust|update)\??/i
+        .test(lastAssistantMsg.content)
+    : false;
+
+  const confirmationChips = isConfirmationQuestion ? ['Yes, that\'s right', 'No, let me change it'] : [];
+
+  // Merge: step chips take priority; quoted suggestions fill in when no step chips exist; confirmation chips always appended
+  const baseChips = stepChips.length > 0
+    ? stepChips
+    : quotedSuggestions.filter((s) => !s.includes('\n'));
+
+  const chips = [...new Set([...baseChips, ...confirmationChips])];
 
   return (
     <div className="flex h-full min-h-0">
       {/* ── Chat panel ──────────────────────────────────────────────────────── */}
       <div className="flex flex-col flex-1 min-w-0 min-h-0">
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 min-h-0">
+        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 min-h-0 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-700 hover:[&::-webkit-scrollbar-thumb]:bg-slate-600">
           {displayMessages.map((msg, i) => (
             <div key={i}>
               {msg.role === 'user' ? (
@@ -155,8 +356,8 @@ export function WizardChat({ clubId, clubName }: Props) {
                 </div>
               ) : (
                 <div className="flex justify-start">
-                  <div className="max-w-[85%] rounded-2xl rounded-tl-sm bg-surface-card px-4 py-2.5 text-sm text-slate-200 ring-1 ring-surface-border whitespace-pre-wrap leading-relaxed">
-                    {msg.content}
+                  <div className="max-w-[85%] rounded-2xl rounded-tl-sm bg-surface-card px-4 py-2.5 text-sm text-slate-200 ring-1 ring-surface-border leading-relaxed">
+                    <SimpleMarkdown text={msg.content} />
                   </div>
                 </div>
               )}
@@ -188,22 +389,25 @@ export function WizardChat({ clubId, clubName }: Props) {
           <div ref={bottomRef} />
         </div>
 
-        {/* Quick-reply chips */}
-        {chips.length > 0 && !loading && (
+        {/* Quick-reply chips + date picker */}
+        {(chips.length > 0 || partialConfig.step === 2) && !loading && (
           <div className="shrink-0 border-t border-surface-border bg-surface px-4 py-3">
             <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
               Suggested replies
             </p>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {chips.map((chip) => (
                 <button
                   key={chip}
                   onClick={() => void sendMessage(chip)}
-                  className="rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-brand-500 active:scale-95 transition-all"
+                  className="rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-teal-500 active:scale-95 transition-all"
                 >
                   {chip}
                 </button>
               ))}
+              {partialConfig.step === 2 && (
+                <DateRangePicker onSelect={(msg) => void sendMessage(msg)} />
+              )}
             </div>
           </div>
         )}
