@@ -26,6 +26,7 @@ export interface WizardPartialConfig {
   }> | null;
   notes: string | null;
   player_uploads: Array<{ category: string; count: number }> | null;
+  suggested_replies: string[] | null;
 }
 
 export interface WizardTournamentConfig {
@@ -63,29 +64,108 @@ export interface WizardTurnResponse {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function extractConfigState(text: string): { clean: string; config: WizardPartialConfig | null } {
-  const match = text.match(/```config-state\n([\s\S]*?)\n```/);
-  if (!match) return { clean: text, config: null };
+// emit_config tool — replaces the old ```config-state text block for reliable extraction
+const EMIT_CONFIG_TOOL = {
+  name: 'emit_config',
+  description: 'Report the full current wizard configuration state. Call this at the end of every response, including the first greeting.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      step: { type: 'number', description: 'Current step number, 1-11' },
+      name: { type: ['string', 'null'] },
+      start_date: { type: ['string', 'null'] },
+      end_date: { type: ['string', 'null'] },
+      venue: { type: ['string', 'null'] },
+      courts: { type: ['number', 'null'] },
+      categories: {
+        type: ['array', 'null'],
+        items: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            format: { type: 'string' },
+            draw_format: { type: 'string' },
+            player_count: { type: 'number' },
+            scoring: {
+              type: 'object',
+              properties: {
+                points_per_set: { type: 'number' },
+                sets_per_match: { type: 'number' },
+                deuce_rule: { type: 'boolean' },
+              },
+            },
+          },
+        },
+      },
+      notes: { type: ['string', 'null'] },
+      player_uploads: {
+        type: ['array', 'null'],
+        items: {
+          type: 'object',
+          properties: {
+            category: { type: 'string' },
+            count: { type: 'number' },
+          },
+        },
+      },
+      suggested_replies: {
+        type: ['array', 'null'],
+        description: 'Up to 5 short, literal reply options the organizer can tap instead of typing. Only actionable choices — never restate the question, and never include an inline example you mentioned just in passing.',
+        items: { type: 'string' },
+      },
+    },
+    required: ['step'],
+  },
+};
 
-  const clean = text.replace(/\n?```config-state\n[\s\S]*?\n```/, '').trimEnd();
-  try {
-    const raw = JSON.parse(match[1].trim()) as Record<string, unknown>;
-    // Normalise: Claude may still emit legacy "date" field instead of start_date/end_date
-    const config: WizardPartialConfig = {
-      step: (raw.step as number) ?? 1,
-      name: (raw.name as string | null) ?? null,
-      start_date: (raw.start_date as string | null) ?? (raw.date as string | null) ?? null,
-      end_date: (raw.end_date as string | null) ?? (raw.date as string | null) ?? null,
-      venue: (raw.venue as string | null) ?? null,
-      courts: (raw.courts as number | null) ?? null,
-      categories: (raw.categories as WizardPartialConfig['categories']) ?? null,
-      notes: (raw.notes as string | null) ?? null,
-      player_uploads: (raw.player_uploads as WizardPartialConfig['player_uploads']) ?? null,
-    };
-    return { clean, config };
-  } catch {
-    return { clean, config: null };
+function normalizeConfig(raw: Record<string, unknown>): WizardPartialConfig {
+  // Normalise: Claude may still emit legacy "date" field instead of start_date/end_date
+  return {
+    step: (raw.step as number) ?? 1,
+    name: (raw.name as string | null) ?? null,
+    start_date: (raw.start_date as string | null) ?? (raw.date as string | null) ?? null,
+    end_date: (raw.end_date as string | null) ?? (raw.date as string | null) ?? null,
+    venue: (raw.venue as string | null) ?? null,
+    courts: (raw.courts as number | null) ?? null,
+    categories: (raw.categories as WizardPartialConfig['categories']) ?? null,
+    notes: (raw.notes as string | null) ?? null,
+    player_uploads: (raw.player_uploads as WizardPartialConfig['player_uploads']) ?? null,
+    suggested_replies: normalizeSuggestedReplies(raw.suggested_replies),
+  };
+}
+
+function normalizeSuggestedReplies(raw: unknown): string[] | null {
+  if (!Array.isArray(raw)) return null;
+  const cleaned = raw
+    .filter((s): s is string => typeof s === 'string')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0 && s.length <= 60)
+    .slice(0, 5);
+  return cleaned.length > 0 ? cleaned : null;
+}
+
+function validatePartialConfig(config: WizardPartialConfig): string[] {
+  const errors: string[] = [];
+  if (config.courts !== null && (config.courts < 1 || config.courts > 20)) {
+    errors.push(`courts out of range: ${config.courts}`);
   }
+  if (config.start_date && !/^\d{4}-\d{2}-\d{2}$/.test(config.start_date)) {
+    errors.push(`invalid start_date format: ${config.start_date}`);
+  }
+  if (config.end_date && !/^\d{4}-\d{2}-\d{2}$/.test(config.end_date)) {
+    errors.push(`invalid end_date format: ${config.end_date}`);
+  }
+  if (config.categories) {
+    for (const cat of config.categories) {
+      if (!cat.name?.trim()) errors.push('category missing name');
+      if (cat.scoring) {
+        const { points_per_set, sets_per_match } = cat.scoring;
+        if (![7, 11, 15, 21].includes(points_per_set)) errors.push(`invalid points_per_set: ${points_per_set}`);
+        if (![1, 3, 5].includes(sets_per_match)) errors.push(`invalid sets_per_match: ${sets_per_match}`);
+      }
+    }
+  }
+  return errors;
 }
 
 function extractTournamentConfig(text: string): WizardTournamentConfig | null {
@@ -347,9 +427,10 @@ export async function POST(req: NextRequest) {
       clubId: string;
       messages: WizardMessage[];
       userMessage: string;
+      currentStep?: number;
     };
 
-    const { clubId, messages, userMessage } = body;
+    const { clubId, messages, userMessage, currentStep = 1 } = body;
     if (!clubId) return NextResponse.json({ error: 'clubId required' }, { status: 400 });
 
     // Verify the user manages this club
@@ -367,7 +448,9 @@ export async function POST(req: NextRequest) {
     const ctx = await fetchClubContext(clubId);
     const systemPrompt = buildSystemPrompt(ctx);
 
-    // Build conversation
+    // Build conversation — send the full history. Confirmed answers (name, date, venue, etc.)
+    // live only in this message history, not in any separate persisted store, so trimming it
+    // would make Claude forget facts the organizer already confirmed.
     const updatedMessages: WizardMessage[] = [
       ...messages,
       { role: 'user', content: userMessage },
@@ -376,9 +459,17 @@ export async function POST(req: NextRequest) {
     // Call Claude with prompt caching on the system prompt
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+    // Extended thinking on the final confirmation step only — the highest-stakes turn,
+    // where Claude assembles the full config and emits the create-tournament JSON.
+    const isConfirmationStep = currentStep === 11;
+
     const response = await client.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 1024,
+      max_tokens: isConfirmationStep ? 4096 : 1024,
+      // Extended thinking requires temperature 1 (the default) — only set temperature otherwise.
+      ...(isConfirmationStep
+        ? { thinking: { type: 'enabled', budget_tokens: 2000 } }
+        : { temperature: 0.3 }),
       system: [
         {
           type: 'text',
@@ -388,12 +479,27 @@ export async function POST(req: NextRequest) {
         },
       ],
       messages: updatedMessages.map((m) => ({ role: m.role, content: m.content })),
+      tools: [EMIT_CONFIG_TOOL],
+      tool_choice: { type: 'auto' },
     });
 
-    const rawReply = response.content[0]?.type === 'text' ? response.content[0].text : '';
+    const textBlock = response.content.find((b) => b.type === 'text');
+    const displayReply = textBlock?.type === 'text' ? textBlock.text : '';
 
-    // Extract and strip the config-state block
-    const { clean: displayReply, config: partialConfig } = extractConfigState(rawReply);
+    const toolUseBlock = response.content.find(
+      (b) => b.type === 'tool_use' && b.name === 'emit_config',
+    );
+    const partialConfig =
+      toolUseBlock?.type === 'tool_use'
+        ? normalizeConfig(toolUseBlock.input as Record<string, unknown>)
+        : null;
+
+    if (partialConfig) {
+      const validationErrors = validatePartialConfig(partialConfig);
+      if (validationErrors.length > 0) {
+        console.warn('[wizard/turn] config validation errors:', validationErrors);
+      }
+    }
 
     // Check if this response contains the final TOURNAMENT_CONFIG
     const tournamentConfig = extractTournamentConfig(displayReply);
@@ -424,6 +530,7 @@ export async function POST(req: NextRequest) {
       categories: null,
       notes: null,
       player_uploads: null,
+      suggested_replies: null,
     };
 
     return NextResponse.json({

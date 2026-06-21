@@ -249,6 +249,7 @@ const DEFAULT_PARTIAL_CONFIG: WizardPartialConfig = {
   categories: null,
   notes: null,
   player_uploads: null,
+  suggested_replies: null,
 };
 
 export function WizardChat({ clubId, clubName, existingTournamentNames }: Props) {
@@ -294,7 +295,7 @@ export function WizardChat({ clubId, clubName, existingTournamentNames }: Props)
         const res = await fetch('/api/wizard/turn', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ clubId, messages, userMessage: userText }),
+          body: JSON.stringify({ clubId, messages, userMessage: userText, currentStep: partialConfig.step }),
         });
 
         let data: Record<string, unknown>;
@@ -331,6 +332,8 @@ export function WizardChat({ clubId, clubName, existingTournamentNames }: Props)
             categories: next.categories ?? prev.categories,
             notes: next.notes ?? prev.notes,
             player_uploads: next.player_uploads ?? prev.player_uploads,
+            // Not merged with prev — these are per-turn and should not linger from an old step
+            suggested_replies: next.suggested_replies,
           };
         });
 
@@ -347,7 +350,7 @@ export function WizardChat({ clubId, clubName, existingTournamentNames }: Props)
         setLoading(false);
       }
     },
-    [clubId, messages, loading, router],
+    [clubId, messages, loading, router, partialConfig.step],
   );
 
   // Kick off the wizard on mount
@@ -372,11 +375,6 @@ export function WizardChat({ clubId, clubName, existingTournamentNames }: Props)
           .filter((s) => s.length >= 3 && s.length <= 60 && !s.endsWith('?'))
       : [];
 
-  const stepChips =
-    partialConfig.step === 5
-      ? [...new Set([...claudeSuggestedCategories, ...getCategoryChips(partialConfig.name, displayMessages)])]
-      : getChips(partialConfig.step);
-
   // Permanent blocklist: club name + all existing tournament names (exact, case-insensitive)
   const blockedNames = new Set(
     [clubName, ...existingTournamentNames].map((s) => s.toLowerCase()),
@@ -384,19 +382,30 @@ export function WizardChat({ clubId, clubName, existingTournamentNames }: Props)
 
   const isBlockedChip = (s: string) => blockedNames.has(s.toLowerCase());
 
-  // Extract quoted/bold suggestions for all other steps
-  const quotedSuggestions: string[] = lastAssistantMsg
-    ? [
-        ...[...lastAssistantMsg.content.matchAll(/[""]([^"""]{3,60})[""]|"([^"]{3,60})"/g)]
-          .map((m) => m[1] ?? m[2] ?? ''),
-        ...lastAssistantMsg.content
-          .split('\n')
-          .filter((line) => !/^(got it|confirmed|perfect|locked|✓|done —)/i.test(line.trim()) && /\*\*/.test(line))
-          .flatMap((line) => [...line.matchAll(/\*\*([^*]{3,60})\*\*/g)].map((m) => m[1] ?? ''))
-          .filter((s) => !s.endsWith('?') && !/^(what|where|when|how|who|is it|are|do you|does|shall|would|can|could)\b/i.test(s)),
-      ]
-      .filter(Boolean)
-      .filter((s) => !isBlockedChip(s))
+  // Claude's own suggested replies, emitted via the emit_config tool's suggested_replies field.
+  // This is the authoritative source — Claude deliberately chose these, vs. us mining its prose
+  // for bold/quoted text that may just be an inline example mentioned in passing.
+  const claudeReplies: string[] = (partialConfig.suggested_replies ?? []).filter(
+    (s) => !isBlockedChip(s),
+  );
+
+  const stepChips =
+    partialConfig.step === 5
+      ? [...new Set([...claudeSuggestedCategories, ...claudeReplies, ...getCategoryChips(partialConfig.name, displayMessages)])]
+      : getChips(partialConfig.step);
+
+  // Legacy bold-text fallback — only used if Claude hasn't populated suggested_replies (e.g. an
+  // older turn before this rolled out). No quote-based extraction: quoted text is often just an
+  // inline example embedded inside the question itself, not a deliberate recommendation.
+  const legacyBoldFallback: string[] = lastAssistantMsg
+    ? lastAssistantMsg.content
+        .split('\n')
+        .filter((line) => !line.includes('?')) // drop lines that are (part of) a question
+        .filter((line) => !/^(got it|confirmed|perfect|locked|✓|done —)/i.test(line.trim()) && /\*\*/.test(line))
+        .flatMap((line) => [...line.matchAll(/\*\*([^*]{3,60})\*\*/g)].map((m) => m[1] ?? ''))
+        .filter((s) => !s.endsWith('?') && !/^(what|where|when|how|who|is it|are|do you|does|shall|would|can|could)\b/i.test(s))
+        .filter(Boolean)
+        .filter((s) => !isBlockedChip(s))
     : [];
 
   // Detect confirmation questions (including "are you running the same ones?")
@@ -410,7 +419,9 @@ export function WizardChat({ clubId, clubName, existingTournamentNames }: Props)
     ? ["Yes, that's right", 'No, let me change it']
     : stepChips.length > 0
       ? stepChips
-      : quotedSuggestions.filter((s) => !s.includes('\n'));
+      : claudeReplies.length > 0
+        ? claudeReplies
+        : legacyBoldFallback;
 
   const chips = [...new Set(baseChips)];
 
