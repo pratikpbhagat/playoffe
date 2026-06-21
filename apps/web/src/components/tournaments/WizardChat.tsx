@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { WizardPreview } from './WizardPreview';
 import type { WizardMessage, WizardPartialConfig } from '@/app/api/wizard/turn/route';
@@ -214,23 +214,55 @@ function DateRangePicker({ onSelect }: { onSelect: (msg: string) => void }) {
   );
 }
 
-// ── Simple markdown renderer (bold + line breaks only) ────────────────────────
+// ── Simple markdown renderer (bold, paragraphs, "- " bullet lists) ───────────
+
+function renderInline(line: string): ReactNode[] {
+  const parts = line.split(/\*\*(.*?)\*\*/g);
+  return parts.map((part, j) => (j % 2 === 1 ? <strong key={j}>{part}</strong> : part));
+}
 
 function SimpleMarkdown({ text }: { text: string }) {
   const lines = text.split('\n');
+
+  // Group consecutive "- " lines into a single bulleted list block
+  const blocks: Array<{ type: 'list'; items: string[] } | { type: 'line'; content: string }> = [];
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+    const isBullet = trimmed.startsWith('- ');
+    const last = blocks[blocks.length - 1];
+    if (isBullet) {
+      const item = trimmed.slice(2).trim();
+      if (last && last.type === 'list') {
+        last.items.push(item);
+      } else {
+        blocks.push({ type: 'list', items: [item] });
+      }
+    } else {
+      blocks.push({ type: 'line', content: rawLine });
+    }
+  }
+
   return (
     <>
-      {lines.map((line, i) => {
-        // Split on **bold** patterns
-        const parts = line.split(/\*\*(.*?)\*\*/g);
-        const rendered = parts.map((part, j) =>
-          j % 2 === 1 ? <strong key={j}>{part}</strong> : part,
-        );
+      {blocks.map((block, i) => {
+        if (block.type === 'list') {
+          return (
+            <ul key={i} className="my-1.5 list-disc space-y-1 pl-4">
+              {block.items.map((item, j) => (
+                <li key={j} className="leading-relaxed">
+                  {renderInline(item)}
+                </li>
+              ))}
+            </ul>
+          );
+        }
+        if (block.content.trim() === '') {
+          return <div key={i} className="h-2" />;
+        }
         return (
-          <span key={i}>
-            {rendered}
-            {i < lines.length - 1 && <br />}
-          </span>
+          <p key={i} className="leading-relaxed">
+            {renderInline(block.content)}
+          </p>
         );
       })}
     </>

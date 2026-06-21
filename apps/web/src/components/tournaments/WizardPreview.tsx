@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import type { WizardPartialConfig } from '@/app/api/wizard/turn/route';
 
 interface Props {
@@ -18,6 +19,57 @@ const STEP_LABELS: Record<number, string> = {
   9: 'Notes',
   10: 'Ready to create',
 };
+
+type CategoryConfig = NonNullable<WizardPartialConfig['categories']>[number];
+
+function CategoryCard({ cat }: { cat: CategoryConfig }) {
+  const [expanded, setExpanded] = useState(false);
+  const hasDetails = Boolean(cat.draw_format) || (cat.scoring?.points_per_set ?? 0) > 0;
+
+  return (
+    <div className="rounded-lg bg-surface ring-1 ring-surface-border px-3 py-2.5">
+      <button
+        type="button"
+        onClick={() => hasDetails && setExpanded((v) => !v)}
+        className={`flex w-full items-start justify-between gap-2 text-left ${hasDetails ? 'cursor-pointer' : 'cursor-default'}`}
+      >
+        <div className="space-y-1">
+          <p className="text-sm font-medium text-white">{cat.name}</p>
+          {cat.player_count > 0 && (
+            <p className="text-xs text-slate-400">
+              {cat.player_count} players
+              {cat.format ? ` · ${cat.format}` : ''}
+            </p>
+          )}
+        </div>
+        {hasDetails && (
+          <svg
+            viewBox="0 0 20 20"
+            fill="currentColor"
+            className={`mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-500 transition-transform ${expanded ? 'rotate-180' : ''}`}
+          >
+            <path
+              fillRule="evenodd"
+              d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.168l3.71-3.938a.75.75 0 1 1 1.08 1.04l-4.25 4.5a.75.75 0 0 1-1.08 0l-4.25-4.5a.75.75 0 0 1 .02-1.06Z"
+              clipRule="evenodd"
+            />
+          </svg>
+        )}
+      </button>
+      {expanded && hasDetails && (
+        <div className="mt-1.5 space-y-1 border-t border-surface-border pt-1.5">
+          {cat.draw_format && <p className="text-xs text-slate-500">{cat.draw_format}</p>}
+          {cat.scoring?.points_per_set > 0 && (
+            <p className="text-xs text-slate-500">
+              {cat.scoring.points_per_set} pts · Best of {cat.scoring.sets_per_match}
+              {cat.scoring.deuce_rule ? ' · Deuce on' : ''}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function Field({ label, value }: { label: string; value: string | null | undefined }) {
   if (!value) return null;
@@ -96,27 +148,7 @@ export function WizardPreview({ config }: Props) {
               Categories
             </span>
             {config.categories.map((cat, i) => (
-              <div
-                key={i}
-                className="rounded-lg bg-surface ring-1 ring-surface-border px-3 py-2.5 space-y-1"
-              >
-                <p className="text-sm font-medium text-white">{cat.name}</p>
-                {cat.player_count > 0 && (
-                  <p className="text-xs text-slate-400">
-                    {cat.player_count} players
-                    {cat.format ? ` · ${cat.format}` : ''}
-                  </p>
-                )}
-                {cat.draw_format && (
-                  <p className="text-xs text-slate-500">{cat.draw_format}</p>
-                )}
-                {cat.scoring?.points_per_set > 0 && (
-                  <p className="text-xs text-slate-500">
-                    {cat.scoring.points_per_set} pts · Best of {cat.scoring.sets_per_match}
-                    {cat.scoring.deuce_rule ? ' · Deuce on' : ''}
-                  </p>
-                )}
-              </div>
+              <CategoryCard key={i} cat={cat} />
             ))}
           </div>
         )}
