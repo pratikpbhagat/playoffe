@@ -214,6 +214,57 @@ function DateRangePicker({ onSelect }: { onSelect: (msg: string) => void }) {
   );
 }
 
+// ── Category checklist for step 5 list-confirmation messages ────────────────
+
+function CategoryChecklist({
+  items,
+  onConfirm,
+}: {
+  items: string[];
+  onConfirm: (selected: string[]) => void;
+}) {
+  const [selected, setSelected] = useState<Set<string>>(new Set(items));
+
+  const toggle = (item: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(item)) next.delete(item);
+      else next.add(item);
+      return next;
+    });
+  };
+
+  const selectedCount = items.filter((item) => selected.has(item)).length;
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-1.5">
+        {items.map((item) => (
+          <label
+            key={item}
+            className="flex items-center gap-2 rounded-lg border border-surface-border bg-surface px-3 py-1.5 text-xs text-slate-200 cursor-pointer hover:border-teal-700"
+          >
+            <input
+              type="checkbox"
+              checked={selected.has(item)}
+              onChange={() => toggle(item)}
+              className="h-3.5 w-3.5 rounded border-slate-600 bg-surface text-teal-600 accent-teal-600 focus:ring-teal-500/30"
+            />
+            {item}
+          </label>
+        ))}
+      </div>
+      <button
+        onClick={() => onConfirm(items.filter((item) => selected.has(item)))}
+        disabled={selectedCount === 0}
+        className="self-start rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-500 active:scale-95 transition-all disabled:opacity-40 disabled:hover:bg-teal-600"
+      >
+        Confirm {selectedCount > 0 ? `${selectedCount} selected` : 'selection'}
+      </button>
+    </div>
+  );
+}
+
 // ── Simple markdown renderer (bold, paragraphs, "- " bullet lists) ───────────
 
 function renderInline(line: string): ReactNode[] {
@@ -426,6 +477,19 @@ export function WizardChat({ clubId, clubName, existingTournamentNames }: Props)
       ? [...new Set([...claudeSuggestedCategories, ...claudeReplies, ...getCategoryChips(partialConfig.name, displayMessages)])]
       : getChips(partialConfig.step);
 
+  // Step 5: when Claude lists categories as a "- " bullet list (e.g. "Last time you ran
+  // these: ... Are you running the same ones?"), show checkboxes instead of plain Yes/No so
+  // the organizer can toggle individual categories without typing.
+  const categoryBulletItems: string[] =
+    partialConfig.step === 5 && lastAssistantMsg
+      ? lastAssistantMsg.content
+          .split('\n')
+          .map((line) => line.trim())
+          .filter((line) => line.startsWith('- '))
+          .map((line) => line.slice(2).trim())
+          .filter((s) => s.length >= 3 && s.length <= 80 && !s.endsWith('?'))
+      : [];
+
   // Legacy bold-text fallback — only used if Claude hasn't populated suggested_replies (e.g. an
   // older turn before this rolled out). No quote-based extraction: quoted text is often just an
   // inline example embedded inside the question itself, not a deliberate recommendation.
@@ -456,6 +520,9 @@ export function WizardChat({ clubId, clubName, existingTournamentNames }: Props)
         : legacyBoldFallback;
 
   const chips = [...new Set(baseChips)];
+
+  const showCategoryChecklist =
+    partialConfig.step === 5 && isConfirmationQuestion && categoryBulletItems.length >= 2;
 
   return (
     <div className="flex h-full min-h-0">
@@ -506,8 +573,22 @@ export function WizardChat({ clubId, clubName, existingTournamentNames }: Props)
           <div ref={bottomRef} />
         </div>
 
+        {/* Category checklist (step 5 list-confirmation) */}
+        {showCategoryChecklist && !loading && (
+          <div className="shrink-0 border-t border-surface-border bg-surface px-4 py-3">
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+              Select categories
+            </p>
+            <CategoryChecklist
+              key={categoryBulletItems.join('|')}
+              items={categoryBulletItems}
+              onConfirm={(selected) => void sendMessage(`Running: ${selected.join(', ')}`)}
+            />
+          </div>
+        )}
+
         {/* Quick-reply chips + date picker */}
-        {(chips.length > 0 || partialConfig.step === 2) && !loading && (
+        {!showCategoryChecklist && (chips.length > 0 || partialConfig.step === 2) && !loading && (
           <div className="shrink-0 border-t border-surface-border bg-surface px-4 py-3">
             <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
               Suggested replies
