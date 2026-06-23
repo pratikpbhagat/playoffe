@@ -18,13 +18,13 @@ export default async function WizardPage({ searchParams }: Props) {
 
   const { club: clubId } = await searchParams;
 
-  // If no club param, we need one to scope the wizard context
+  // If no club param, we need one to scope the wizard context.
   if (!clubId) {
     const clubs = await getMyClubs();
     if (clubs.length === 0) redirect('/tournaments/new');
     if (clubs.length === 1) redirect(`/tournaments/new/wizard?club=${clubs[0].id}`);
-    // Multiple clubs — redirect to the standard page to pick one first
-    redirect('/tournaments/new');
+    // Multiple clubs — ask which one instead of silently defaulting to the first.
+    return <ClubPicker clubs={clubs} />;
   }
 
   const clubs = await getMyClubs();
@@ -70,6 +70,72 @@ export default async function WizardPage({ searchParams }: Props) {
           existingTournamentNames={existingNames}
         />
       </div>
+    </div>
+  );
+}
+
+// ── Club picker (shown when the manager belongs to 2+ clubs and none was specified) ──────
+
+interface PickerClub {
+  id: string;
+  name: string;
+  brand_primary_color?: string | null;
+  city?: string | null;
+  location?: string | null;
+}
+
+function ClubPicker({ clubs }: { clubs: PickerClub[] }) {
+  return (
+    <div className="min-h-screen bg-surface">
+      <AppNav />
+
+      <main className="mx-auto max-w-2xl px-6 py-10">
+        <div className="mb-6 flex items-center gap-3">
+          <Link
+            href="/tournaments/new"
+            className="text-sm text-slate-500 hover:text-slate-300 transition-colors"
+          >
+            ← Back
+          </Link>
+        </div>
+
+        <div className="mb-8">
+          <h1 className="text-2xl font-bold text-white">Which club is this for?</h1>
+          <p className="mt-1 text-sm text-slate-400">
+            You manage {clubs.length} clubs — pick one to start the AI wizard.
+          </p>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          {clubs.map((club) => (
+            <Link
+              key={club.id}
+              href={`/tournaments/new/wizard?club=${club.id}`}
+              className="group flex items-center gap-4 rounded-xl bg-surface-card px-5 py-4 ring-1 ring-surface-border hover:ring-brand-500/40 transition-all"
+            >
+              <div
+                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-xl font-black text-white shadow-sm"
+                style={{ backgroundColor: club.brand_primary_color ?? '#7c3aed' }}
+              >
+                {club.name[0].toUpperCase()}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-white group-hover:text-brand-300 transition-colors truncate">
+                  {club.name}
+                </p>
+                {(club.city || club.location) && (
+                  <p className="mt-0.5 text-xs text-slate-500 truncate">
+                    📍 {[club.city, club.location].filter(Boolean).join(', ')}
+                  </p>
+                )}
+              </div>
+              <span className="shrink-0 text-slate-600 group-hover:text-brand-400 transition-colors text-sm">
+                →
+              </span>
+            </Link>
+          ))}
+        </div>
+      </main>
     </div>
   );
 }

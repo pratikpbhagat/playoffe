@@ -19,11 +19,13 @@ export default async function NewTournamentPage({ searchParams }: Props) {
   const { club: defaultClubId } = await searchParams;
   const clubs = await getMyClubs();
 
-  const wizardHref = defaultClubId
-    ? `/tournaments/new/wizard?club=${defaultClubId}`
-    : clubs.length === 1
-      ? `/tournaments/new/wizard?club=${clubs[0].id}`
-      : '/tournaments/new/wizard';
+  // Only pre-pick a club when there's no real choice to make (explicit param, or exactly
+  // one club). Otherwise leave the club param off — the wizard page itself will show a
+  // club picker for managers of 2+ clubs instead of silently guessing one.
+  const wizardClubId = defaultClubId ?? (clubs.length === 1 ? clubs[0].id : undefined);
+  const wizardHref = wizardClubId
+    ? `/tournaments/new/wizard?club=${wizardClubId}`
+    : '/tournaments/new/wizard';
 
   return (
     <div className="min-h-screen bg-surface">
