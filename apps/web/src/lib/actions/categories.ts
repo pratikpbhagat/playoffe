@@ -230,17 +230,20 @@ export async function upsertStageScoringAction(
   if (!t) return { error: 'Permission denied' };
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { error } = await (admin as any)
+  const { data: saved, error } = await (admin as any)
     .from('category_stage_scoring')
     .upsert(
       { category_id: categoryId, stage, ...config },
       { onConflict: 'category_id,stage' },
-    );
+    )
+    .select('*')
+    .single();
 
   if (error) return { error: 'Failed to save stage scoring.' };
 
   revalidatePath(`/tournaments/${t.slug}`);
-  return { success: true };
+  revalidatePath(`/tournaments/${t.slug}/categories/${categoryId}`);
+  return { success: true, row: saved as StageScoringRow };
 }
 
 /** Delete a stage scoring override (reverts to category/tournament default). */
@@ -269,6 +272,7 @@ export async function deleteStageScoringAction(categoryId: string, stage: StageK
     .eq('stage', stage);
 
   revalidatePath(`/tournaments/${t.slug}`);
+  revalidatePath(`/tournaments/${t.slug}/categories/${categoryId}`);
   return { success: true };
 }
 

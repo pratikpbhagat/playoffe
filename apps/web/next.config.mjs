@@ -46,7 +46,9 @@ const securityHeaders = [
         'https://*.supabase.in',
         'wss://*.supabase.co',       // Supabase Realtime
         'https://api.anthropic.com', // AI scheduling assistant
-        isDev ? 'ws://localhost:*' : '',
+        // Local Supabase (CLI) Realtime websocket — browsers resolve "localhost" and
+        // "127.0.0.1" as distinct CSP origins, so both must be listed explicitly.
+        isDev ? 'ws://localhost:* ws://127.0.0.1:*' : '',
       ].filter(Boolean).join(' '),
       "frame-ancestors 'none'",
       "base-uri 'self'",

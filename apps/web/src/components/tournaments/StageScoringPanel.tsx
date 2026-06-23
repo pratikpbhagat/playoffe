@@ -104,7 +104,8 @@ interface StageRowProps {
   effectivePointsPerSet: number;
   effectiveWinBy: number;
   effectiveDeuceCap: number | null;
-  onSaved: () => void;
+  onSaved: (row: StageScoringRow) => void;
+  onRemoved: (stage: StageKey) => void;
 }
 
 function StageRow({
@@ -117,6 +118,7 @@ function StageRow({
   effectiveWinBy,
   effectiveDeuceCap,
   onSaved,
+  onRemoved,
 }: StageRowProps) {
   const meta = STAGE_META[stage];
   const isOverriding = !!existing;
@@ -162,12 +164,12 @@ function StageRow({
         win_by: winBy,
         deuce_cap: deuceCap ? parseInt(deuceCap, 10) : null,
       });
-      if (res.error) {
-        setMsg({ text: res.error, ok: false });
+      if (res.error || !res.row) {
+        setMsg({ text: res.error ?? 'Failed to save stage scoring.', ok: false });
       } else {
         setMsg({ text: 'Saved', ok: true });
         setExpanded(false);
-        onSaved();
+        onSaved(res.row);
       }
     });
   }
@@ -175,7 +177,15 @@ function StageRow({
   function handleRemove() {
     startTransition(async () => {
       await deleteStageScoringAction(categoryId, stage);
-      onSaved();
+      // Reset the edit form back to the tournament-level defaults — otherwise it would
+      // still show the just-deleted category override if reopened (local state was only
+      // initialised from `existing` at mount and doesn't track it afterwards).
+      setNumSets(resolvedNumSets as 1 | 3 | 5);
+      setPointsPerSet(String(resolvedPointsPerSet));
+      setWinBy(resolvedWinBy as 1 | 2);
+      setDeuceCap(resolvedDeuceCap != null ? String(resolvedDeuceCap) : '');
+      setMsg(null);
+      onRemoved(stage);
     });
   }
 
@@ -230,9 +240,9 @@ function StageRow({
               type="button"
               onClick={handleRemove}
               disabled={isPending}
-              className="text-xs text-slate-500 hover:text-red-400 transition-colors"
+              className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
             >
-              Remove
+              Reset
             </button>
           )}
           <button
@@ -366,9 +376,12 @@ export function StageScoringPanel({
 
   if (visibleStages.length === 0) return null;
 
-  function handleSaved() {
-    // Visual update is optimistic via StageRow local state.
-    // SSR truth refreshes on next navigation (revalidatePath in server action).
+  function handleSaved(row: StageScoringRow) {
+    setRows((prev) => [...prev.filter((r) => r.stage !== row.stage), row]);
+  }
+
+  function handleRemoved(stage: StageKey) {
+    setRows((prev) => prev.filter((r) => r.stage !== stage));
   }
 
   return (
@@ -399,6 +412,7 @@ export function StageScoringPanel({
           effectiveWinBy={effectiveWinBy}
           effectiveDeuceCap={effectiveDeuceCap}
           onSaved={handleSaved}
+          onRemoved={handleRemoved}
         />
       ))}
     </div>

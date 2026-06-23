@@ -32,6 +32,7 @@ Thumbs.db
 # Editor
 .vscode
 .idea
+.claude
 *.suo
 *.ntvs*
 *.njsproj
@@ -73,3 +74,6 @@ docs/handover-*.md
 docs/handoff-*.md
 docs/HANDOFF.md
 docs/DAILY_HANDOFF.md
+
+# Scratch docs folder
+/docs
