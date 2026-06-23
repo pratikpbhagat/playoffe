@@ -195,14 +195,17 @@ function validatePartialConfig(config: WizardPartialConfig): string[] {
   return errors;
 }
 
-function extractTournamentConfig(text: string): WizardTournamentConfig | null {
-  const match = text.match(/```json\s*(\{[\s\S]*?"TOURNAMENT_CONFIG"[\s\S]*?\})\s*```/);
-  if (!match) return null;
+function extractTournamentConfig(text: string): { clean: string; config: WizardTournamentConfig | null } {
+  const re = /```json\s*(\{[\s\S]*?"TOURNAMENT_CONFIG"[\s\S]*?\})\s*```/;
+  const match = text.match(re);
+  if (!match) return { clean: text, config: null };
+
+  const clean = text.replace(re, '').trimEnd();
   try {
     const parsed = JSON.parse(match[1]) as { TOURNAMENT_CONFIG: WizardTournamentConfig };
-    return parsed.TOURNAMENT_CONFIG ?? null;
+    return { clean, config: parsed.TOURNAMENT_CONFIG ?? null };
   } catch {
-    return null;
+    return { clean, config: null };
   }
 }
 
@@ -523,7 +526,7 @@ export async function POST(req: NextRequest) {
     });
 
     const textBlock = response.content.find((b) => b.type === 'text');
-    const displayReply = textBlock?.type === 'text' ? textBlock.text : '';
+    const rawReply = textBlock?.type === 'text' ? textBlock.text : '';
 
     const toolUseBlock = response.content.find(
       (b) => b.type === 'tool_use' && b.name === 'emit_config',
@@ -540,8 +543,10 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Check if this response contains the final TOURNAMENT_CONFIG
-    const tournamentConfig = extractTournamentConfig(displayReply);
+    // Check if this response contains the final TOURNAMENT_CONFIG — strip the raw JSON block
+    // from what's shown to the organizer either way; it's an implementation detail, not
+    // something they need to read.
+    const { clean: displayReply, config: tournamentConfig } = extractTournamentConfig(rawReply);
 
     let tournamentCreated = false;
     let tournamentSlug: string | null = null;

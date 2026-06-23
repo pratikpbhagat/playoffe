@@ -340,6 +340,7 @@ export function WizardChat({ clubId, clubName, existingTournamentNames }: Props)
   const [partialConfig, setPartialConfig] = useState<WizardPartialConfig>(DEFAULT_PARTIAL_CONFIG);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [creatingTournament, setCreatingTournament] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -369,6 +370,9 @@ export function WizardChat({ clubId, clubName, existingTournamentNames }: Props)
       // Optimistically add user message
       setDisplayMessages((prev) => [...prev, { role: 'user', content: userText }]);
       setLoading(true);
+      // Step 11 confirmation is the turn that actually creates the tournament — show a more
+      // specific loader than the generic typing dots while that request is in flight.
+      if (partialConfig.step === 11) setCreatingTournament(true);
 
       try {
         const res = await fetch('/api/wizard/turn', {
@@ -383,12 +387,14 @@ export function WizardChat({ clubId, clubName, existingTournamentNames }: Props)
         } catch {
           setError(`Server error (${res.status}). Check that ANTHROPIC_API_KEY is set in your environment.`);
           setLoading(false);
+          setCreatingTournament(false);
           return;
         }
 
         if (!res.ok || data.error) {
           setError((data.error as string | undefined) ?? 'Something went wrong. Please try again.');
           setLoading(false);
+          setCreatingTournament(false);
           return;
         }
 
@@ -418,14 +424,18 @@ export function WizardChat({ clubId, clubName, existingTournamentNames }: Props)
         });
 
         if (typed.tournamentCreated && typed.tournamentSlug) {
-          // Small delay so the user sees the success message before redirect
+          // Keep the "Creating tournament..." state through the redirect delay — the
+          // organizer shouldn't see the input box re-enable for a turn that's actually done.
           setTimeout(() => {
             router.push(`/tournaments/${typed.tournamentSlug!}`);
           }, 1500);
+        } else {
+          setCreatingTournament(false);
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         setError(`Failed to reach the server: ${msg}`);
+        setCreatingTournament(false);
       } finally {
         setLoading(false);
       }
@@ -538,7 +548,16 @@ export function WizardChat({ clubId, clubName, existingTournamentNames }: Props)
             </div>
           ))}
 
-          {loading && (
+          {loading && creatingTournament && (
+            <div className="flex justify-start">
+              <div className="flex items-center gap-2.5 rounded-2xl rounded-tl-sm bg-surface-card px-4 py-3 ring-1 ring-surface-border">
+                <span className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-slate-600 border-t-teal-500" />
+                <span className="text-sm text-slate-300">Creating your tournament…</span>
+              </div>
+            </div>
+          )}
+
+          {loading && !creatingTournament && (
             <div className="flex justify-start">
               <div className="rounded-2xl rounded-tl-sm bg-surface-card px-4 py-3 ring-1 ring-surface-border">
                 <div className="flex gap-1">
