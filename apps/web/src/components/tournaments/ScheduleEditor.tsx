@@ -564,7 +564,7 @@ export function ScheduleEditor({
                           <div className="flex items-center gap-1 flex-wrap">
                             <span className={m.player_a_is_placeholder ? 'text-sm text-slate-400 italic' : 'text-sm font-medium text-white'}>{m.player_a}</span>
                             <span className="text-slate-500 text-xs">vs</span>
-                            <span className={m.player_b_is_placeholder ? 'text-sm text-slate-400 italic' : 'text-sm text-slate-300'}>{m.player_b}</span>
+                            <span className={m.player_b_is_placeholder ? 'text-sm text-slate-400 italic' : 'text-sm font-medium text-white'}>{m.player_b}</span>
                             {isWalkover && (
                               <span className="ml-1 rounded-full bg-amber-900/30 px-2 py-0.5 text-[10px] font-semibold text-amber-400">
                                 Walkover
