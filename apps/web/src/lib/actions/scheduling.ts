@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { createAdminClient, createClient, getCurrentUser } from '@/lib/supabase/server';
-import { detectConflictsFromUpdates } from '@/lib/scheduling-utils';
+import { detectConflictsFromUpdates, resolveCategoryDurationMins } from '@/lib/scheduling-utils';
 import type { ScheduleUpdate, ConflictInfo, SmartScheduleParams } from '@/lib/scheduling-utils';
 // Type-only re-export — erases at runtime, allowed in 'use server' files.
 export type { ScheduleUpdate, ConflictInfo, SmartScheduleParams } from '@/lib/scheduling-utils';
@@ -80,7 +80,7 @@ export async function generateSmartScheduleAction(
 
   const { data: t } = await admin
     .from('tournaments')
-    .select('id, club_id')
+    .select('id, club_id, scoring_format, num_sets')
     .eq('slug', tournamentSlug)
     .single();
   if (!t) return { error: 'Tournament not found' };
@@ -114,7 +114,27 @@ export async function generateSmartScheduleAction(
   const { availableCourts, matchDurationMins, changeoverMins, knockoutBufferMins } = params;
   if (availableCourts.length === 0) return { error: 'No courts available' };
 
-  const slotMs   = (matchDurationMins + changeoverMins) * 60_000;
+  // Categories can override the tournament's scoring format/set count (e.g.
+  // singles best-of-3 vs. doubles best-of-1) — each gets its own match
+  // duration instead of one tournament-wide value, so multi-category
+  // tournaments pack correctly instead of over/under-estimating slot length.
+  const { data: cats } = await admin
+    .from('tournament_categories')
+    .select('id, scoring_override, scoring_format, num_sets')
+    .eq('tournament_id', t.id);
+  const tournamentDefaults = {
+    scoringFormat: (t.scoring_format ?? 'rally') as 'rally' | 'traditional',
+    numSets: t.num_sets ?? 1,
+  };
+  const durationByCategoryId = new Map<string, number>(
+    (cats ?? []).map((c) => [c.id, resolveCategoryDurationMins(c, tournamentDefaults, changeoverMins)]),
+  );
+  // Falls back to the popup's manual duration only for a category with no
+  // resolvable scoring config at all (shouldn't normally happen).
+  function durationFor(m: M): number {
+    return durationByCategoryId.get(m.category_id) ?? matchDurationMins;
+  }
+
   const bufferMs = knockoutBufferMins * 60_000;
 
   const updates: ScheduleUpdate[] = [];
@@ -163,7 +183,7 @@ export async function generateSmartScheduleAction(
         scheduledTime: new Date(t_ms).toISOString(),
         court,
       });
-      t_ms += slotMs;
+      t_ms += (durationFor(m) + changeoverMins) * 60_000;
     }
 
     courtFreeAt.set(court, t_ms);
@@ -198,13 +218,14 @@ export async function generateSmartScheduleAction(
           scheduledTime: new Date(t_ms).toISOString(),
           court,
         });
-        courtFreeAt.set(court, t_ms + slotMs);
+        courtFreeAt.set(court, t_ms + (durationFor(m) + changeoverMins) * 60_000);
       }
     }
   }
 
   // ── Detect conflicts (court + time overlap) ───────────────────────────────────
-  const conflicts = detectConflictsFromUpdates(updates, matchDurationMins, availableCourts);
+  const durationByMatchId = new Map(allMatches.map((m) => [m.id, durationFor(m)]));
+  const conflicts = detectConflictsFromUpdates(updates, durationByMatchId, availableCourts);
 
   return { updates, conflicts };
 }

@@ -80,7 +80,7 @@ export default async function SchedulePage({ params }: Props) {
         players!player_id(full_name),
         partner:players!partner_id(full_name)
       ),
-      tc:tournament_categories!category_id(name, draw_format, groups_count, advance_per_group)
+      tc:tournament_categories!category_id(name, draw_format, groups_count, advance_per_group, scoring_override, scoring_format, num_sets)
     `)
     .eq('tournament_id', tData.id)
     .eq('status', 'scheduled')
@@ -100,7 +100,10 @@ export default async function SchedulePage({ params }: Props) {
     bracket_position: number | null;
     ea: RawEntry;
     eb: RawEntry;
-    tc: { name: string; draw_format: string | null; groups_count: number | null; advance_per_group: number | null } | null;
+    tc: {
+      name: string; draw_format: string | null; groups_count: number | null; advance_per_group: number | null;
+      scoring_override: boolean | null; scoring_format: string | null; num_sets: number | null;
+    } | null;
   };
 
   const allRaw = (raw ?? []) as unknown as RawMatch[];
@@ -229,6 +232,20 @@ export default async function SchedulePage({ params }: Props) {
   const derivedDuration = numSets * perSet + Math.max(0, numSets - 1) * changeoverMins;
   const matchDurationMins = storedDuration !== 45 ? storedDuration : derivedDuration;
 
+  // Per-category effective duration — categories can override the tournament's
+  // scoring format/set count (e.g. singles best-of-3 vs. doubles best-of-1),
+  // so a single tournament-wide duration isn't accurate when multiple
+  // categories with different formats are being scheduled together.
+  const categoryDurationMins: Record<string, number> = {};
+  for (const m of allRaw) {
+    if (categoryDurationMins[m.category_id] !== undefined) continue;
+    const tc = m.tc;
+    const catScoringFormat = ((tc?.scoring_override ? tc?.scoring_format : null) ?? scoringFormat) as 'rally' | 'traditional';
+    const catNumSets = (tc?.scoring_override ? tc?.num_sets : null) ?? numSets;
+    categoryDurationMins[m.category_id] =
+      catNumSets * (catScoringFormat === 'rally' ? 10 : 20) + Math.max(0, catNumSets - 1) * changeoverMins;
+  }
+
   const defaultStartTime = tData.default_start_time
     ? String(tData.default_start_time).slice(0, 5)
     : '09:00';
@@ -302,6 +319,7 @@ export default async function SchedulePage({ params }: Props) {
           startDate={tData.start_date ?? new Date().toISOString().slice(0, 10)}
           courtCount={courtCount}
           matchDurationMins={matchDurationMins}
+          categoryDurationMins={categoryDurationMins}
           changeoverMins={changeoverMins}
           defaultStartTime={defaultStartTime}
           matches={matches}

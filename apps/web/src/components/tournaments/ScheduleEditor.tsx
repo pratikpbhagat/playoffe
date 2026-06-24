@@ -41,10 +41,14 @@ interface Props {
   tournamentSlug: string;
   startDate: string;
   courtCount: number;
+  /** Tournament-wide fallback — used only for a category with no resolvable scoring config. */
   matchDurationMins: number;
   changeoverMins: number;
   defaultStartTime: string;  // "09:00"
   matches: MatchForScheduling[];
+  /** Per-category effective match duration (categories can override the
+   *  tournament's scoring format/set count), keyed by category_id. */
+  categoryDurationMins?: Record<string, number>;
   aiEnabled?: boolean;
   aiConfigured?: boolean;    // true = real API key present; false = show setup message
 }
@@ -79,9 +83,15 @@ export function ScheduleEditor({
   changeoverMins,
   defaultStartTime,
   matches,
+  categoryDurationMins = {},
   aiEnabled = false,
   aiConfigured = false,
 }: Props) {
+  // Resolve each match's own duration (per-category override → tournament fallback)
+  const durationByMatchId = useMemo(
+    () => new Map(matches.map((m) => [m.id, categoryDurationMins[m.category_id] ?? matchDurationMins])),
+    [matches, categoryDurationMins, matchDurationMins],
+  );
   // ── Core edit state ────────────────────────────────────────────────────────
   const [edits, setEdits] = useState<Record<string, { time: string; court: string }>>(() => {
     const init: Record<string, { time: string; court: string }> = {};
@@ -120,8 +130,8 @@ export function ScheduleEditor({
         scheduledTime: fromLocalInput(edits[m.id]?.time ?? '') ?? null,
         court:         edits[m.id]?.court ? parseInt(edits[m.id].court) : null,
       }));
-    return detectConflictsFromUpdates(updates, matchDurationMins, availableCourts);
-  }, [edits, matches, matchDurationMins, availableCourts]);
+    return detectConflictsFromUpdates(updates, durationByMatchId, availableCourts);
+  }, [edits, matches, durationByMatchId, availableCourts]);
 
   const conflictById = useMemo(
     () => new Map(conflicts.map((c) => [c.matchId, c.message])),
@@ -404,7 +414,14 @@ export function ScheduleEditor({
 
         {/* ── Category selector ────────────────────────────────────────────── */}
         <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
-          <label className="text-xs font-medium text-slate-400 shrink-0">Category</label>
+          <label className="text-xs font-medium text-slate-400 shrink-0 flex items-center gap-1.5">
+            Category
+            {categories.length > 1 && (
+              <span className="rounded-full bg-surface-card px-1.5 py-0.5 text-[10px] font-semibold text-slate-300 ring-1 ring-surface-border">
+                {categories.length}
+              </span>
+            )}
+          </label>
           <div className="relative w-full sm:flex-1 sm:max-w-sm">
             <select
               value={activeCatId}
@@ -678,6 +695,11 @@ export function ScheduleEditor({
           generating={generating}
           onGenerate={handleGenerate}
           onClose={() => setShowModal(false)}
+          categoryPreview={categories.map((cat) => ({
+            name: cat.name,
+            matchCount: matches.filter((m) => m.category_id === cat.id).length,
+            durationMins: categoryDurationMins[cat.id] ?? matchDurationMins,
+          }))}
         />
       )}
     </div>
