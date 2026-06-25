@@ -6,12 +6,19 @@ import type { MatchWithPlayers } from '@/lib/actions/draws';
 
 /** Canonical knockout-stage hierarchy, earliest to latest — used to order
  *  bracket columns chronologically regardless of the order in which the
- *  matches were created (and thus regardless of their `round` numbers). */
-const STAGE_HIERARCHY = ['Round of 32', 'Round of 16', 'Quarter-final', 'Semi-final', '3rd place playoff', 'Final'];
+ *  matches were created (and thus regardless of their `round` numbers).
+ *  Matched case-insensitively (the draw-engine package and the manual
+ *  knockout builder use different casing conventions for the same stage —
+ *  e.g. "Semi-Final" vs "Semi-final" — so this list must not be the only
+ *  thing that has to stay in sync with both). */
+const STAGE_HIERARCHY = ['round of 32', 'round of 16', 'quarter-final', 'semi-final', '3rd place playoff', 'final'];
 
 function stageRank(roundName: string | null | undefined, fallback: number): number {
   if (!roundName) return fallback;
-  const idx = STAGE_HIERARCHY.indexOf(roundName);
+  // Group-stage-knockout auto-generated brackets prefix the stage name with
+  // "Knockout - " — strip it so those rounds still match the hierarchy.
+  const normalized = roundName.toLowerCase().replace(/^knockout - /, '');
+  const idx = STAGE_HIERARCHY.indexOf(normalized);
   return idx === -1 ? fallback : idx;
 }
 

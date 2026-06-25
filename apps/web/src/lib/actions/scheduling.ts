@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { createAdminClient, createClient, getCurrentUser } from '@/lib/supabase/server';
-import { detectConflictsFromUpdates } from '@/lib/scheduling-utils';
+import { detectConflictsFromUpdates, resolveCategoryDurationMins } from '@/lib/scheduling-utils';
 import type { ScheduleUpdate, ConflictInfo, SmartScheduleParams } from '@/lib/scheduling-utils';
 // Type-only re-export — erases at runtime, allowed in 'use server' files.
 export type { ScheduleUpdate, ConflictInfo, SmartScheduleParams } from '@/lib/scheduling-utils';
@@ -57,6 +57,74 @@ export async function batchScheduleMatchesAction(
   return { success: true, count: updates.length };
 }
 
+// ── Category schedule order (day + sequence) ──────────────────────────────────
+
+export interface CategoryScheduleAssignment {
+  categoryId: string;
+  /** "YYYY-MM-DD" — which day this category's matches should run on */
+  day: string;
+  /** Position within that day, relative to other categories (0 = first) */
+  order: number;
+}
+
+/**
+ * Saves which day each category is scheduled on and in what order, then
+ * clears every match's existing court/time in this tournament — re-arranging
+ * the running order invalidates whatever schedule was already generated, so
+ * the organiser is forced to re-run "Schedule all matches" against the new order.
+ */
+export async function updateCategoryScheduleOrderAction(
+  tournamentSlug: string,
+  assignments: CategoryScheduleAssignment[],
+): Promise<{ success: true } | { error: string }> {
+  const supabase = await createClient();
+  const user = await getCurrentUser();
+  if (!user) return { error: 'Not authenticated' };
+
+  const admin = createAdminClient();
+
+  const { data: t } = await admin
+    .from('tournaments')
+    .select('id, club_id')
+    .eq('slug', tournamentSlug)
+    .single();
+  if (!t) return { error: 'Tournament not found' };
+
+  const { data: mgr } = await admin
+    .from('club_managers')
+    .select('role')
+    .eq('club_id', t.club_id)
+    .eq('player_id', user.id)
+    .maybeSingle();
+  if (!mgr) return { error: 'Permission denied' };
+
+  const results = await Promise.all(
+    assignments.map((a) =>
+      admin
+        .from('tournament_categories')
+        .update({ schedule_day: a.day, schedule_order: a.order })
+        .eq('id', a.categoryId)
+        .eq('tournament_id', t.id),
+    ),
+  );
+  const failed = results.filter((r) => r.error);
+  if (failed.length > 0) {
+    return { error: `Failed to save category order: ${failed[0].error?.message}` };
+  }
+
+  // Reset every match's court/time — the previously generated schedule no
+  // longer reflects the new running order and would be misleading to keep.
+  const { error: clearError } = await admin
+    .from('matches')
+    .update({ scheduled_time: null, court: null })
+    .eq('tournament_id', t.id);
+  if (clearError) return { error: `Failed to reset existing schedule: ${clearError.message}` };
+
+  revalidatePath(`/tournaments/${tournamentSlug}/schedule`);
+  revalidatePath(`/tournaments/${tournamentSlug}/scoring`);
+  return { success: true };
+}
+
 // ── Smart schedule generator ──────────────────────────────────────────────────
 
 /**
@@ -80,7 +148,7 @@ export async function generateSmartScheduleAction(
 
   const { data: t } = await admin
     .from('tournaments')
-    .select('id, club_id')
+    .select('id, club_id, scoring_format, num_sets')
     .eq('slug', tournamentSlug)
     .single();
   if (!t) return { error: 'Tournament not found' };
@@ -93,13 +161,14 @@ export async function generateSmartScheduleAction(
     .maybeSingle();
   if (!mgr) return { error: 'Permission denied' };
 
-  // Fetch all schedulable matches for this tournament
+  // Fetch all schedulable matches for this tournament — including knockout
+  // matches whose participants aren't decided yet (group stage in progress,
+  // or an earlier knockout round unresolved); only id/round/category_id are
+  // used below, so placeholder matches schedule exactly like real ones.
   const { data: rawMatches } = await admin
     .from('matches')
     .select('id, round, group_name, category_id, status, winner_entry_id')
     .eq('tournament_id', t.id)
-    .not('entry_a_id', 'is', null)
-    .not('entry_b_id', 'is', null)
     .order('group_name', { ascending: true, nullsFirst: false })
     .order('round', { ascending: true });
 
@@ -113,97 +182,129 @@ export async function generateSmartScheduleAction(
   const { availableCourts, matchDurationMins, changeoverMins, knockoutBufferMins } = params;
   if (availableCourts.length === 0) return { error: 'No courts available' };
 
-  const slotMs   = (matchDurationMins + changeoverMins) * 60_000;
+  // Categories can override the tournament's scoring format/set count (e.g.
+  // singles best-of-3 vs. doubles best-of-1) — each gets its own match
+  // duration instead of one tournament-wide value, so multi-category
+  // tournaments pack correctly instead of over/under-estimating slot length.
+  // schedule_day/schedule_order (set via the drag-and-drop category-order UI)
+  // determine which day a category runs on and its sequence within that day.
+  const { data: cats } = await admin
+    .from('tournament_categories')
+    .select('id, scoring_override, scoring_format, num_sets, schedule_day, schedule_order, created_at')
+    .eq('tournament_id', t.id)
+    .order('schedule_order', { ascending: true })
+    .order('created_at', { ascending: true });
+  const tournamentDefaults = {
+    scoringFormat: (t.scoring_format ?? 'rally') as 'rally' | 'traditional',
+    numSets: t.num_sets ?? 1,
+  };
+  const durationByCategoryId = new Map<string, number>(
+    (cats ?? []).map((c) => [c.id, resolveCategoryDurationMins(c, tournamentDefaults, changeoverMins)]),
+  );
+  // Falls back to the popup's manual duration only for a category with no
+  // resolvable scoring config at all (shouldn't normally happen).
+  function durationFor(m: M): number {
+    return durationByCategoryId.get(m.category_id) ?? matchDurationMins;
+  }
+
   const bufferMs = knockoutBufferMins * 60_000;
+  const startDate = params.startDatetime.slice(0, 10);
+  const startTimeOfDay = params.startDatetime.slice(10); // "THH:MM..."
 
   const updates: ScheduleUpdate[] = [];
 
-  // ── Separate group-stage and knockout matches ────────────────────────────────
-  const groupMatches   = allMatches.filter((m) => m.group_name !== null && m.status !== 'walkover' && m.status !== 'retired');
-  const knockoutMatches = allMatches.filter((m) => m.group_name === null && m.status !== 'walkover' && m.status !== 'retired');
-
-  // ── Schedule group-stage: each group → one court, sequential ─────────────────
-  // Build: Map<groupKey, match[]> where groupKey = `${category_id}::${group_name}`
-  const groupMap = new Map<string, M[]>();
-  for (const m of groupMatches) {
-    const key = `${m.category_id}::${m.group_name}`;
-    if (!groupMap.has(key)) groupMap.set(key, []);
-    groupMap.get(key)!.push(m);
-  }
-
-  // Sort groups alphabetically by group_name within category
-  const sortedGroupKeys = [...groupMap.keys()].sort((a, b) => {
-    const [catA, gnA] = a.split('::');
-    const [catB, gnB] = b.split('::');
-    if (catA !== catB) return catA.localeCompare(catB);
-    return (gnA ?? '').localeCompare(gnB ?? '');
-  });
-
-  // Track when each court is next free (ms timestamp)
-  const courtFreeAt: Map<number, number> = new Map(
-    availableCourts.map((c) => [c, new Date(params.startDatetime).getTime()]),
+  // ── Group categories by day, ordered within each day ──────────────────────────
+  // Categories without an explicit schedule_day default to the tournament's
+  // start date, in their stored (or creation) order — so tournaments that
+  // haven't used the new ordering UI yet schedule exactly as before.
+  const categoryOrder = (cats ?? []).map((c) => c.id);
+  const dayByCategoryId = new Map<string, string>(
+    (cats ?? []).map((c) => [c.id, c.schedule_day ?? startDate]),
   );
-
-  let groupCursor = 0;
-  let lastGroupEndMs = 0;
-
-  for (const key of sortedGroupKeys) {
-    const groupMs = allMatches;
-    const grp     = (groupMap.get(key) ?? []).sort((a, b) => a.round - b.round);
-    const court   = availableCourts[groupCursor % availableCourts.length];
-    groupCursor++;
-
-    // This group's matches run sequentially starting when the court is free
-    let t_ms = courtFreeAt.get(court) ?? new Date(params.startDatetime).getTime();
-
-    for (const m of grp) {
-      updates.push({
-        matchId:       m.id,
-        scheduledTime: new Date(t_ms).toISOString(),
-        court,
-      });
-      t_ms += slotMs;
-    }
-
-    courtFreeAt.set(court, t_ms);
-    lastGroupEndMs = Math.max(lastGroupEndMs, t_ms);
+  const matchesByCategoryId = new Map<string, M[]>();
+  for (const m of allMatches) {
+    if (m.status === 'walkover' || m.status === 'retired') continue;
+    if (!matchesByCategoryId.has(m.category_id)) matchesByCategoryId.set(m.category_id, []);
+    matchesByCategoryId.get(m.category_id)!.push(m);
   }
 
-  // ── Schedule knockout: each round distributed across courts ──────────────────
-  if (knockoutMatches.length > 0) {
-    const knockoutStart = lastGroupEndMs > 0
-      ? lastGroupEndMs + bufferMs
-      : new Date(params.startDatetime).getTime();
+  const daysInOrder = [...new Set(categoryOrder.map((id) => dayByCategoryId.get(id) ?? startDate))].sort();
 
-    // Reset all courts to knockoutStart
-    for (const c of availableCourts) {
-      courtFreeAt.set(c, knockoutStart);
-    }
+  for (const day of daysInOrder) {
+    const dayStartMs = new Date(`${day}${startTimeOfDay}`).getTime();
 
-    // Get unique rounds in order
-    const rounds = [...new Set(knockoutMatches.map((m) => m.round))].sort((a, b) => a - b);
+    // Track when each court is next free *within this day* (ms timestamp)
+    const courtFreeAt: Map<number, number> = new Map(availableCourts.map((c) => [c, dayStartMs]));
+    let categoryStartMs = dayStartMs;
 
-    for (const round of rounds) {
-      const roundMatches = knockoutMatches.filter((m) => m.round === round);
-      const roundStartMs = Math.max(...availableCourts.map((c) => courtFreeAt.get(c) ?? knockoutStart));
+    const categoriesThisDay = categoryOrder.filter((id) => (dayByCategoryId.get(id) ?? startDate) === day);
 
-      let courtCursor = 0;
-      for (const m of roundMatches) {
-        const court = availableCourts[courtCursor % availableCourts.length];
-        courtCursor++;
-        const t_ms = Math.max(courtFreeAt.get(court) ?? roundStartMs, roundStartMs);
-        updates.push({
-          matchId:       m.id,
-          scheduledTime: new Date(t_ms).toISOString(),
-          court,
-        });
-        courtFreeAt.set(court, t_ms + slotMs);
+    for (const categoryId of categoriesThisDay) {
+      const categoryMatches = matchesByCategoryId.get(categoryId) ?? [];
+      if (categoryMatches.length === 0) continue;
+
+      // The whole category starts no earlier than where the previous
+      // category on this day left every court — "next category starts once
+      // the slot is emptied by the previous category."
+      for (const c of availableCourts) courtFreeAt.set(c, categoryStartMs);
+
+      const groupMatches    = categoryMatches.filter((m) => m.group_name !== null);
+      const knockoutMatches = categoryMatches.filter((m) => m.group_name === null);
+
+      // ── Group stage: each group → one court, sequential ──────────────────────
+      const groupMap = new Map<string, M[]>();
+      for (const m of groupMatches) {
+        if (!groupMap.has(m.group_name as string)) groupMap.set(m.group_name as string, []);
+        groupMap.get(m.group_name as string)!.push(m);
       }
+      const sortedGroupNames = [...groupMap.keys()].sort();
+
+      let groupCursor = 0;
+      let lastGroupEndMs = categoryStartMs;
+
+      for (const groupName of sortedGroupNames) {
+        const grp   = (groupMap.get(groupName) ?? []).sort((a, b) => a.round - b.round);
+        const court = availableCourts[groupCursor % availableCourts.length];
+        groupCursor++;
+
+        let t_ms = courtFreeAt.get(court) ?? categoryStartMs;
+        for (const m of grp) {
+          updates.push({ matchId: m.id, scheduledTime: new Date(t_ms).toISOString(), court });
+          t_ms += (durationFor(m) + changeoverMins) * 60_000;
+        }
+        courtFreeAt.set(court, t_ms);
+        lastGroupEndMs = Math.max(lastGroupEndMs, t_ms);
+      }
+
+      // ── Knockout: each round distributed across courts in parallel ──────────
+      if (knockoutMatches.length > 0) {
+        const knockoutStart = groupMatches.length > 0 ? lastGroupEndMs + bufferMs : categoryStartMs;
+        for (const c of availableCourts) courtFreeAt.set(c, knockoutStart);
+
+        const rounds = [...new Set(knockoutMatches.map((m) => m.round))].sort((a, b) => a - b);
+        for (const round of rounds) {
+          const roundMatches = knockoutMatches.filter((m) => m.round === round);
+          const roundStartMs = Math.max(...availableCourts.map((c) => courtFreeAt.get(c) ?? knockoutStart));
+
+          let courtCursor = 0;
+          for (const m of roundMatches) {
+            const court = availableCourts[courtCursor % availableCourts.length];
+            courtCursor++;
+            const t_ms = Math.max(courtFreeAt.get(court) ?? roundStartMs, roundStartMs);
+            updates.push({ matchId: m.id, scheduledTime: new Date(t_ms).toISOString(), court });
+            courtFreeAt.set(court, t_ms + (durationFor(m) + changeoverMins) * 60_000);
+          }
+        }
+      }
+
+      // Next category on this day starts once every court is free of this one.
+      categoryStartMs = Math.max(...availableCourts.map((c) => courtFreeAt.get(c) ?? categoryStartMs));
     }
   }
 
   // ── Detect conflicts (court + time overlap) ───────────────────────────────────
-  const conflicts = detectConflictsFromUpdates(updates, matchDurationMins, availableCourts);
+  const durationByMatchId = new Map(allMatches.map((m) => [m.id, durationFor(m)]));
+  const conflicts = detectConflictsFromUpdates(updates, durationByMatchId, availableCourts);
 
   return { updates, conflicts };
 }

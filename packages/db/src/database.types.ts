@@ -1708,6 +1708,8 @@ export type Database = {
           play_format: Database["public"]["Enums"]["play_format_enum"]
           points_per_set: number | null
           runner_up_entry_id: string | null
+          schedule_day: string | null
+          schedule_order: number
           scoring_format: string | null
           scoring_override: boolean
           skill_levels: Json
@@ -1737,6 +1739,8 @@ export type Database = {
           play_format: Database["public"]["Enums"]["play_format_enum"]
           points_per_set?: number | null
           runner_up_entry_id?: string | null
+          schedule_day?: string | null
+          schedule_order?: number
           scoring_format?: string | null
           scoring_override?: boolean
           skill_levels?: Json
@@ -1766,6 +1770,8 @@ export type Database = {
           play_format?: Database["public"]["Enums"]["play_format_enum"]
           points_per_set?: number | null
           runner_up_entry_id?: string | null
+          schedule_day?: string | null
+          schedule_order?: number
           scoring_format?: string | null
           scoring_override?: boolean
           skill_levels?: Json

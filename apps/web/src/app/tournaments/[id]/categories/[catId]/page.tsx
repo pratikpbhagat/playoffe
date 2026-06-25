@@ -16,6 +16,7 @@ import { getCategoryWithEntries, getStageScoringAction } from '@/lib/actions/cat
 import { getTournamentStageScoringAction } from '@/lib/actions/tournaments';
 import { getMatchesForCategory } from '@/lib/actions/draws';
 import { isFeatureEnabled } from '@/lib/features';
+import { checkPermission } from '@/lib/permissions';
 
 export const metadata: Metadata = { title: 'Category entries' };
 
@@ -101,12 +102,15 @@ export default async function CategoryPage({ params }: Props) {
   const categoryId = categoryRow.id;
 
   // Fetch category + entries + matches + stage scoring + social flag in parallel
-  const [data, matches, stageRows, tournamentStageRows, organiserSocialEnabled] = await Promise.all([
+  const [data, matches, stageRows, tournamentStageRows, organiserSocialEnabled, seedingPanelEnabled] = await Promise.all([
     getCategoryWithEntries(categoryId),
     getMatchesForCategory(categoryId),
     getStageScoringAction(categoryId),
     getTournamentStageScoringAction(tournament.id),
     isFeatureEnabled('social_media_organiser'),
+    // Per-club override, not a global flag — a super admin can hide this for
+    // one club's organisers without affecting any other club.
+    checkPermission('admin', 'tournament_management', 'seeding_panel', tournament.club_id),
   ]);
   if (!data) notFound();
 
@@ -259,6 +263,19 @@ export default async function CategoryPage({ params }: Props) {
               </Link>
             )}
 
+            {/* Schedule link — moved up here from the Draw section so it sits
+                alongside the other category-level actions instead of mixed
+                in with draw-specific buttons. */}
+            {isDrawn && (
+              <Link
+                href={`/tournaments/${tournamentSlug}/schedule`}
+                className="flex flex-col items-center justify-center rounded-xl bg-surface-card px-4 py-3 ring-1 ring-surface-border hover:ring-brand-500/40 transition-all text-center min-w-[60px]"
+              >
+                <span className="text-lg leading-none">📅</span>
+                <span className="mt-1 text-[11px] text-slate-400">Schedule</span>
+              </Link>
+            )}
+
             <CategoryEditInline
               categoryId={categoryId}
               currentName={category.name}
@@ -336,8 +353,10 @@ export default async function CategoryPage({ params }: Props) {
 
         <div className="mb-8 border-t border-surface-border" />
 
-        {/* Seeding — only shown before draw is generated */}
-        {(categoryStatus === 'pending' || categoryStatus === 'registration') && entryCount >= 2 && (
+        {/* Seeding — only shown before draw is generated, and only when this
+            club has the 'categories:seeding_panel' permission enabled. Super
+            admins can hide it per-club from /superadmin/rbac. */}
+        {seedingPanelEnabled && (categoryStatus === 'pending' || categoryStatus === 'registration') && entryCount >= 2 && (
           <SeedingPanel
             entries={typedEntries}
             categoryId={categoryId}

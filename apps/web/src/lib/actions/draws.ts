@@ -935,9 +935,10 @@ export async function promoteGroupWinnersAction(categoryId: string) {
   // Fetch knockout matches (null group_name)
   const { data: allMatches } = await admin
     .from('matches')
-    .select('id, round, group_name, entry_a_id, entry_b_id')
+    .select('id, round, bracket_position, group_name, entry_a_id, entry_b_id')
     .eq('category_id', categoryId)
-    .order('round', { ascending: true });
+    .order('round', { ascending: true })
+    .order('bracket_position', { ascending: true });
   if (!allMatches) return { error: 'No matches found' };
   const knockoutMatches = allMatches.filter((m) => m.group_name === null);
 
@@ -988,9 +989,11 @@ export async function promoteGroupWinnersAction(categoryId: string) {
   if (advancingEntries.length === 0) return { error: 'No group results to promote' };
 
   // Find knockout matches with empty slots, ordered by round asc then bracket_position asc
+  // (bracket_position is the explicit tiebreaker — several Round 1 matches share
+  // the same `round`, and only bracket_position pins them to the correct bracket slot).
   const emptyKnockout = knockoutMatches
     .filter((m) => !m.entry_a_id && !m.entry_b_id)
-    .sort((a, b) => a.round - b.round);
+    .sort((a, b) => a.round - b.round || (a.bracket_position ?? 0) - (b.bracket_position ?? 0));
 
   if (knockoutMatches.length === 0) {
     return { error: 'No knockout bracket found — use "Reset knockout bracket" first, then promote group winners' };

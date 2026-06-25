@@ -33,6 +33,29 @@
     background-color: #0f172a;
     color: #ffffff;
   }
+
+  /* Thin dark scrollbar everywhere — same look used in the wizard chat panel
+     (slate-700 thumb, transparent track, slate-600 on hover). Applies globally
+     so every scrollable container is consistent without per-component classes. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #334155 transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background-color: #334155;
+    border-radius: 9999px;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: #475569;
+  }
 }
 
 /*

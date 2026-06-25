@@ -31,16 +31,24 @@ export interface MatchForScheduling {
   category_name: string;
   player_a: string;
   player_b: string;
+  /** True when the corresponding slot isn't a real entry yet — a knockout
+   *  placeholder like "1st Group A" or "Winner of Quarter-Final Match 1". */
+  player_a_is_placeholder?: boolean;
+  player_b_is_placeholder?: boolean;
 }
 
 interface Props {
   tournamentSlug: string;
   startDate: string;
   courtCount: number;
+  /** Tournament-wide fallback — used only for a category with no resolvable scoring config. */
   matchDurationMins: number;
   changeoverMins: number;
   defaultStartTime: string;  // "09:00"
   matches: MatchForScheduling[];
+  /** Per-category effective match duration (categories can override the
+   *  tournament's scoring format/set count), keyed by category_id. */
+  categoryDurationMins?: Record<string, number>;
   aiEnabled?: boolean;
   aiConfigured?: boolean;    // true = real API key present; false = show setup message
 }
@@ -75,9 +83,15 @@ export function ScheduleEditor({
   changeoverMins,
   defaultStartTime,
   matches,
+  categoryDurationMins = {},
   aiEnabled = false,
   aiConfigured = false,
 }: Props) {
+  // Resolve each match's own duration (per-category override → tournament fallback)
+  const durationByMatchId = useMemo(
+    () => new Map(matches.map((m) => [m.id, categoryDurationMins[m.category_id] ?? matchDurationMins])),
+    [matches, categoryDurationMins, matchDurationMins],
+  );
   // ── Core edit state ────────────────────────────────────────────────────────
   const [edits, setEdits] = useState<Record<string, { time: string; court: string }>>(() => {
     const init: Record<string, { time: string; court: string }> = {};
@@ -116,8 +130,8 @@ export function ScheduleEditor({
         scheduledTime: fromLocalInput(edits[m.id]?.time ?? '') ?? null,
         court:         edits[m.id]?.court ? parseInt(edits[m.id].court) : null,
       }));
-    return detectConflictsFromUpdates(updates, matchDurationMins, availableCourts);
-  }, [edits, matches, matchDurationMins, availableCourts]);
+    return detectConflictsFromUpdates(updates, durationByMatchId, availableCourts);
+  }, [edits, matches, durationByMatchId, availableCourts]);
 
   const conflictById = useMemo(
     () => new Map(conflicts.map((c) => [c.matchId, c.message])),
@@ -264,27 +278,52 @@ export function ScheduleEditor({
   }, [matches, edits]);
 
   // ── Active category groups ─────────────────────────────────────────────────
+  // Group-stage matches are grouped by group name (alphabetical); knockout
+  // matches are split into one section per round (Quarter-Final, Semi-Final,
+  // Final, …) so the stage name is shown as a header before its placeholder
+  // matches, instead of lumping every knockout round into one flat list.
   const activeGroups = useMemo(() => {
-    const sorted = matches
-      .filter((m) => m.category_id === activeCatId)
-      .sort((a, b) => {
-        const ga = a.group_name ?? '￿';
-        const gb = b.group_name ?? '￿';
-        if (ga !== gb) return ga.localeCompare(gb);
+    const catMatches = matches.filter((m) => m.category_id === activeCatId);
+
+    // Sort by the *live* edited time (not the original server value) so a
+    // freshly generated/edited schedule re-orders immediately, before saving.
+    function byScheduledTime(list: MatchForScheduling[]): MatchForScheduling[] {
+      return [...list].sort((a, b) => {
+        const ta = edits[a.id]?.time || '';
+        const tb = edits[b.id]?.time || '';
+        if (ta && tb) return ta < tb ? -1 : ta > tb ? 1 : 0;
+        if (ta) return -1;
+        if (tb) return 1;
         return a.round - b.round;
       });
-    const groupMap = new Map<string, MatchForScheduling[]>();
-    for (const m of sorted) {
-      const key = m.group_name ?? '__ko__';
-      if (!groupMap.has(key)) groupMap.set(key, []);
-      groupMap.get(key)!.push(m);
     }
-    return Array.from(groupMap.entries()).map(([key, grpMatches]) => ({
-      key,
-      label: key === '__ko__' ? 'Knockout Stage' : key,
-      matches: grpMatches,
-    }));
-  }, [matches, activeCatId]);
+
+    const groupStageMap = new Map<string, MatchForScheduling[]>();
+    const knockoutMap = new Map<number, MatchForScheduling[]>();
+    for (const m of catMatches) {
+      if (m.group_name !== null) {
+        if (!groupStageMap.has(m.group_name)) groupStageMap.set(m.group_name, []);
+        groupStageMap.get(m.group_name)!.push(m);
+      } else {
+        if (!knockoutMap.has(m.round)) knockoutMap.set(m.round, []);
+        knockoutMap.get(m.round)!.push(m);
+      }
+    }
+
+    const groupSections = Array.from(groupStageMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, grpMatches]) => ({ key, label: key, matches: byScheduledTime(grpMatches) }));
+
+    const knockoutSections = Array.from(knockoutMap.entries())
+      .sort(([a], [b]) => a - b)
+      .map(([round, grpMatches]) => ({
+        key: `__ko__::${round}`,
+        label: grpMatches[0]?.round_name ?? `Knockout Round ${round}`,
+        matches: byScheduledTime(grpMatches),
+      }));
+
+    return [...groupSections, ...knockoutSections];
+  }, [matches, activeCatId, edits]);
 
   // ── Current schedule for AI ───────────────────────────────────────────────
   const currentScheduleForAI = useMemo<ScheduleUpdate[]>(() =>
@@ -388,7 +427,14 @@ export function ScheduleEditor({
 
         {/* ── Category selector ────────────────────────────────────────────── */}
         <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
-          <label className="text-xs font-medium text-slate-400 shrink-0">Category</label>
+          <label className="text-xs font-medium text-slate-400 shrink-0 flex items-center gap-1.5">
+            Category
+            {categories.length > 1 && (
+              <span className="rounded-full bg-surface-card px-1.5 py-0.5 text-[10px] font-semibold text-slate-300 ring-1 ring-surface-border">
+                {categories.length}
+              </span>
+            )}
+          </label>
           <div className="relative w-full sm:flex-1 sm:max-w-sm">
             <select
               value={activeCatId}
@@ -516,9 +562,9 @@ export function ScheduleEditor({
                         <td className="px-4 py-2.5">
                           {/* Player names */}
                           <div className="flex items-center gap-1 flex-wrap">
-                            <span className="text-sm font-medium text-white">{m.player_a}</span>
+                            <span className={m.player_a_is_placeholder ? 'text-sm text-slate-400 italic' : 'text-sm font-medium text-white'}>{m.player_a}</span>
                             <span className="text-slate-500 text-xs">vs</span>
-                            <span className="text-sm text-slate-300">{m.player_b}</span>
+                            <span className={m.player_b_is_placeholder ? 'text-sm text-slate-400 italic' : 'text-sm font-medium text-white'}>{m.player_b}</span>
                             {isWalkover && (
                               <span className="ml-1 rounded-full bg-amber-900/30 px-2 py-0.5 text-[10px] font-semibold text-amber-400">
                                 Walkover
@@ -662,6 +708,11 @@ export function ScheduleEditor({
           generating={generating}
           onGenerate={handleGenerate}
           onClose={() => setShowModal(false)}
+          categoryPreview={categories.map((cat) => ({
+            name: cat.name,
+            matchCount: matches.filter((m) => m.category_id === cat.id).length,
+            durationMins: categoryDurationMins[cat.id] ?? matchDurationMins,
+          }))}
         />
       )}
     </div>
