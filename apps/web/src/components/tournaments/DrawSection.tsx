@@ -442,16 +442,6 @@ export function DrawSection({
                 </button>
               ) : (
                 <>
-                  {/* Link to schedule page */}
-                  {!showRegenConfirm && (
-                    <Link
-                      href={`/tournaments/${tournamentSlug}/schedule`}
-                      className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs text-slate-300 hover:border-brand-500 hover:text-brand-400 transition-colors"
-                    >
-                      📅 Schedule
-                    </Link>
-                  )}
-
                   {/* Adjust draw button */}
                   {canAdjust && !showRegenConfirm && (
                     <button
