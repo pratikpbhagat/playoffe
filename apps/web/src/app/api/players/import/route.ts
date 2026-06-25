@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createAdminClient } from '@/lib/supabase/server';
+import { createAdminClient, getCurrentUser } from '@/lib/supabase/server';
 import { csvImportRowSchema } from '@pickleball/shared';
 import { INITIAL_RATING } from '@pickleball/rating';
 import { generateUsernameFromName } from '@/lib/utils/username';
@@ -7,7 +7,12 @@ import { sendEmail } from '@/lib/email/service';
 import { buildProvisionalInviteEmail } from '@/lib/email/templates/provisional-invite';
 import { randomBytes } from 'crypto';
 
+const MAX_ROWS = 500;
+
 export async function POST(request: Request) {
+  const user = await getCurrentUser();
+  if (!user) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+
   const body = await request.json();
   const { tournament_id, category_id, rows } = body;
 
@@ -15,14 +20,34 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
   }
 
+  if (rows.length > MAX_ROWS) {
+    return NextResponse.json({ error: `Too many rows — max ${MAX_ROWS} per import` }, { status: 400 });
+  }
+
   const admin = createAdminClient();
 
-  // Fetch tournament + club info once for invite emails
+  // Fetch tournament + club info, and verify the caller actually manages
+  // this tournament's club before creating/linking any accounts or entries.
   const { data: tournament } = await admin
     .from('tournaments')
-    .select('name, clubs(name)')
+    .select('name, club_id, clubs(name)')
     .eq('id', tournament_id)
     .single();
+
+  if (!tournament) {
+    return NextResponse.json({ error: 'Tournament not found' }, { status: 404 });
+  }
+
+  const { data: mgr } = await admin
+    .from('club_managers')
+    .select('role')
+    .eq('club_id', tournament.club_id)
+    .eq('player_id', user.id)
+    .maybeSingle();
+
+  if (!mgr) {
+    return NextResponse.json({ error: 'Permission denied — you are not a manager of this club.' }, { status: 403 });
+  }
 
   const tournamentName = tournament?.name ?? 'a tournament';
   const clubName = (tournament?.clubs as { name: string } | null)?.name ?? 'the organiser';
