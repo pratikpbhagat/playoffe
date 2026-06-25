@@ -203,10 +203,9 @@ export async function GET(
       );
     }
   } catch (e) {
-    const msg = e instanceof Error ? e.message : 'Token exchange failed';
-    console.error(`[social/club/callback/${platform}]`, msg);
+    console.error(`[social/club/callback/${platform}]`, e);
     return NextResponse.redirect(
-      new URL(`/clubs/${statePayload.clubSlug}/settings?error=${encodeURIComponent(msg)}`, req.url),
+      new URL(`/clubs/${statePayload.clubSlug}/settings?error=connection_failed`, req.url),
     );
   }
 

@@ -9,7 +9,8 @@
     "test": "turbo test",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "db:push": "supabase db push",
-    "db:reset": "supabase db reset"
+    "db:reset": "supabase db reset",
+    "lint:rls": "node scripts/lint-rls-policies.mjs"
   },
   "devDependencies": {
     "turbo": "^2.3.3",

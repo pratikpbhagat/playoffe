@@ -15,6 +15,9 @@ const RATE_LIMIT_RULES: Array<{ pattern: RegExp; limit: number; windowMs: number
   { pattern: /^\/api\/auth\//, limit: 10, windowMs: 60_000 },
   // Social posting API — moderate
   { pattern: /^\/api\/social\//, limit: 30, windowMs: 60_000 },
+  // AI wizard — each call is a real Claude API spend, keep this tight even
+  // per-IP (per-user limiting is also enforced inside the route handler).
+  { pattern: /^\/api\/wizard\//, limit: 20, windowMs: 60_000 },
   // All other API routes
   { pattern: /^\/api\//, limit: 120, windowMs: 60_000 },
 ];

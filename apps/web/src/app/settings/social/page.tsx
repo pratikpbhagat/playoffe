@@ -58,10 +58,14 @@ export default async function SocialSettingsPage({ searchParams }: Props) {
       missing_code: 'OAuth flow did not return a code. Please try connecting again.',
       invalid_state: 'Session mismatch — please try again.',
       session_mismatch: 'You appear to be logged in as a different user. Please sign in again.',
+      connection_failed: 'Could not connect this account. Please try again.',
     };
     flashMessage = {
       type: 'error',
-      message: errorMessages[sp.error] ?? `Connection error: ${sp.error}`,
+      // Unknown codes fall back to a generic message rather than echoing the
+      // raw query param — the callback routes used to put exception text
+      // straight into this param, which would have rendered verbatim here.
+      message: errorMessages[sp.error] ?? 'Connection error. Please try again.',
     };
   }
 

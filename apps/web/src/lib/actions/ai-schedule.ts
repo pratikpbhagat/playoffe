@@ -2,6 +2,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { createAdminClient, createClient, getCurrentUser } from '@/lib/supabase/server';
+import { consumeRateLimit } from '@/lib/rate-limit';
 import type { ScheduleUpdate } from './scheduling';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -78,6 +79,13 @@ export async function callScheduleAssistantAction(params: {
   const supabase = await createClient();
   const user = await getCurrentUser();
   if (!user) return { error: 'Not authenticated' };
+
+  // Each Claude call costs real money — cap how often one user can trigger
+  // this, independent of whatever generic API rate limit middleware applies
+  // (server actions all share one route, so middleware can't key on this by path).
+  if (!consumeRateLimit(`ai-schedule-assistant:${user.id}`, 10, 60_000)) {
+    return { error: 'Too many requests — please wait a moment before trying again.' };
+  }
 
   const admin = createAdminClient();
 

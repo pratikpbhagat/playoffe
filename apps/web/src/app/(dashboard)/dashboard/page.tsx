@@ -6,6 +6,7 @@ import { AppNav } from '@/components/layout/AppNav';
 import { getMyTournaments } from '@/lib/actions/tournaments';
 import { getMyClubs } from '@/lib/actions/clubs';
 import { getMyEntries, getMyPartnerInvites } from '@/lib/actions/registration';
+import { isUuid } from '@/lib/validate';
 import { PartnerInvitesBanner } from '@/components/events/PartnerInvitesBanner';
 
 const STATUS_BADGE: Record<string, { label: string; className: string }> = {
@@ -206,7 +207,12 @@ export default async function DashboardPage() {
         tc:tournament_categories!category_id(name),
         t:tournaments!tournament_id(name, slug)
       `)
-      .or(`entry_a_id.in.(${activeEntryIds.join(',')}),entry_b_id.in.(${activeEntryIds.join(',')})`)
+      // entry IDs are server-derived UUIDs (not client input), but validate
+      // the shape anyway before string-interpolating into a PostgREST filter —
+      // this exact pattern is easy to copy-paste into a context where the
+      // IDs ARE attacker-controlled, and a non-UUID string here could break
+      // out of the .or() filter syntax.
+      .or(`entry_a_id.in.(${activeEntryIds.filter(isUuid).join(',')}),entry_b_id.in.(${activeEntryIds.filter(isUuid).join(',')})`)
       .eq('status', 'scheduled')
       .not('scheduled_time', 'is', null)
       .gte('scheduled_time', new Date().toISOString())

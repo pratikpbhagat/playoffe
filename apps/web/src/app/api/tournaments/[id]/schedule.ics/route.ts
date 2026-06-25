@@ -17,11 +17,15 @@ export async function GET(
 
   const { data: t } = await admin
     .from('tournaments')
-    .select('id, name, slug, start_date, venue')
+    .select('id, name, slug, start_date, venue, status')
     .eq('slug', slug)
     .single();
 
-  if (!t) {
+  // Draft tournaments aren't public yet — don't leak their schedule/player
+  // names via this unauthenticated calendar feed. (Matches the same
+  // "status <> 'draft'" public-visibility rule used elsewhere, e.g. the
+  // tournaments_select RLS policy.)
+  if (!t || t.status === 'draft') {
     return new NextResponse('Tournament not found', { status: 404 });
   }
 

@@ -37,6 +37,9 @@ jobs:
       - name: TypeScript — workers
         run: cd workers && pnpm tsc --noEmit
 
+      - name: Lint RLS policies for public write access
+        run: node scripts/lint-rls-policies.mjs
+
   # ── Workers e2e stub tests ────────────────────────────────────────────────────
   test:
     name: Workers Tests

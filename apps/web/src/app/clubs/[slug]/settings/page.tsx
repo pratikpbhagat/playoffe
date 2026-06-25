@@ -59,7 +59,9 @@ export default async function ClubSettingsPage({ params, searchParams }: Props) 
     const label = sp.connected.charAt(0).toUpperCase() + sp.connected.slice(1);
     socialFlash = { type: 'success', message: `✓ ${label} connected successfully.` };
   } else if (sp.error) {
-    socialFlash = { type: 'error', message: `Connection error: ${sp.error}` };
+    // The callback route only ever passes a fixed code, never raw exception
+    // text — show a generic message rather than echoing the param verbatim.
+    socialFlash = { type: 'error', message: 'Could not connect this account. Please try again.' };
   }
 
   return (

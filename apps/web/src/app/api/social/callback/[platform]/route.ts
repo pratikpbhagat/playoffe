@@ -281,10 +281,9 @@ export async function GET(
       );
     }
   } catch (e) {
-    const msg = e instanceof Error ? e.message : 'Token exchange failed';
-    console.error(`[social/callback/${platform}]`, msg);
+    console.error(`[social/callback/${platform}]`, e);
     return NextResponse.redirect(
-      new URL(`/settings/social?error=${encodeURIComponent(msg)}`, req.url),
+      new URL('/settings/social?error=connection_failed', req.url),
     );
   }
 

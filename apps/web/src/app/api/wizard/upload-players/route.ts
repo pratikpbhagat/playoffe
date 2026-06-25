@@ -100,7 +100,8 @@ export async function POST(req: NextRequest) {
 
         imported++;
       } catch (err) {
-        errors.push(`Error importing ${p.name}: ${err instanceof Error ? err.message : String(err)}`);
+        console.error(`[wizard/upload-players] failed importing ${p.name}:`, err);
+        errors.push(`Could not import ${p.name} — please try again or add them manually.`);
         skipped++;
       }
     }
@@ -108,6 +109,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ imported, skipped, errors } satisfies UploadPlayersResponse);
   } catch (err) {
     console.error('[wizard/upload-players] error:', err);
-    return NextResponse.json({ error: err instanceof Error ? err.message : 'Unexpected error' }, { status: 500 });
+    return NextResponse.json({ error: 'Something went wrong. Please try again.' }, { status: 500 });
   }
 }
