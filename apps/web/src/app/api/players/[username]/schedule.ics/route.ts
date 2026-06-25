@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/server';
+import { isUuid } from '@/lib/validate';
 
 /**
  * GET /api/players/[username]/schedule.ics
@@ -30,7 +31,9 @@ export async function GET(
     .select('id')
     .eq('player_id', player.id);
 
-  const entryIds = (entries ?? []).map((e) => e.id);
+  // Validate before interpolating into the .or() filter string below —
+  // see lib/validate.ts for why this matters even for server-derived IDs.
+  const entryIds = (entries ?? []).map((e) => e.id).filter(isUuid);
 
   if (entryIds.length === 0) {
     // Return an empty but valid calendar
@@ -48,7 +51,7 @@ export async function GET(
       ea:tournament_entries!entry_a_id(id, players!player_id(full_name)),
       eb:tournament_entries!entry_b_id(id, players!player_id(full_name)),
       tc:tournament_categories!category_id(name),
-      t:tournaments!tournament_id(name, slug, venue)
+      t:tournaments!tournament_id(name, slug, venue, status)
     `)
     .or(`entry_a_id.in.(${entryIds.map((id) => `"${id}"`).join(',')}),entry_b_id.in.(${entryIds.map((id) => `"${id}"`).join(',')})`)
     .not('scheduled_time', 'is', null)
@@ -63,10 +66,12 @@ export async function GET(
     ea: { id: string; players: { full_name: string } | null } | null;
     eb: { id: string; players: { full_name: string } | null } | null;
     tc: { name: string } | null;
-    t: { name: string; slug: string; venue: string | null } | null;
+    t: { name: string; slug: string; venue: string | null; status: string } | null;
   };
 
-  const rows = (matches ?? []) as unknown as MatchRow[];
+  // Drop matches belonging to draft tournaments — this feed is unauthenticated,
+  // so it must never surface a tournament before it's actually made public.
+  const rows = ((matches ?? []) as unknown as MatchRow[]).filter((m) => m.t?.status !== 'draft');
   const ics = buildPlayerIcs(player.full_name, rows);
 
   return new NextResponse(ics, {

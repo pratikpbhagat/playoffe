@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { createAdminClient, getCurrentUser } from '@/lib/supabase/server';
+import { consumeRateLimit } from '@/lib/rate-limit';
 import { buildSystemPrompt, type ClubContext } from '@/lib/wizard-system-prompt';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -485,6 +486,13 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
 
     if (!mgr) return NextResponse.json({ error: 'Permission denied — you are not a manager of this club.' }, { status: 403 });
+
+    // Each turn costs a real Claude API call — cap per-user usage on top of
+    // middleware's generic per-IP /api/ limit, which is too loose for this
+    // specific cost profile (and groups all managers behind shared NAT/IP).
+    if (!consumeRateLimit(`wizard-turn:${user.id}`, 20, 60_000)) {
+      return NextResponse.json({ error: 'Too many requests — please wait a moment before trying again.' }, { status: 429 });
+    }
 
     // Fetch club context and build system prompt
     const ctx = await fetchClubContext(clubId);
