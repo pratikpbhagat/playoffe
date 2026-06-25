@@ -36,6 +36,7 @@ const CATEGORIES: Record<string, { label: string; features: Array<{ key: string;
       { key: 'tournament_management', sub: 'manage_categories', label: 'Manage categories' },
       { key: 'tournament_management', sub: 'generate_draw',     label: 'Generate draw' },
       { key: 'tournament_management', sub: 'manage_draw',       label: 'Manage draw (edit seeding)' },
+      { key: 'tournament_management', sub: 'seeding_panel',     label: 'Seeding panel (pre-draw entries)' },
       { key: 'tournament_management', sub: 'register_players',  label: 'Register players' },
       { key: 'tournament_management', sub: 'view_details',      label: 'View tournament details' },
     ],

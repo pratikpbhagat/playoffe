@@ -13,11 +13,18 @@ interface Player {
   global_stats: { current_rating: number } | null;
 }
 
+interface Partner {
+  id: string;
+  full_name: string;
+  username: string;
+}
+
 interface Entry {
   id: string;
   seed: number | null;
   registered_at: string;
   players: Player | null;
+  partner?: Partner | null;
 }
 
 interface Props {
@@ -220,18 +227,29 @@ export function SeedingPanel({ entries, categoryId, tournamentId }: Props) {
                   {player?.full_name[0]?.toUpperCase() ?? '?'}
                 </div>
 
-                {/* Player name */}
+                {/* Player name(s) — both partners shown in the same font/weight
+                    for doubles, since neither player is more "primary" than
+                    the other. */}
                 <div className="flex-1 min-w-0">
                   {player ? (
-                    <>
+                    <div className="flex flex-col leading-snug">
                       <Link
                         href={`/p/${player.username}`}
                         className="text-sm font-medium text-white hover:text-brand-300 transition-colors truncate block"
                       >
                         {player.full_name}
                       </Link>
-                      <p className="text-xs text-slate-600">@{player.username}</p>
-                    </>
+                      {entry.partner ? (
+                        <Link
+                          href={`/p/${entry.partner.username}`}
+                          className="text-sm font-medium text-white hover:text-brand-300 transition-colors truncate block"
+                        >
+                          {entry.partner.full_name}
+                        </Link>
+                      ) : (
+                        <p className="text-xs text-slate-600">@{player.username}</p>
+                      )}
+                    </div>
                   ) : (
                     <span className="text-slate-500 italic text-sm">Unknown player</span>
                   )}

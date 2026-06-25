@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { generateDrawAction, clearDrawAction, generateNextSwissRoundAction, promoteGroupWinnersAction, resetKnockoutBracketAction, swapDrawEntriesAction, replaceDrawEntryAction } from '@/lib/actions/draws';
@@ -78,6 +78,29 @@ export function DrawSection({
   const [showRegenConfirm, setShowRegenConfirm] = useState(false);
   const [matches, setMatches] = useState(initialMatches);
 
+  // `router.refresh()` only *schedules* a re-fetch of server data — it doesn't
+  // wait for the new props to land, so flipping a loading flag back off right
+  // after calling it turns the spinner off well before the bracket actually
+  // reappears, producing a "nothing happened, then the page jumps" effect.
+  // Instead, every loading flag below is cleared only once `initialMatches`
+  // itself changes (i.e. the server component actually re-rendered with the
+  // new data) — and since the bracket/groups always start from the top of the
+  // section, we scroll back to the top at the same moment rather than trying
+  // to preserve an arbitrary mid-generation scroll position.
+  const scrollToTopOnLoad = useRef(false);
+  useEffect(() => {
+    setMatches(initialMatches);
+    setLoading(false);
+    setGeneratingSwissRound(false);
+    setPromotingGroups(false);
+    setResettingKnockout(false);
+    if (scrollToTopOnLoad.current) {
+      scrollToTopOnLoad.current = false;
+      requestAnimationFrame(() => window.scrollTo({ top: 0 }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialMatches]);
+
   // ── Group stage draw preview (before generating) ─────────────────────────
   const [showDrawPreview, setShowDrawPreview] = useState(false);
   const [extraGroupIndex, setExtraGroupIndex] = useState(0);
@@ -154,10 +177,8 @@ export function DrawSection({
   const [swapError, setSwapError] = useState<string | null>(null);
   const [showAdjustWarning, setShowAdjustWarning] = useState(false);
 
-  // Sync matches when server re-renders after router.refresh() passes new initialMatches
-  useEffect(() => {
-    setMatches(initialMatches);
-  }, [initialMatches]);
+  // (matches sync + loading-flag clearing for this prop change is handled by
+  // the effect declared near the top of the component, alongside scrollY restore)
 
   // Auto-populate replace dropdowns when staleness data changes (e.g. after router.refresh)
   useEffect(() => {
@@ -233,25 +254,30 @@ export function DrawSection({
   async function handlePromoteGroups() {
     setPromotingGroups(true);
     setError(null);
+    scrollToTopOnLoad.current = true;
     const result = await promoteGroupWinnersAction(categoryId);
     if ('error' in result && result.error) {
       setError(result.error);
+      setPromotingGroups(false);
+      scrollToTopOnLoad.current = false;
     } else {
+      // Loading flag is cleared once `initialMatches` actually updates — see effect above.
       router.refresh();
     }
-    setPromotingGroups(false);
   }
 
   async function handleResetKnockout() {
     setResettingKnockout(true);
     setError(null);
+    scrollToTopOnLoad.current = true;
     const result = await resetKnockoutBracketAction(categoryId);
     if ('error' in result && result.error) {
       setError(result.error);
+      setResettingKnockout(false);
+      scrollToTopOnLoad.current = false;
     } else {
       router.refresh();
     }
-    setResettingKnockout(false);
   }
 
   // True once any match has moved past 'scheduled' — blocks regeneration
@@ -327,35 +353,39 @@ export function DrawSection({
     setShowDrawPreview(false);
     setLoading(true);
     setError(null);
+    scrollToTopOnLoad.current = true;
     const result = await generateDrawAction(categoryId, sizes);
     if (result.error) {
       setError(result.error);
+      setLoading(false);
+      scrollToTopOnLoad.current = false;
     } else {
+      // Loading flag is cleared once `initialMatches` actually updates — see effect above.
       router.refresh();
     }
-    setLoading(false);
   }
 
   async function handleClear() {
     setShowRegenConfirm(false);
     setLoading(true);
     setError(null);
+    scrollToTopOnLoad.current = true;
     await clearDrawAction(categoryId);
-    setMatches([]);
     router.refresh();
-    setLoading(false);
   }
 
   async function handleGenerateNextSwissRound() {
     setGeneratingSwissRound(true);
     setError(null);
+    scrollToTopOnLoad.current = true;
     const result = await generateNextSwissRoundAction(categoryId);
     if ('error' in result && result.error) {
       setError(result.error);
+      setGeneratingSwissRound(false);
+      scrollToTopOnLoad.current = false;
     } else {
       router.refresh();
     }
-    setGeneratingSwissRound(false);
   }
 
   return (
@@ -412,16 +442,6 @@ export function DrawSection({
                 </button>
               ) : (
                 <>
-                  {/* Link to schedule page */}
-                  {!showRegenConfirm && (
-                    <Link
-                      href={`/tournaments/${tournamentSlug}/schedule`}
-                      className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs text-slate-300 hover:border-brand-500 hover:text-brand-400 transition-colors"
-                    >
-                      📅 Schedule
-                    </Link>
-                  )}
-
                   {/* Adjust draw button */}
                   {canAdjust && !showRegenConfirm && (
                     <button
@@ -865,6 +885,19 @@ export function DrawSection({
         </div>
       )}
 
+      {/* Draw is being generated / cleared / rebuilt — shown until the new
+          server data actually lands, so the section never goes blank or
+          jumps once the bracket pops in (see the initialMatches effect above). */}
+      {loading && (
+        <div className="rounded-xl bg-surface-card p-8 text-center ring-1 ring-surface-border">
+          <div className="mx-auto mb-3 h-6 w-6 animate-spin rounded-full border-2 border-slate-700 border-t-brand-500" />
+          <p className="text-sm font-medium text-white">
+            {isDrawn ? 'Updating draw…' : 'Generating draw…'}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">This only takes a moment.</p>
+        </div>
+      )}
+
       {/* Draw not yet generated */}
       {!isDrawn && !loading && !showDrawPreview && (
         <div className="rounded-xl bg-surface-card p-8 text-center ring-1 ring-surface-border">
@@ -879,7 +912,7 @@ export function DrawSection({
       )}
 
       {/* Bracket / schedule */}
-      {showBracket && isDrawn && matches.length > 0 && (
+      {showBracket && isDrawn && matches.length > 0 && !loading && (
         <BracketView
           matches={matches}
           format={drawFormat}
@@ -892,7 +925,7 @@ export function DrawSection({
       )}
 
       {/* Live standings — round-robin, swiss, group stage */}
-      {showStandings && isDrawn && matches.length > 0 && (
+      {showStandings && isDrawn && matches.length > 0 && !loading && (
         <StandingsTable matches={matches} format={drawFormat} advancePerGroup={gsAdvance} />
       )}
 

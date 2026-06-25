@@ -169,7 +169,7 @@ export const StandingsTable = memo(function StandingsTable({ matches, format, ad
                   <p className="text-xs font-bold uppercase tracking-widest text-slate-300">{groupName}</p>
                   <span className="text-[11px] text-slate-600">{gCompleted}/{gTotal} played</span>
                 </div>
-                <StandingsRows standings={sorted} advancePerGroup={advancePerGroup} />
+                <StandingsRows standings={sorted} advancePerGroup={advancePerGroup} allMatchesDone={gTotal > 0 && gCompleted === gTotal} />
               </div>
             );
           })}
@@ -193,22 +193,33 @@ export const StandingsTable = memo(function StandingsTable({ matches, format, ad
   );
 });
 
-/** Renders a single player name or stacked doubles pair. */
+/** Renders a single player name or stacked doubles pair — both players in the
+ *  same font weight/color since neither is more "primary" than the other. */
 function PlayerNameCell({ name }: { name: string }) {
   const parts = name.split(' / ');
   if (parts.length === 2) {
     return (
       <div className="flex flex-col leading-snug">
         <span className="text-slate-200">{parts[0]}</span>
-        <span className="text-slate-400">{parts[1]}</span>
+        <span className="text-slate-200">{parts[1]}</span>
       </div>
     );
   }
   return <span>{name}</span>;
 }
 
-function StandingsRows({ standings, advancePerGroup }: { standings: Standing[]; advancePerGroup?: number }) {
-  const cutAt = (advancePerGroup != null && advancePerGroup > 0) ? advancePerGroup : null;
+function StandingsRows({
+  standings,
+  advancePerGroup,
+  allMatchesDone = false,
+}: {
+  standings: Standing[];
+  advancePerGroup?: number;
+  /** Only highlight qualifying rows once every match in this group has been
+   *  played — showing it before any results exist is misleading. */
+  allMatchesDone?: boolean;
+}) {
+  const cutAt = (allMatchesDone && advancePerGroup != null && advancePerGroup > 0) ? advancePerGroup : null;
 
   return (
     <table className="w-full text-xs">

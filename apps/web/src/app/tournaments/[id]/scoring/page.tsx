@@ -104,7 +104,9 @@ export default async function ScoringHubPage({ params, searchParams }: Props) {
     .eq('tournament_id', t.id)
     .not('entry_a_id', 'is', null)
     .not('entry_b_id', 'is', null)
-    .order('status')
+    // Play order — by assigned time first (unscheduled matches last), then
+    // round/court as a stable tiebreaker for matches sharing a time slot.
+    .order('scheduled_time', { ascending: true, nullsFirst: false })
     .order('round')
     .order('court');
 

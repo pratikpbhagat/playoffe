@@ -232,7 +232,7 @@ export default async function TournamentPage({ params }: Props) {
             {(t.status !== 'completed' || canEditCompleted) && (
               <Link
                 href={`/tournaments/${slug}/edit`}
-                className="flex items-center justify-center gap-1.5 rounded-lg border border-slate-600 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-surface-card hover:border-slate-500 transition-colors sm:justify-start"
+                className="flex items-center justify-center gap-1.5 rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-300 hover:bg-surface-card hover:border-slate-500 transition-colors sm:justify-start"
               >
                 <span>✏️</span> Edit
               </Link>

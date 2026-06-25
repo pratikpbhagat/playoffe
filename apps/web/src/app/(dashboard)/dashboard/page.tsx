@@ -201,8 +201,8 @@ export default async function DashboardPage() {
       .select(`
         id, scheduled_time, court, round_name,
         entry_a_id, entry_b_id,
-        ea:tournament_entries!entry_a_id(id, player_id, players!player_id(full_name)),
-        eb:tournament_entries!entry_b_id(id, player_id, players!player_id(full_name)),
+        ea:tournament_entries!entry_a_id(id, player_id, players!player_id(full_name), partner:players!partner_id(full_name)),
+        eb:tournament_entries!entry_b_id(id, player_id, players!player_id(full_name), partner:players!partner_id(full_name)),
         tc:tournament_categories!category_id(name),
         t:tournaments!tournament_id(name, slug)
       `)
@@ -215,7 +215,12 @@ export default async function DashboardPage() {
       .maybeSingle();
 
     if (nm) {
-      type EntryRef = { id: string; player_id: string; players: { full_name: string } | null } | null;
+      type EntryRef = {
+        id: string;
+        player_id: string;
+        players: { full_name: string } | null;
+        partner: { full_name: string } | null;
+      } | null;
       const ea = nm.ea as unknown as EntryRef;
       const eb = nm.eb as unknown as EntryRef;
       const tc = nm.tc as { name: string } | null;
@@ -223,7 +228,11 @@ export default async function DashboardPage() {
 
       const isA = activeEntryIds.includes(nm.entry_a_id ?? '');
       const opponentEntry = isA ? eb : ea;
-      const opponentName  = opponentEntry?.players?.full_name ?? 'TBD';
+      const opponentMain    = opponentEntry?.players?.full_name;
+      const opponentPartner = opponentEntry?.partner?.full_name;
+      const opponentName = opponentMain
+        ? (opponentPartner ? `${opponentMain} / ${opponentPartner}` : opponentMain)
+        : 'TBD';
 
       nextMatch = {
         id: nm.id,

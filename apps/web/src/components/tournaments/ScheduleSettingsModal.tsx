@@ -24,6 +24,9 @@ interface Props {
   onGenerate: (settings: ScheduleSettings) => void;
   onClose: () => void;
   generating: boolean;
+  /** Per-category breakdown — shown as a preview so organisers can see each
+   *  category gets its own match duration instead of one tournament-wide value. */
+  categoryPreview?: { name: string; matchCount: number; durationMins: number }[];
 }
 
 export function ScheduleSettingsModal({
@@ -35,6 +38,7 @@ export function ScheduleSettingsModal({
   onGenerate,
   onClose,
   generating,
+  categoryPreview = [],
 }: Props) {
   const [startDatetime, setStartDatetime] = useState(
     `${startDate}T${defaultStartTime.slice(0, 5)}`,
@@ -98,7 +102,7 @@ export function ScheduleSettingsModal({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1">
-                Match duration (min)
+                Default duration (min)
               </label>
               <input
                 type="number"
@@ -109,7 +113,9 @@ export function ScheduleSettingsModal({
                 className="block w-full rounded-lg border border-slate-700 bg-surface px-3 py-2 text-sm text-white outline-none focus:border-brand-500"
               />
               <p className="mt-1 text-[10px] text-slate-600">
-                Rally 1-set ≈ 15 min · Traditional 1-set ≈ 25 min
+                {categoryPreview.length > 1
+                  ? 'Fallback only — each category below uses its own scoring-based duration'
+                  : 'Rally 1-set ≈ 15 min · Traditional 1-set ≈ 25 min'}
               </p>
             </div>
 
@@ -164,6 +170,23 @@ export function ScheduleSettingsModal({
             </div>
           </div>
 
+          {/* Per-category duration preview — only meaningful with 2+ categories */}
+          {categoryPreview.length > 1 && (
+            <div className="rounded-lg border border-surface-border bg-surface px-3 py-2.5">
+              <p className="mb-1.5 text-xs font-semibold text-slate-300">
+                {categoryPreview.length} categories in this schedule
+              </p>
+              <ul className="space-y-1">
+                {categoryPreview.map((c) => (
+                  <li key={c.name} className="flex items-center justify-between text-[11px] text-slate-400">
+                    <span className="truncate">{c.name} <span className="text-slate-600">· {c.matchCount} match{c.matchCount !== 1 ? 'es' : ''}</span></span>
+                    <span className="shrink-0 text-slate-300 font-medium">{c.durationMins} min/match</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {/* Schedule logic note */}
           <div className="rounded-lg bg-brand-950/30 border border-brand-800/30 px-3 py-2.5 text-xs text-brand-300/80 space-y-1">
             <p className="font-semibold text-brand-300">How matches are scheduled:</p>
@@ -171,6 +194,9 @@ export function ScheduleSettingsModal({
               <li>Each group stays on one court — matches run back-to-back</li>
               <li>Multiple groups run in parallel across courts</li>
               <li>Knockout rounds start only after all group matches finish</li>
+              {categoryPreview.length > 1 && (
+                <li>All categories are scheduled together, sharing courts and avoiding overlaps</li>
+              )}
             </ul>
           </div>
 

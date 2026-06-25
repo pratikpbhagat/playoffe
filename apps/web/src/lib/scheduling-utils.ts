@@ -39,22 +39,51 @@ export function computeMatchDurationMins(params: {
 }
 
 /**
+ * Resolves a category's effective match duration — categories can override
+ * the tournament's scoring format/set count (e.g. singles best-of-3 vs.
+ * doubles best-of-1), so a tournament-wide duration isn't always accurate.
+ */
+export function resolveCategoryDurationMins(
+  category: {
+    scoring_override?: boolean | null;
+    scoring_format?: string | null;
+    num_sets?: number | null;
+  } | null | undefined,
+  tournamentDefaults: { scoringFormat: 'rally' | 'traditional'; numSets: number },
+  changeoverMins: number,
+): number {
+  const scoringFormat = ((category?.scoring_override ? category.scoring_format : null) ?? tournamentDefaults.scoringFormat) as 'rally' | 'traditional';
+  const numSets = (category?.scoring_override ? category.num_sets : null) ?? tournamentDefaults.numSets;
+  return computeMatchDurationMins({ scoringFormat, numSets, changeoverMins });
+}
+
+/**
  * Detects scheduling conflicts from a proposed set of updates.
  * - Same court + overlapping time window → both matches flagged
  * - Court number outside availableCourts → flagged
+ *
+ * `matchDurationMins` can be a single number (every match assumed the same
+ * duration) or a per-match lookup — different categories often run different
+ * scoring formats/set counts, so a fixed duration would mis-detect overlaps.
  */
 export function detectConflictsFromUpdates(
   updates: ScheduleUpdate[],
-  matchDurationMins: number,
+  matchDurationMins: number | Map<string, number>,
   availableCourts?: number[],
 ): ConflictInfo[] {
   const conflicts: ConflictInfo[] = [];
   const scheduled = updates.filter((u) => u.scheduledTime && u.court);
 
+  function durationFor(matchId: string): number {
+    return typeof matchDurationMins === 'number'
+      ? matchDurationMins
+      : (matchDurationMins.get(matchId) ?? 30);
+  }
+
   for (let i = 0; i < scheduled.length; i++) {
     const a      = scheduled[i];
     const aStart = new Date(a.scheduledTime!).getTime();
-    const aEnd   = aStart + matchDurationMins * 60_000;
+    const aEnd   = aStart + durationFor(a.matchId) * 60_000;
 
     // Out-of-range court
     if (availableCourts && !availableCourts.includes(a.court!)) {
@@ -67,7 +96,7 @@ export function detectConflictsFromUpdates(
       if (a.court !== b.court) continue;
 
       const bStart = new Date(b.scheduledTime!).getTime();
-      const bEnd   = bStart + matchDurationMins * 60_000;
+      const bEnd   = bStart + durationFor(b.matchId) * 60_000;
 
       // Overlap: A starts before B ends AND B starts before A ends
       if (aStart < bEnd && bStart < aEnd) {
