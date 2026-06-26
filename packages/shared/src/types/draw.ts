@@ -1,7 +1,12 @@
 import type { DrawFormat } from './tournament';
 
+/** Draw-engine's supported formats — a superset of the DB-facing DrawFormat.
+ *  double_elimination/swiss have working generators here but aren't currently
+ *  selectable via the DB enum or any UI dropdown. */
+export type EngineDrawFormat = DrawFormat | 'double_elimination' | 'swiss';
+
 export interface DrawConfig {
-  format: DrawFormat;
+  format: EngineDrawFormat;
   entries: DrawEntry[];
   category_id: string;
   group_size?: number;
@@ -31,7 +36,7 @@ export interface DrawEntry {
 }
 
 export interface GeneratedDraw {
-  format: DrawFormat;
+  format: EngineDrawFormat;
   category_id: string;
   rounds: DrawRound[];
   groups?: DrawGroup[];

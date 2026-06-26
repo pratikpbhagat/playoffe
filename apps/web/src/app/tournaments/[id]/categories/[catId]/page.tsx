@@ -17,6 +17,7 @@ import { getTournamentStageScoringAction } from '@/lib/actions/tournaments';
 import { getMatchesForCategory } from '@/lib/actions/draws';
 import { isFeatureEnabled } from '@/lib/features';
 import { checkPermission } from '@/lib/permissions';
+import { DRAW_FORMATS, PLAY_FORMATS } from '@pickleball/shared';
 
 export const metadata: Metadata = { title: 'Category entries' };
 
@@ -24,19 +25,13 @@ interface Props {
   params: Promise<{ id: string; catId: string }>;
 }
 
-const PLAY_FORMAT_LABEL: Record<string, string> = {
-  singles: 'Singles',
-  doubles: 'Doubles',
-  mixed_doubles: 'Mixed doubles',
-};
+const PLAY_FORMAT_LABEL: Record<string, string> = Object.fromEntries(
+  PLAY_FORMATS.map((f) => [f.value, f.label]),
+);
 
-const FORMAT_LABEL: Record<string, string> = {
-  round_robin: 'Round robin',
-  single_elimination: 'Single elimination',
-  double_elimination: 'Double elimination',
-  group_stage_knockout: 'Group stage + knockout',
-  swiss: 'Swiss',
-};
+const FORMAT_LABEL: Record<string, string> = Object.fromEntries(
+  DRAW_FORMATS.map((f) => [f.value, f.label]),
+);
 
 export default async function CategoryPage({ params }: Props) {
   const { id: tournamentSlug, catId: catSlug } = await params;

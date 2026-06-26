@@ -12,6 +12,7 @@ import type { MatchWithPlayers } from '@/lib/actions/draws';
 import { BracketView } from './BracketView';
 import { useRealtimeCategoryMatches } from '@/hooks/useRealtimeCategoryMatches';
 import { StandingsTable } from './StandingsTable';
+import { DRAW_FORMATS } from '@pickleball/shared';
 
 interface StalenessEntry {
   id: string;
@@ -45,13 +46,9 @@ interface Props {
   };
 }
 
-const FORMAT_LABEL: Record<string, string> = {
-  round_robin: 'Round robin',
-  single_elimination: 'Single elimination',
-  double_elimination: 'Double elimination',
-  group_stage_knockout: 'Group stage + knockout',
-  swiss: 'Swiss',
-};
+const FORMAT_LABEL: Record<string, string> = Object.fromEntries(
+  DRAW_FORMATS.map((f) => [f.value, f.label]),
+);
 
 export function DrawSection({
   categoryId,

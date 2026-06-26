@@ -1,4 +1,9 @@
 import { z } from 'zod';
+import { CATEGORY_TYPES, PLAY_FORMATS, DRAW_FORMATS } from '../constants/category-formats';
+
+const categoryTypeValues = CATEGORY_TYPES.map((t) => t.value) as [string, ...string[]];
+const playFormatValues = PLAY_FORMATS.map((f) => f.value) as [string, ...string[]];
+const drawFormatValues = DRAW_FORMATS.map((f) => f.value) as [string, ...string[]];
 
 export const createTournamentSchema = z.object({
   name: z.string().min(3).max(120),
@@ -22,9 +27,9 @@ export const createTournamentSchema = z.object({
 
 export const createCategorySchema = z.object({
   name: z.string().min(2).max(80),
-  type: z.enum(['skill', 'age', 'gender', 'open']),
-  play_format: z.enum(['singles', 'doubles', 'mixed_doubles']),
-  draw_format: z.enum(['round_robin', 'single_elimination', 'double_elimination', 'group_stage_knockout', 'swiss']),
+  type: z.enum(categoryTypeValues),
+  play_format: z.enum(playFormatValues),
+  draw_format: z.enum(drawFormatValues),
   max_entries: z.number().int().min(2).max(256).nullable().optional(),
   min_age: z.number().int().min(5).max(100).nullable().optional(),
   max_age: z.number().int().min(5).max(100).nullable().optional(),

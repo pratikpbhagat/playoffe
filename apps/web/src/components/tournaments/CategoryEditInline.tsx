@@ -6,6 +6,7 @@ import { updateCategoryAction } from '@/lib/actions/categories';
 import { useRouter } from 'next/navigation';
 import { WinByDeuceFields } from './WinByDeuceFields';
 import { GroupStageConfigPanel } from './AddCategoryInline';
+import { PLAY_FORMATS as PLAY_FORMAT_OPTS, DRAW_FORMATS as DRAW_FORMAT_OPTS } from '@pickleball/shared';
 import {
   suggestGroupConfig,
   deriveGroupSize,
@@ -43,20 +44,6 @@ interface Props {
   currentHasThirdPlaceMatch: boolean;
   currentKnockoutSeeding?: 'auto' | 'manual';
 }
-
-const PLAY_FORMAT_OPTS = [
-  { value: 'singles', label: 'Singles' },
-  { value: 'doubles', label: 'Doubles' },
-  { value: 'mixed_doubles', label: 'Mixed doubles' },
-];
-
-const DRAW_FORMAT_OPTS = [
-  { value: 'round_robin', label: 'Round robin' },
-  { value: 'single_elimination', label: 'Single elimination' },
-  { value: 'double_elimination', label: 'Double elimination' },
-  { value: 'group_stage_knockout', label: 'Group stage + knockout' },
-  { value: 'swiss', label: 'Swiss' },
-];
 
 const inputClass =
   'block w-full rounded-lg border border-slate-600 bg-surface px-3 py-2 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30';

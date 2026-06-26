@@ -10,6 +10,7 @@ import { DeadlineCountdown } from '@/components/events/DeadlineCountdown';
 import { RegistrationQR } from '@/components/ui/RegistrationQR';
 import { AnnouncementBanner } from '@/components/events/AnnouncementBanner';
 import { getActiveAnnouncementsAction } from '@/lib/actions/announcements';
+import { DRAW_FORMATS, PLAY_FORMATS } from '@pickleball/shared';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -53,19 +54,13 @@ const STATUS_BANNER: Record<string, { label: string; className: string }> = {
   cancelled:         { label: 'Cancelled',          className: 'bg-red-900/40 text-red-400' },
 };
 
-const PLAY_FORMAT_LABEL: Record<string, string> = {
-  singles:       'Singles',
-  doubles:       'Doubles',
-  mixed_doubles: 'Mixed doubles',
-};
+const PLAY_FORMAT_LABEL: Record<string, string> = Object.fromEntries(
+  PLAY_FORMATS.map((f) => [f.value, f.label]),
+);
 
-const DRAW_FORMAT_LABEL: Record<string, string> = {
-  round_robin:          'Round robin',
-  single_elimination:   'Single elimination',
-  double_elimination:   'Double elimination',
-  group_stage_knockout: 'Group stage + knockout',
-  swiss:                'Swiss',
-};
+const DRAW_FORMAT_LABEL: Record<string, string> = Object.fromEntries(
+  DRAW_FORMATS.map((f) => [f.value, f.label]),
+);
 
 // Public tournament data — same for every visitor, cache for 60 s so scores
 // and registrations reflect recent changes without a full DB hit per request.

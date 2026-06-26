@@ -9,6 +9,7 @@ import { AddCategoryInline } from '@/components/tournaments/AddCategoryInline';
 import { RegistrationQR } from '@/components/ui/RegistrationQR';
 import { CloneTournamentButton } from '@/components/tournaments/CloneTournamentButton';
 import type { TournamentStatus } from '@/lib/actions/tournaments';
+import { DRAW_FORMATS, PLAY_FORMATS } from '@pickleball/shared';
 
 export const metadata: Metadata = { title: 'Tournament' };
 
@@ -24,13 +25,9 @@ const STATUS_BADGE: Record<string, { label: string; className: string }> = {
   cancelled: { label: 'Cancelled', className: 'bg-red-900/40 text-red-400' },
 };
 
-const FORMAT_LABEL: Record<string, string> = {
-  round_robin: 'Round robin',
-  single_elimination: 'Single elimination',
-  double_elimination: 'Double elimination',
-  group_stage_knockout: 'Group stage + knockout',
-  swiss: 'Swiss',
-};
+const FORMAT_LABEL: Record<string, string> = Object.fromEntries(
+  DRAW_FORMATS.map((f) => [f.value, f.label]),
+);
 
 const CATEGORY_STATUS: Record<string, { label: string; className: string }> = {
   pending:        { label: 'Setup',         className: 'bg-slate-700/50 text-slate-400' },
@@ -40,11 +37,9 @@ const CATEGORY_STATUS: Record<string, { label: string; className: string }> = {
   completed:      { label: 'Completed',     className: 'bg-slate-700/40 text-slate-400' },
 };
 
-const PLAY_FORMAT_LABEL: Record<string, string> = {
-  singles: 'Singles',
-  doubles: 'Doubles',
-  mixed_doubles: 'Mixed doubles',
-};
+const PLAY_FORMAT_LABEL: Record<string, string> = Object.fromEntries(
+  PLAY_FORMATS.map((f) => [f.value, f.label]),
+);
 
 export default async function TournamentPage({ params }: Props) {
   const { id: slug } = await params;

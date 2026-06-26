@@ -1,10 +1,11 @@
 import type { SocialPlatform } from './club';
+import type { CategoryTypeValue, PlayFormatValue, DrawFormatValue } from '../constants/category-formats';
 
 export type TournamentStatus = 'draft' | 'registration_open' | 'in_progress' | 'completed' | 'cancelled';
 
-export type PlayFormat = 'singles' | 'doubles' | 'mixed_doubles';
+export type PlayFormat = PlayFormatValue;
 
-export type CategoryType = 'skill' | 'age' | 'gender' | 'open';
+export type CategoryType = CategoryTypeValue;
 
 export interface Tournament {
   id: string;
@@ -45,12 +46,7 @@ export interface TournamentCategory {
 
 export type CategoryStatus = 'pending' | 'registration' | 'draw_generated' | 'in_progress' | 'completed';
 
-export type DrawFormat =
-  | 'round_robin'
-  | 'single_elimination'
-  | 'double_elimination'
-  | 'group_stage_knockout'
-  | 'swiss';
+export type DrawFormat = DrawFormatValue;
 
 export interface TournamentEntry {
   id: string;

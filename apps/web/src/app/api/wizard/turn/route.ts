@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { createAdminClient, getCurrentUser } from '@/lib/supabase/server';
 import { consumeRateLimit } from '@/lib/rate-limit';
 import { buildSystemPrompt, type ClubContext } from '@/lib/wizard-system-prompt';
+import { DRAW_FORMATS } from '@pickleball/shared';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -221,26 +222,27 @@ function toPlayFormat(format: string): 'singles' | 'doubles' | 'mixed_doubles' {
 
 function toDrawFormat(
   format: string,
-): 'round_robin' | 'single_elimination' | 'double_elimination' | 'group_stage_knockout' | 'swiss' {
+): 'round_robin' | 'single_elimination' | 'group_stage_knockout' {
   const f = format.toLowerCase();
   if (f.includes('group') || f.includes('knockout')) return 'group_stage_knockout';
-  if (f.includes('double')) return 'double_elimination';
-  if (f.includes('single') || f.includes('elimination')) return 'single_elimination';
-  if (f.includes('swiss')) return 'swiss';
+  if (f.includes('single') || f.includes('elimination') || f.includes('double') || f.includes('swiss')) {
+    return 'single_elimination';
+  }
   return 'round_robin';
 }
 
 function toCategoryType(
   catName: string,
   gender: string,
-): 'skill' | 'age' | 'gender' | 'open' {
+): 'open' | 'pro' | 'advanced' | 'intermediate' | 'beginner' {
   const n = catName.toLowerCase();
   const g = gender.toLowerCase();
-  if (n.includes(' a') || n.includes(' b') || n.includes(' c') || n.includes('beginner')) {
-    return 'skill';
-  }
+  if (n.includes('pro')) return 'pro';
+  if (n.includes('advanced') || n.includes(' a')) return 'advanced';
+  if (n.includes('intermediate') || n.includes(' b')) return 'intermediate';
+  if (n.includes('beginner') || n.includes(' c')) return 'beginner';
   if (g === 'open' || n.includes('open')) return 'open';
-  return 'gender';
+  return 'open';
 }
 
 // ── Club context fetcher ──────────────────────────────────────────────────────
@@ -287,13 +289,9 @@ async function fetchClubContext(clubId: string): Promise<ClubContext> {
     }
   }
   const topFormat = [...formatCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
-  const formatLabels: Record<string, string> = {
-    round_robin: 'Round Robin',
-    single_elimination: 'Single Elimination',
-    double_elimination: 'Double Elimination',
-    group_stage_knockout: 'Group Stage + Knockout',
-    swiss: 'Swiss',
-  };
+  const formatLabels: Record<string, string> = Object.fromEntries(
+    DRAW_FORMATS.map((f) => [f.value, f.label]),
+  );
   const mostCommonFormat = topFormat ? (formatLabels[topFormat] ?? topFormat) : '';
 
   // Most common scoring
