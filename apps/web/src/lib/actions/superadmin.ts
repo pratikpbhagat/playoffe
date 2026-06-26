@@ -541,7 +541,9 @@ export async function claimAdminInviteAction(input: {
   if (new Date(invite.expires_at) < new Date()) return { error: 'This invite link has expired. Contact the platform administrator.' };
 
   // 2. Check if this email already has a Supabase auth account
-  const { data: existingUsers } = await admin.auth.admin.listUsers();
+  // perPage must be set explicitly — listUsers() defaults to ~50 results, which
+  // silently misses existing users once the table grows past the first page.
+  const { data: existingUsers } = await admin.auth.admin.listUsers({ perPage: 1000 });
   const existingUser = existingUsers?.users.find((u) => u.email === invite.invitee_email);
 
   let authUserId: string;
@@ -562,15 +564,24 @@ export async function claimAdminInviteAction(input: {
     }
     authUserId = newUser.user.id;
 
-    // Create the players record
-    const usernameSlug = username.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
-    await admin.from('players').insert({
+    // Create the players record — username must use hyphens, not underscores,
+    // to satisfy the DB's username_format check constraint
+    // (^[a-z0-9][a-z0-9-]*[a-z0-9]$). A failed insert here must roll back the
+    // auth user we just created, otherwise it's left orphaned with no players
+    // row, and every later FK-dependent insert (club_managers, etc.) fails with
+    // a misleading error instead of the real cause.
+    const usernameSlug = username.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    const { error: playerErr } = await admin.from('players').insert({
       id: authUserId,
       email: invite.invitee_email,
       full_name: fullName,
       username: usernameSlug,
       gender: 'other' as const,
     });
+    if (playerErr) {
+      await admin.auth.admin.deleteUser(authUserId);
+      return { error: 'Failed to create your account. Please try a different username and try again.' };
+    }
   }
 
   // ── Branch: existing_club_manager — join an existing club ────────────────────

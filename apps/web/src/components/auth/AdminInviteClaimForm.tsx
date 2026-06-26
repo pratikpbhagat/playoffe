@@ -26,7 +26,9 @@ export function AdminInviteClaimForm({
   const router = useRouter();
   const [fullName, setFullName] = useState(defaultName);
   const [username, setUsername] = useState(
-    defaultName.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''),
+    // Hyphens, not underscores — must satisfy the DB's username_format check
+    // constraint (^[a-z0-9][a-z0-9-]*[a-z0-9]$), which rejects underscores.
+    defaultName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''),
   );
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -123,13 +125,13 @@ export function AdminInviteClaimForm({
               <input
                 type="text"
                 value={username}
-                onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
                 required
-                placeholder="jane_smith"
+                placeholder="jane-smith"
                 className="block w-full rounded-lg border border-surface-border bg-surface pl-7 pr-3 py-2 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
               />
             </div>
-            <p className="mt-1 text-xs text-slate-500">Letters, numbers and underscores only</p>
+            <p className="mt-1 text-xs text-slate-500">Letters, numbers and hyphens only</p>
           </div>
 
           {/* Password */}
