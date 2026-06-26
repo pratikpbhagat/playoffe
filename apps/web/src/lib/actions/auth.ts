@@ -177,8 +177,14 @@ export async function forgotPasswordAction(email: string) {
   const redirectTo = `${APP_URL}/api/auth/confirm?next=${encodeURIComponent('/reset-password')}`;
 
   const supabase = await createClient();
-  // Don't surface whether the email exists — same response either way.
-  await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+  // Don't surface whether the email exists to the caller — same {success:true}
+  // response either way — but DO log the real error server-side, since
+  // Supabase's built-in mailer fails (rate limits, etc.) without bubbling up
+  // anything visible to the user otherwise.
+  const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+  if (error) {
+    console.error('[forgot-password] resetPasswordForEmail failed:', error.message);
+  }
 
   return { success: true };
 }
