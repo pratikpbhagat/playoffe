@@ -188,7 +188,10 @@ export async function resetPasswordAction(password: string) {
 
   const supabase = await createClient();
   const { error } = await supabase.auth.updateUser({ password });
-  if (error) return { error: 'Failed to reset password. Please request a new reset link and try again.' };
+  if (error) {
+    console.error('[reset-password] updateUser failed:', error.message);
+    return { error: error.message };
+  }
 
   return { success: true };
 }
