@@ -41,11 +41,9 @@ export async function GET(_req: Request, { params }: RouteParams) {
 
   const matches = await getMatchesForCategory(cat.id);
 
-  const isElimination =
-    cat.draw_format === 'single_elimination' || cat.draw_format === 'double_elimination';
+  const isElimination = cat.draw_format === 'single_elimination';
   const isRoundRobin =
     cat.draw_format === 'round_robin' ||
-    cat.draw_format === 'swiss' ||
     cat.draw_format === 'group_stage_knockout';
 
   let lines: string[] = [];

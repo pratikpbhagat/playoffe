@@ -30,7 +30,47 @@ type MatchRow = {
   loser_to_match_id: string | null;
   winner_slot: string | null;
   loser_slot: string | null;
+  tie_id: string | null;
 };
+
+// ── Tie advancement (team_event) ──────────────────────────────────────────────
+// Called after a rubber match completes. The tie_rubber_complete DB trigger has
+// already recomputed the tie's aggregates synchronously (same UPDATE statement
+// that marked the rubber 'completed'), so by the time this runs, ties.status
+// and ties.winner_team_id reflect the latest state. This only does bracket-level
+// advancement (winner's tie moves the team forward) — mirrors advanceMatch's
+// positional logic, one level up.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function checkAndAdvanceTie(admin: any, tieId: string) {
+  const { data: tie } = await admin
+    .from('ties')
+    .select('id, category_id, round, bracket_position, status, winner_team_id, winner_to_tie_id, winner_slot, team_a_id, team_b_id')
+    .eq('id', tieId)
+    .single();
+
+  if (!tie || tie.status !== 'completed' || !tie.winner_team_id) return;
+
+  if (tie.winner_to_tie_id && tie.winner_slot) {
+    const slot = tie.winner_slot === 'a' ? 'team_a_id' : 'team_b_id';
+    await admin.from('ties').update({ [slot]: tie.winner_team_id }).eq('id', tie.winner_to_tie_id);
+    return;
+  }
+
+  if (tie.bracket_position !== null) {
+    const nextPos = Math.floor(tie.bracket_position / 2);
+    const slot = tie.bracket_position % 2 === 0 ? 'team_a_id' : 'team_b_id';
+    const { data: nextTie } = await admin
+      .from('ties')
+      .select('id')
+      .eq('category_id', tie.category_id)
+      .eq('round', tie.round + 1)
+      .eq('bracket_position', nextPos)
+      .maybeSingle();
+    if (nextTie) {
+      await admin.from('ties').update({ [slot]: tie.winner_team_id }).eq('id', nextTie.id);
+    }
+  }
+}
 
 // ── Bracket advancement helper ────────────────────────────────────────────────
 // Works for both single-elimination (positional) and double-elimination (explicit links).
@@ -63,6 +103,12 @@ async function advanceMatch(admin: any, match: MatchRow, winnerEntryId: string |
     const slot = match.loser_slot === 'a' ? 'entry_a_id' : 'entry_b_id';
     await admin.from('matches').update({ [slot]: loserEntryId }).eq('id', match.loser_to_match_id);
   }
+
+  // team_event: this match is a rubber within a tie — check if the tie is now
+  // decided and advance the winning team to the next round's tie.
+  if (match.tie_id) {
+    await checkAndAdvanceTie(admin, match.tie_id);
+  }
 }
 
 // ── Auth guard ────────────────────────────────────────────────────────────────
@@ -70,7 +116,7 @@ async function assertMatchManager(matchId: string, userId: string) {
   const admin = createAdminClient();
   const { data: match } = await admin
     .from('matches')
-    .select('id, category_id, tournament_id, round, bracket_position, bracket_type, status, entry_a_id, entry_b_id, winner_entry_id, sets, scheduled_time, winner_to_match_id, loser_to_match_id, winner_slot, loser_slot')
+    .select('id, category_id, tournament_id, round, bracket_position, bracket_type, status, entry_a_id, entry_b_id, winner_entry_id, sets, scheduled_time, winner_to_match_id, loser_to_match_id, winner_slot, loser_slot, tie_id')
     .eq('id', matchId)
     .single();
   if (!match) return null;

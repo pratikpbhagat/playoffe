@@ -532,81 +532,6 @@ export type Database = {
         }
         Relationships: []
       }
-      tournament_pricing_tiers: {
-        Row: {
-          id: number
-          min_players: number
-          max_players: number | null
-          fee_paise: number
-          created_at: string
-          updated_at: string
-        }
-        Insert: {
-          id?: number
-          min_players: number
-          max_players?: number | null
-          fee_paise: number
-          created_at?: string
-          updated_at?: string
-        }
-        Update: {
-          id?: number
-          min_players?: number
-          max_players?: number | null
-          fee_paise?: number
-          created_at?: string
-          updated_at?: string
-        }
-        Relationships: []
-      }
-      plan_limits: {
-        Row: {
-          tier: Database["public"]["Enums"]["subscription_tier_enum"]
-          max_active_tournaments: number | null
-          max_participants_per_tournament: number | null
-          max_categories_per_tournament: number | null
-          max_club_managers: number | null
-          feature_live_scoring: boolean
-          feature_referee_app: boolean
-          feature_custom_branding: boolean
-          feature_advanced_analytics: boolean
-          monthly_price_paise: number
-          annual_price_paise: number
-          created_at: string
-          updated_at: string
-        }
-        Insert: {
-          tier: Database["public"]["Enums"]["subscription_tier_enum"]
-          max_active_tournaments?: number | null
-          max_participants_per_tournament?: number | null
-          max_categories_per_tournament?: number | null
-          max_club_managers?: number | null
-          feature_live_scoring?: boolean
-          feature_referee_app?: boolean
-          feature_custom_branding?: boolean
-          feature_advanced_analytics?: boolean
-          monthly_price_paise?: number
-          annual_price_paise?: number
-          created_at?: string
-          updated_at?: string
-        }
-        Update: {
-          tier?: Database["public"]["Enums"]["subscription_tier_enum"]
-          max_active_tournaments?: number | null
-          max_participants_per_tournament?: number | null
-          max_categories_per_tournament?: number | null
-          max_club_managers?: number | null
-          feature_live_scoring?: boolean
-          feature_referee_app?: boolean
-          feature_custom_branding?: boolean
-          feature_advanced_analytics?: boolean
-          monthly_price_paise?: number
-          annual_price_paise?: number
-          created_at?: string
-          updated_at?: string
-        }
-        Relationships: []
-      }
       feed_posts: {
         Row: {
           body: string
@@ -809,6 +734,7 @@ export type Database = {
           restart_requested_reason: string | null
           round: number
           round_name: string | null
+          rubber_sequence: number | null
           scheduled_time: string | null
           server_number: number | null
           serving_entry_id: string | null
@@ -817,6 +743,7 @@ export type Database = {
           status: Database["public"]["Enums"]["match_status_enum"]
           submitted_by_name: string | null
           submitted_via: string | null
+          tie_id: string | null
           tournament_id: string
           winner_entry_id: string | null
           winner_slot: string | null
@@ -844,6 +771,7 @@ export type Database = {
           restart_requested_reason?: string | null
           round: number
           round_name?: string | null
+          rubber_sequence?: number | null
           scheduled_time?: string | null
           server_number?: number | null
           serving_entry_id?: string | null
@@ -852,6 +780,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["match_status_enum"]
           submitted_by_name?: string | null
           submitted_via?: string | null
+          tie_id?: string | null
           tournament_id: string
           winner_entry_id?: string | null
           winner_slot?: string | null
@@ -879,6 +808,7 @@ export type Database = {
           restart_requested_reason?: string | null
           round?: number
           round_name?: string | null
+          rubber_sequence?: number | null
           scheduled_time?: string | null
           server_number?: number | null
           serving_entry_id?: string | null
@@ -887,6 +817,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["match_status_enum"]
           submitted_by_name?: string | null
           submitted_via?: string | null
+          tie_id?: string | null
           tournament_id?: string
           winner_entry_id?: string | null
           winner_slot?: string | null
@@ -933,6 +864,13 @@ export type Database = {
             columns: ["serving_entry_id"]
             isOneToOne: false
             referencedRelation: "tournament_entries"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "matches_tie_id_fkey"
+            columns: ["tie_id"]
+            isOneToOne: false
+            referencedRelation: "ties"
             referencedColumns: ["id"]
           },
           {
@@ -1070,6 +1008,54 @@ export type Database = {
           first_attempt_at?: string
           id?: string
           ip_address?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      plan_limits: {
+        Row: {
+          annual_price_paise: number
+          created_at: string
+          feature_advanced_analytics: boolean
+          feature_custom_branding: boolean
+          feature_live_scoring: boolean
+          feature_referee_app: boolean
+          max_active_tournaments: number | null
+          max_categories_per_tournament: number | null
+          max_club_managers: number | null
+          max_participants_per_tournament: number | null
+          monthly_price_paise: number
+          tier: Database["public"]["Enums"]["subscription_tier_enum"]
+          updated_at: string
+        }
+        Insert: {
+          annual_price_paise?: number
+          created_at?: string
+          feature_advanced_analytics?: boolean
+          feature_custom_branding?: boolean
+          feature_live_scoring?: boolean
+          feature_referee_app?: boolean
+          max_active_tournaments?: number | null
+          max_categories_per_tournament?: number | null
+          max_club_managers?: number | null
+          max_participants_per_tournament?: number | null
+          monthly_price_paise?: number
+          tier: Database["public"]["Enums"]["subscription_tier_enum"]
+          updated_at?: string
+        }
+        Update: {
+          annual_price_paise?: number
+          created_at?: string
+          feature_advanced_analytics?: boolean
+          feature_custom_branding?: boolean
+          feature_live_scoring?: boolean
+          feature_referee_app?: boolean
+          max_active_tournaments?: number | null
+          max_categories_per_tournament?: number | null
+          max_club_managers?: number | null
+          max_participants_per_tournament?: number | null
+          monthly_price_paise?: number
+          tier?: Database["public"]["Enums"]["subscription_tier_enum"]
           updated_at?: string
         }
         Relationships: []
@@ -1689,6 +1675,163 @@ export type Database = {
           },
         ]
       }
+      team_members: {
+        Row: {
+          id: string
+          invited_at: string
+          player_id: string
+          responded_at: string | null
+          status: Database["public"]["Enums"]["entry_status_enum"]
+          team_id: string
+        }
+        Insert: {
+          id?: string
+          invited_at?: string
+          player_id: string
+          responded_at?: string | null
+          status?: Database["public"]["Enums"]["entry_status_enum"]
+          team_id: string
+        }
+        Update: {
+          id?: string
+          invited_at?: string
+          player_id?: string
+          responded_at?: string | null
+          status?: Database["public"]["Enums"]["entry_status_enum"]
+          team_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "team_members_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "team_members_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "tournament_teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ties: {
+        Row: {
+          bracket_position: number | null
+          bracket_type: string | null
+          category_id: string
+          completed_at: string | null
+          created_at: string
+          group_name: string | null
+          id: string
+          lineup_a_submitted_at: string | null
+          lineup_b_submitted_at: string | null
+          point_diff_a: number
+          round: number
+          round_name: string | null
+          rubbers_won_a: number
+          rubbers_won_b: number
+          status: Database["public"]["Enums"]["tie_status_enum"]
+          team_a_id: string | null
+          team_b_id: string | null
+          tournament_id: string
+          winner_slot: string | null
+          winner_team_id: string | null
+          winner_to_tie_id: string | null
+        }
+        Insert: {
+          bracket_position?: number | null
+          bracket_type?: string | null
+          category_id: string
+          completed_at?: string | null
+          created_at?: string
+          group_name?: string | null
+          id?: string
+          lineup_a_submitted_at?: string | null
+          lineup_b_submitted_at?: string | null
+          point_diff_a?: number
+          round: number
+          round_name?: string | null
+          rubbers_won_a?: number
+          rubbers_won_b?: number
+          status?: Database["public"]["Enums"]["tie_status_enum"]
+          team_a_id?: string | null
+          team_b_id?: string | null
+          tournament_id: string
+          winner_slot?: string | null
+          winner_team_id?: string | null
+          winner_to_tie_id?: string | null
+        }
+        Update: {
+          bracket_position?: number | null
+          bracket_type?: string | null
+          category_id?: string
+          completed_at?: string | null
+          created_at?: string
+          group_name?: string | null
+          id?: string
+          lineup_a_submitted_at?: string | null
+          lineup_b_submitted_at?: string | null
+          point_diff_a?: number
+          round?: number
+          round_name?: string | null
+          rubbers_won_a?: number
+          rubbers_won_b?: number
+          status?: Database["public"]["Enums"]["tie_status_enum"]
+          team_a_id?: string | null
+          team_b_id?: string | null
+          tournament_id?: string
+          winner_slot?: string | null
+          winner_team_id?: string | null
+          winner_to_tie_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ties_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "tournament_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ties_team_a_id_fkey"
+            columns: ["team_a_id"]
+            isOneToOne: false
+            referencedRelation: "tournament_teams"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ties_team_b_id_fkey"
+            columns: ["team_b_id"]
+            isOneToOne: false
+            referencedRelation: "tournament_teams"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ties_tournament_id_fkey"
+            columns: ["tournament_id"]
+            isOneToOne: false
+            referencedRelation: "tournaments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ties_winner_team_id_fkey"
+            columns: ["winner_team_id"]
+            isOneToOne: false
+            referencedRelation: "tournament_teams"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ties_winner_to_tie_id_fkey"
+            columns: ["winner_to_tie_id"]
+            isOneToOne: false
+            referencedRelation: "ties"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tournament_categories: {
         Row: {
           advance_per_group: number
@@ -1707,6 +1850,7 @@ export type Database = {
           num_sets: number | null
           play_format: Database["public"]["Enums"]["play_format_enum"]
           points_per_set: number | null
+          rubber_lineup: Json
           runner_up_entry_id: string | null
           schedule_day: string | null
           schedule_order: number
@@ -1738,6 +1882,7 @@ export type Database = {
           num_sets?: number | null
           play_format: Database["public"]["Enums"]["play_format_enum"]
           points_per_set?: number | null
+          rubber_lineup?: Json
           runner_up_entry_id?: string | null
           schedule_day?: string | null
           schedule_order?: number
@@ -1769,6 +1914,7 @@ export type Database = {
           num_sets?: number | null
           play_format?: Database["public"]["Enums"]["play_format_enum"]
           points_per_set?: number | null
+          rubber_lineup?: Json
           runner_up_entry_id?: string | null
           schedule_day?: string | null
           schedule_order?: number
@@ -1803,6 +1949,7 @@ export type Database = {
           registered_at: string
           seed: number | null
           status: Database["public"]["Enums"]["entry_status_enum"]
+          team_id: string | null
           tournament_id: string
         }
         Insert: {
@@ -1814,6 +1961,7 @@ export type Database = {
           registered_at?: string
           seed?: number | null
           status?: Database["public"]["Enums"]["entry_status_enum"]
+          team_id?: string | null
           tournament_id: string
         }
         Update: {
@@ -1825,6 +1973,7 @@ export type Database = {
           registered_at?: string
           seed?: number | null
           status?: Database["public"]["Enums"]["entry_status_enum"]
+          team_id?: string | null
           tournament_id?: string
         }
         Relationships: [
@@ -1850,6 +1999,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "tournament_entries_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "tournament_teams"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "tournament_entries_tournament_id_fkey"
             columns: ["tournament_id"]
             isOneToOne: false
@@ -1857,6 +2013,33 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      tournament_pricing_tiers: {
+        Row: {
+          created_at: string
+          fee_paise: number
+          id: number
+          max_players: number | null
+          min_players: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          fee_paise: number
+          id: number
+          max_players?: number | null
+          min_players: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          fee_paise?: number
+          id?: number
+          max_players?: number | null
+          min_players?: number
+          updated_at?: string
+        }
+        Relationships: []
       }
       tournament_referee_pins: {
         Row: {
@@ -1940,6 +2123,61 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "tournament_stage_scoring_tournament_id_fkey"
+            columns: ["tournament_id"]
+            isOneToOne: false
+            referencedRelation: "tournaments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tournament_teams: {
+        Row: {
+          captain_id: string
+          category_id: string
+          id: string
+          name: string
+          registered_at: string
+          seed: number | null
+          status: Database["public"]["Enums"]["entry_status_enum"]
+          tournament_id: string
+        }
+        Insert: {
+          captain_id: string
+          category_id: string
+          id?: string
+          name: string
+          registered_at?: string
+          seed?: number | null
+          status?: Database["public"]["Enums"]["entry_status_enum"]
+          tournament_id: string
+        }
+        Update: {
+          captain_id?: string
+          category_id?: string
+          id?: string
+          name?: string
+          registered_at?: string
+          seed?: number | null
+          status?: Database["public"]["Enums"]["entry_status_enum"]
+          tournament_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tournament_teams_captain_id_fkey"
+            columns: ["captain_id"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tournament_teams_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "tournament_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tournament_teams_tournament_id_fkey"
             columns: ["tournament_id"]
             isOneToOne: false
             referencedRelation: "tournaments"
@@ -2125,7 +2363,12 @@ export type Database = {
         | "draw_generated"
         | "in_progress"
         | "completed"
-      category_type_enum: "skill" | "age" | "gender" | "open"
+      category_type_enum:
+        | "open"
+        | "pro"
+        | "advanced"
+        | "intermediate"
+        | "beginner"
       display_slide_enum:
         | "live_scores"
         | "group_standings"
@@ -2136,11 +2379,9 @@ export type Database = {
         | "announcement"
         | "wrap_up"
       draw_format_enum:
+        | "group_stage_knockout"
         | "round_robin"
         | "single_elimination"
-        | "double_elimination"
-        | "group_stage_knockout"
-        | "swiss"
       entry_status_enum:
         | "active"
         | "withdrawn"
@@ -2156,7 +2397,7 @@ export type Database = {
         | "disputed"
         | "walkover"
         | "retired"
-      play_format_enum: "singles" | "doubles" | "mixed_doubles"
+      play_format_enum: "singles" | "doubles" | "mixed_doubles" | "team_event"
       player_role_enum:
         | "player"
         | "organizer"
@@ -2176,6 +2417,11 @@ export type Database = {
         | "mixed_doubles_a"
       submitter_role_enum: "referee" | "organizer" | "player"
       subscription_tier_enum: "free" | "starter" | "pro" | "enterprise"
+      tie_status_enum:
+        | "pending_lineups"
+        | "scheduled"
+        | "in_progress"
+        | "completed"
       tournament_status_enum:
         | "draft"
         | "registration_open"
@@ -2320,7 +2566,13 @@ export const Constants = {
         "in_progress",
         "completed",
       ],
-      category_type_enum: ["skill", "age", "gender", "open"],
+      category_type_enum: [
+        "open",
+        "pro",
+        "advanced",
+        "intermediate",
+        "beginner",
+      ],
       display_slide_enum: [
         "live_scores",
         "group_standings",
@@ -2332,11 +2584,9 @@ export const Constants = {
         "wrap_up",
       ],
       draw_format_enum: [
+        "group_stage_knockout",
         "round_robin",
         "single_elimination",
-        "double_elimination",
-        "group_stage_knockout",
-        "swiss",
       ],
       entry_status_enum: [
         "active",
@@ -2355,7 +2605,7 @@ export const Constants = {
         "walkover",
         "retired",
       ],
-      play_format_enum: ["singles", "doubles", "mixed_doubles"],
+      play_format_enum: ["singles", "doubles", "mixed_doubles", "team_event"],
       player_role_enum: [
         "player",
         "organizer",
@@ -2377,6 +2627,12 @@ export const Constants = {
       ],
       submitter_role_enum: ["referee", "organizer", "player"],
       subscription_tier_enum: ["free", "starter", "pro", "enterprise"],
+      tie_status_enum: [
+        "pending_lineups",
+        "scheduled",
+        "in_progress",
+        "completed",
+      ],
       tournament_status_enum: [
         "draft",
         "registration_open",

@@ -565,7 +565,6 @@ async function deriveCategoryResults(categoryId: string, userId: string) {
   const finalMatch = doneMatches.find((m) => (m.round_name ?? '').toLowerCase() === 'final');
   const useStandingsRanking =
     cat.draw_format === 'round_robin' ||
-    cat.draw_format === 'swiss' ||
     (cat.draw_format === 'group_stage_knockout' && !finalMatch);
 
   if (useStandingsRanking) {

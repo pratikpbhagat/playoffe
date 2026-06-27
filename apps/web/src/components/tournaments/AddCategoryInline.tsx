@@ -47,6 +47,11 @@ export function AddCategoryInline({
   const [categoryType, setCategoryType] = useState<(typeof CATEGORY_TYPES)[number]['value']>('open');
   const [playFormat, setPlayFormat] = useState<(typeof PLAY_FORMATS)[number]['value']>('singles');
   const [drawFormat, setDrawFormat] = useState<(typeof DRAW_FORMATS)[number]['value']>('single_elimination');
+  const [rubberLineup, setRubberLineup] = useState<{ sequence: number; play_format: 'singles' | 'doubles' | 'mixed_doubles' }[]>([
+    { sequence: 1, play_format: 'singles' },
+    { sequence: 2, play_format: 'singles' },
+    { sequence: 3, play_format: 'doubles' },
+  ]);
   const [maxEntries, setMaxEntries] = useState<string>('');
   const [minAge, setMinAge] = useState<string>('');
   const [maxAge, setMaxAge] = useState<string>('');
@@ -69,6 +74,7 @@ export function AddCategoryInline({
 
   // ── Derived group config ───────────────────────────────────────────────────
   const isGroupStage = drawFormat === 'group_stage_knockout';
+  const isTeamEvent = playFormat === 'team_event';
   const maxEntriesNum = parseInt(maxEntries, 10);
   const hasMaxEntries = !isNaN(maxEntriesNum) && maxEntriesNum >= 2;
   const effectiveAdvance = parseInt(advancePerGroup, 10) || 2;
@@ -128,6 +134,7 @@ export function AddCategoryInline({
   function canProceedStep1() {
     if (!name.trim() || name.trim().length < 2) return false;
     if (isGroupStage && !hasMaxEntries) return false;
+    if (isTeamEvent && rubberLineup.length === 0) return false;
     return true;
   }
 
@@ -144,6 +151,7 @@ export function AddCategoryInline({
       min_age: minAge ? Number(minAge) : undefined,
       max_age: maxAge ? Number(maxAge) : undefined,
       skill_levels: [],
+      rubber_lineup: isTeamEvent ? rubberLineup : [],
       scoring_override: scoringOverride,
       ...(scoringOverride && {
         scoring_format: scoringFormat,
@@ -277,6 +285,48 @@ export function AddCategoryInline({
           </select>
         </div>
       </div>
+
+      {/* Rubber lineup — team_event only */}
+      {isTeamEvent && (
+        <div className="rounded-lg border border-surface-border bg-surface px-4 py-3 space-y-2">
+          <p className="text-xs font-semibold text-slate-300">
+            Rubber lineup <span className="text-slate-500">(order each tie is played in)</span>
+          </p>
+          {rubberLineup.map((r, i) => (
+            <div key={r.sequence} className="flex items-center gap-2">
+              <span className="w-14 text-xs text-slate-500">Rubber {r.sequence}</span>
+              <select
+                value={r.play_format}
+                onChange={(e) => {
+                  const next = [...rubberLineup];
+                  next[i] = { ...r, play_format: e.target.value as typeof r.play_format };
+                  setRubberLineup(next);
+                }}
+                className={`${inputClass} cursor-pointer flex-1`}
+              >
+                <option value="singles">Singles</option>
+                <option value="doubles">Doubles</option>
+                <option value="mixed_doubles">Mixed Doubles</option>
+              </select>
+              <button
+                type="button"
+                onClick={() => setRubberLineup(rubberLineup.filter((_, j) => j !== i).map((x, j) => ({ ...x, sequence: j + 1 })))}
+                disabled={rubberLineup.length <= 1}
+                className="px-2 text-slate-500 hover:text-red-400 disabled:opacity-30 transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            onClick={() => setRubberLineup([...rubberLineup, { sequence: rubberLineup.length + 1, play_format: 'singles' }])}
+            className="text-xs font-medium text-brand-400 hover:text-brand-300 transition-colors"
+          >
+            + Add rubber
+          </button>
+        </div>
+      )}
 
       {/* Limits */}
       <div className="grid gap-2 sm:grid-cols-3">

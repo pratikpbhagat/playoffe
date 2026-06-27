@@ -8,13 +8,14 @@ import { EntryList } from '@/components/tournaments/EntryList';
 import { AddPlayerByEmail } from '@/components/tournaments/AddPlayerByEmail';
 import { ImportPlayersPanel } from '@/components/tournaments/ImportPlayersPanel';
 import { DrawSection } from '@/components/tournaments/DrawSection';
-import { StandingsTable } from '@/components/tournaments/StandingsTable';
+import { TeamBracketView } from '@/components/tournaments/TeamBracketView';
+import { StandingsTable, TeamStandingsTable } from '@/components/tournaments/StandingsTable';
 import { CategoryEditInline } from '@/components/tournaments/CategoryEditInline';
 import { StageScoringPanel } from '@/components/tournaments/StageScoringPanel';
 import { SeedingPanel } from '@/components/tournaments/SeedingPanel';
 import { getCategoryWithEntries, getStageScoringAction } from '@/lib/actions/categories';
 import { getTournamentStageScoringAction } from '@/lib/actions/tournaments';
-import { getMatchesForCategory } from '@/lib/actions/draws';
+import { getMatchesForCategory, getTiesForCategory } from '@/lib/actions/draws';
 import { isFeatureEnabled } from '@/lib/features';
 import { checkPermission } from '@/lib/permissions';
 import { DRAW_FORMATS, PLAY_FORMATS } from '@pickleball/shared';
@@ -97,9 +98,10 @@ export default async function CategoryPage({ params }: Props) {
   const categoryId = categoryRow.id;
 
   // Fetch category + entries + matches + stage scoring + social flag in parallel
-  const [data, matches, stageRows, tournamentStageRows, organiserSocialEnabled, seedingPanelEnabled] = await Promise.all([
+  const [data, matches, ties, stageRows, tournamentStageRows, organiserSocialEnabled, seedingPanelEnabled] = await Promise.all([
     getCategoryWithEntries(categoryId),
     getMatchesForCategory(categoryId),
+    getTiesForCategory(categoryId),
     getStageScoringAction(categoryId),
     getTournamentStageScoringAction(tournament.id),
     isFeatureEnabled('social_media_organiser'),
@@ -199,8 +201,9 @@ export default async function CategoryPage({ params }: Props) {
 
   // For formats where groups or standings are meaningful, show StandingsTable
   // instead of a flat entry list once the draw is generated.
-  const STANDINGS_FORMATS = ['round_robin', 'swiss', 'group_stage_knockout'];
-  const showGroupStandings = isDrawn && STANDINGS_FORMATS.includes(drawFormat);
+  const isTeamEvent = (category as { play_format: string }).play_format === 'team_event';
+  const STANDINGS_FORMATS = ['round_robin', 'group_stage_knockout'];
+  const showGroupStandings = isDrawn && (isTeamEvent || STANDINGS_FORMATS.includes(drawFormat));
 
   return (
     <div className="min-h-screen bg-surface">
@@ -303,15 +306,19 @@ export default async function CategoryPage({ params }: Props) {
           {showGroupStandings ? (
             // StandingsTable renders its own section header ("Groups" / "Standings")
             // and shows all players even before matches are played.
-            <StandingsTable
-              matches={matches}
-              format={drawFormat}
-              advancePerGroup={
-                drawFormat === 'group_stage_knockout'
-                  ? ((category as { advance_per_group?: number }).advance_per_group ?? 2)
-                  : undefined
-              }
-            />
+            isTeamEvent ? (
+              <TeamStandingsTable ties={ties} />
+            ) : (
+              <StandingsTable
+                matches={matches}
+                format={drawFormat}
+                advancePerGroup={
+                  drawFormat === 'group_stage_knockout'
+                    ? ((category as { advance_per_group?: number }).advance_per_group ?? 2)
+                    : undefined
+                }
+              />
+            )
           ) : (
             <>
               <h2 className="mb-3 text-sm font-semibold text-slate-400 uppercase tracking-wide">
@@ -366,6 +373,7 @@ export default async function CategoryPage({ params }: Props) {
           categorySlug={catSlug}
           tournamentSlug={tournamentSlug}
           drawFormat={drawFormat}
+          playFormat={(category as { play_format: string }).play_format}
           categoryStatus={categoryStatus}
           entryCount={entryCount}
           initialMatches={matches}
@@ -379,6 +387,8 @@ export default async function CategoryPage({ params }: Props) {
             knockoutSeeding: (category as { knockout_seeding?: 'auto' | 'manual' }).knockout_seeding ?? 'auto',
           } : undefined}
         />
+
+        {isTeamEvent && isDrawn && <TeamBracketView ties={ties} />}
 
         {/* Stage scoring overrides — shown for elimination-type formats */}
         {['single_elimination', 'double_elimination', 'group_stage_knockout'].includes(drawFormat) && (

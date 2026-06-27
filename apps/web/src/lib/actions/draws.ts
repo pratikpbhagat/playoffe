@@ -12,7 +12,7 @@ async function assertCategoryManager(categoryId: string, userId: string) {
 
   const { data: cat } = await admin
     .from('tournament_categories')
-    .select('id, name, tournament_id, draw_format, slug, max_entries, groups_count, group_sizes, advance_per_group, has_third_place_match, knockout_seeding, tournaments!inner(id, club_id, slug, court_count)')
+    .select('id, name, tournament_id, draw_format, play_format, rubber_lineup, slug, max_entries, groups_count, group_sizes, advance_per_group, has_third_place_match, knockout_seeding, tournaments!inner(id, club_id, slug, court_count)')
     .eq('id', categoryId)
     .single();
   if (!cat) return null;
@@ -44,6 +44,10 @@ export async function generateDrawAction(
   const admin = createAdminClient();
   const cat = await assertCategoryManager(categoryId, user.id);
   if (!cat) return { error: 'Permission denied' };
+
+  if (cat.play_format === 'team_event') {
+    return generateTeamEventDraw(admin, cat as Awaited<ReturnType<typeof assertCategoryManager>> & object, categoryId);
+  }
 
   // Fetch active entries with player info
   const { data: entries, error: entryErr } = await admin
@@ -172,8 +176,7 @@ export async function generateDrawAction(
   if (insertErr) return { error: `Failed to save draw matches: ${insertErr.message}` };
 
   // ── Auto-advance byes ────────────────────────────────────────────────────
-  const isElimination =
-    cat.draw_format === 'single_elimination' || cat.draw_format === 'double_elimination';
+  const isElimination = cat.draw_format === 'single_elimination';
 
   if (isElimination) {
     const byeMatches = matchInserts.filter(
@@ -258,6 +261,141 @@ export async function generateDrawAction(
   return { success: true, matchCount: matchInserts.length };
 }
 
+// ── Generate draw: team_event (teams paired by the draw engine, persisted as
+//    ties + N rubber matches per tie instead of a single match per pairing) ───
+async function generateTeamEventDraw(
+  admin: ReturnType<typeof createAdminClient>,
+  cat: {
+    id: string; name: string; tournament_id: string; draw_format: string; slug: string;
+    rubber_lineup: unknown;
+    max_entries?: number | null; groups_count?: number | null; group_sizes?: number[] | null;
+    advance_per_group?: number | null; has_third_place_match?: boolean | null;
+    knockout_seeding?: string | null;
+    tournamentData: { id: string; club_id: string; slug: string; court_count: number };
+  },
+  categoryId: string,
+) {
+  const rubberLineup = (cat.rubber_lineup ?? []) as { sequence: number; play_format: string }[];
+  if (rubberLineup.length === 0) return { error: 'This category has no rubber lineup configured.' };
+
+  const { data: teams, error: teamsErr } = await admin
+    .from('tournament_teams')
+    .select('id, name, seed, captain_id, team_members(player_id, status)')
+    .eq('category_id', categoryId)
+    .eq('status', 'active');
+
+  if (teamsErr || !teams) return { error: 'Failed to fetch teams' };
+  if (teams.length < 2) return { error: 'Need at least 2 teams to generate a draw' };
+
+  const drawEntries: DrawEntry[] = teams.map((t) => {
+    const rosterIds = (t.team_members ?? [])
+      .filter((m) => m.status === 'active')
+      .map((m) => m.player_id);
+    return {
+      entry_id: t.id,
+      player_ids: [t.captain_id, ...rosterIds],
+      display_name: t.name,
+      seed: t.seed,
+      rating: 3.5,
+    };
+  });
+
+  const groupsCount = cat.groups_count ?? null;
+  const groupSize = groupsCount && cat.max_entries ? Math.ceil(cat.max_entries / groupsCount) : 4;
+  const resolvedGroupSizes = cat.group_sizes?.length ? cat.group_sizes : null;
+
+  const config: DrawConfig = {
+    format: cat.draw_format as DrawConfig['format'],
+    entries: drawEntries,
+    category_id: categoryId,
+    group_size: groupSize,
+    ...(resolvedGroupSizes && { group_sizes: resolvedGroupSizes }),
+    top_per_group_advance: cat.advance_per_group ?? 2,
+    has_third_place_match: cat.has_third_place_match ?? false,
+    knockout_seeding: (cat.knockout_seeding as 'auto' | 'manual' | null) ?? 'auto',
+  };
+
+  let draw;
+  try {
+    draw = generateDraw(config);
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Failed to generate draw' };
+  }
+
+  // Clear any existing ties/matches for this category
+  await admin.from('matches').delete().eq('category_id', categoryId);
+  await admin.from('ties').delete().eq('category_id', categoryId);
+
+  let tieCount = 0;
+  let rubberCount = 0;
+
+  for (const round of draw.rounds) {
+    for (const [positionInRound, m] of round.matches.entries()) {
+      const teamAId = m.entry_a?.entry_id ?? null;
+      const teamBId = m.entry_b?.entry_id ?? null;
+
+      const { data: tie, error: tieErr } = await admin
+        .from('ties')
+        .insert({
+          tournament_id: cat.tournament_id,
+          category_id: categoryId,
+          round: m.round,
+          round_name: m.round_name,
+          group_name: m.group_name,
+          team_a_id: teamAId,
+          team_b_id: teamBId,
+          bracket_position: positionInRound,
+          // Bye: only one side present — resolve immediately, no rubbers needed.
+          status: (teamAId && teamBId) ? 'pending_lineups' : 'completed',
+          winner_team_id: (teamAId && !teamBId) ? teamAId : (teamBId && !teamAId) ? teamBId : null,
+          completed_at: (teamAId && teamBId) ? null : new Date().toISOString(),
+        })
+        .select('id')
+        .single();
+
+      if (tieErr || !tie) continue;
+      tieCount++;
+
+      if (!(teamAId && teamBId)) continue; // bye — no rubbers to create
+
+      const rubberRows = rubberLineup.map((r) => ({
+        tournament_id: cat.tournament_id,
+        category_id: categoryId,
+        round: m.round,
+        round_name: m.round_name,
+        group_name: m.group_name,
+        entry_a_id: null,
+        entry_b_id: null,
+        status: 'scheduled' as const,
+        sets: [],
+        tie_id: tie.id,
+        rubber_sequence: r.sequence,
+      }));
+
+      const { error: rubberErr } = await admin.from('matches').insert(rubberRows);
+      if (!rubberErr) rubberCount += rubberRows.length;
+    }
+  }
+
+  await admin.from('tournament_categories').update({ status: 'draw_generated' }).eq('id', categoryId);
+
+  const tSlug = cat.tournamentData.slug;
+  revalidatePath(`/tournaments/${tSlug}/categories/${cat.slug}`);
+
+  const captainIds = [...new Set(teams.map((t) => t.captain_id))];
+  if (captainIds.length > 0) {
+    void createNotificationsForPlayers(
+      captainIds,
+      'draw_published',
+      'Draw is ready',
+      `The draw for ${cat.name} has been published. Submit your tie lineups!`,
+      `/events/${tSlug}/draw/${cat.slug}`,
+    );
+  }
+
+  return { success: true, tieCount, matchCount: rubberCount };
+}
+
 // ── Clear draw (for regenerate) ───────────────────────────────────────────────
 export async function clearDrawAction(categoryId: string) {
   const supabase = await createClient();
@@ -281,6 +419,9 @@ export async function clearDrawAction(categoryId: string) {
   }
 
   await admin.from('matches').delete().eq('category_id', categoryId);
+  if (cat.play_format === 'team_event') {
+    await admin.from('ties').delete().eq('category_id', categoryId);
+  }
   await admin
     .from('tournament_categories')
     .update({ status: 'registration' })
@@ -783,6 +924,68 @@ export async function getMatchesForCategory(categoryId: string): Promise<MatchWi
         : null,
     };
   });
+}
+
+// ── team_event: fetch ties (with rubber matches) for a category ──────────────
+export type TieWithTeams = {
+  id: string;
+  round: number;
+  round_name: string | null;
+  group_name: string | null;
+  bracket_type: string | null;
+  status: string;
+  winner_team_id: string | null;
+  rubbers_won_a: number;
+  rubbers_won_b: number;
+  point_diff_a: number;
+  team_a: { id: string; name: string } | null;
+  team_b: { id: string; name: string } | null;
+  rubbers: MatchWithPlayers[];
+};
+
+export async function getTiesForCategory(categoryId: string): Promise<TieWithTeams[]> {
+  const admin = createAdminClient();
+
+  const { data: ties } = await admin
+    .from('ties')
+    .select(`
+      id, round, round_name, group_name, bracket_type, status, winner_team_id,
+      rubbers_won_a, rubbers_won_b, point_diff_a,
+      team_a:tournament_teams!team_a_id(id, name),
+      team_b:tournament_teams!team_b_id(id, name)
+    `)
+    .eq('category_id', categoryId)
+    .order('round', { ascending: true })
+    .order('bracket_position', { ascending: true });
+
+  if (!ties || ties.length === 0) return [];
+
+  const allMatches = await getMatchesForCategory(categoryId);
+  const matchesByTie = new Map<string, MatchWithPlayers[]>();
+  const { data: tieIdRows } = await admin.from('matches').select('id, tie_id').eq('category_id', categoryId);
+  const tieIdByMatchId = new Map((tieIdRows ?? []).map((r) => [r.id, r.tie_id]));
+  for (const m of allMatches) {
+    const tieId = tieIdByMatchId.get(m.id);
+    if (!tieId) continue;
+    if (!matchesByTie.has(tieId)) matchesByTie.set(tieId, []);
+    matchesByTie.get(tieId)!.push(m);
+  }
+
+  return ties.map((t) => ({
+    id: t.id,
+    round: t.round,
+    round_name: t.round_name,
+    group_name: t.group_name,
+    bracket_type: t.bracket_type,
+    status: t.status,
+    winner_team_id: t.winner_team_id,
+    rubbers_won_a: t.rubbers_won_a,
+    rubbers_won_b: t.rubbers_won_b,
+    point_diff_a: t.point_diff_a,
+    team_a: t.team_a as { id: string; name: string } | null,
+    team_b: t.team_b as { id: string; name: string } | null,
+    rubbers: matchesByTie.get(t.id) ?? [],
+  }));
 }
 
 // ── Shared: compute per-group standings with 6-level tiebreaker ───────────────
