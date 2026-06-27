@@ -6,6 +6,136 @@ import { checkPermission } from '@/lib/permissions';
 import { registerTeamSchema } from '@pickleball/shared';
 import { sendTeamInviteNotification } from '@/lib/email/notifications';
 
+// ── Verify the calling user manages the tournament's club ──────────────────
+async function assertTournamentManager(tournamentId: string, userId: string) {
+  const admin = createAdminClient();
+  const { data: t } = await admin
+    .from('tournaments')
+    .select('club_id, slug')
+    .eq('id', tournamentId)
+    .single();
+  if (!t) return null;
+
+  const { data: mgr } = await admin
+    .from('club_managers')
+    .select('role')
+    .eq('club_id', t.club_id)
+    .eq('player_id', userId)
+    .maybeSingle();
+
+  return mgr ? t : null;
+}
+
+// ── Organizer: add a team directly (no invite/confirm flow) ──────────────────
+// Mirrors addPlayerByEmailAction's organizer-add pattern — looks players up by
+// email and adds them immediately as 'active', bypassing the captain-invite flow.
+export async function addTeamByOrganizerAction(
+  tournamentId: string,
+  categoryId: string,
+  teamName: string,
+  captainEmail: string,
+  memberEmails: string[],
+) {
+  const user = await getCurrentUser();
+  if (!user) return { error: 'Not authenticated' };
+
+  const t = await assertTournamentManager(tournamentId, user.id);
+  if (!t) return { error: 'Permission denied' };
+
+  if (!teamName.trim()) return { error: 'Enter a team name' };
+
+  const admin = createAdminClient();
+
+  const { data: cat } = await admin
+    .from('tournament_categories')
+    .select('id, play_format')
+    .eq('id', categoryId)
+    .single();
+  if (!cat || cat.play_format !== 'team_event') return { error: 'This action is only for team event categories' };
+
+  const { data: captain } = await admin
+    .from('players')
+    .select('id')
+    .eq('email', captainEmail.toLowerCase().trim())
+    .maybeSingle();
+  if (!captain) return { error: 'No PLAYOFFE account found for the captain email address' };
+
+  const cleanedMemberEmails = [...new Set(memberEmails.map((e) => e.toLowerCase().trim()).filter(Boolean))];
+  if (cleanedMemberEmails.includes(captainEmail.toLowerCase().trim())) {
+    return { error: 'Captain cannot also be listed as a roster member' };
+  }
+
+  const { data: members } = await admin
+    .from('players')
+    .select('id, email')
+    .in('email', cleanedMemberEmails);
+
+  const found = members ?? [];
+  const foundEmails = new Set(found.map((m) => m.email.toLowerCase()));
+  const missing = cleanedMemberEmails.filter((e) => !foundEmails.has(e));
+  if (missing.length > 0) return { error: `No PLAYOFFE account found for: ${missing.join(', ')}` };
+
+  const { data: team, error: teamErr } = await admin
+    .from('tournament_teams')
+    .insert({
+      tournament_id: tournamentId,
+      category_id: categoryId,
+      name: teamName.trim(),
+      captain_id: captain.id,
+      status: 'active',
+    })
+    .select('id')
+    .single();
+
+  if (teamErr || !team) return { error: 'Failed to create team' };
+
+  if (found.length > 0) {
+    const { error: membersErr } = await admin
+      .from('team_members')
+      .insert(found.map((m) => ({ team_id: team.id, player_id: m.id, status: 'active' as const })));
+    if (membersErr) {
+      await admin.from('tournament_teams').delete().eq('id', team.id);
+      return { error: 'Failed to add roster members' };
+    }
+  }
+
+  revalidatePath(`/tournaments/${t.slug}/categories/${categoryId}`);
+  return { success: true, teamId: team.id };
+}
+
+// ── Organizer: remove a team ──────────────────────────────────────────────────
+export async function removeTeamAction(teamId: string, tournamentId: string) {
+  const user = await getCurrentUser();
+  if (!user) return { error: 'Not authenticated' };
+
+  const t = await assertTournamentManager(tournamentId, user.id);
+  if (!t) return { error: 'Permission denied' };
+
+  const admin = createAdminClient();
+  await admin.from('tournament_teams').delete().eq('id', teamId);
+
+  revalidatePath(`/tournaments/${t.slug}`);
+  return { success: true };
+}
+
+// ── Fetch teams + rosters for a category (organizer display) ─────────────────
+export async function getTeamsForCategoryAction(categoryId: string) {
+  const admin = createAdminClient();
+
+  const { data: teams } = await admin
+    .from('tournament_teams')
+    .select(`
+      id, name, seed, status, registered_at,
+      captain:players!captain_id(id, full_name, username),
+      team_members(id, status, player:players!player_id(id, full_name, username))
+    `)
+    .eq('category_id', categoryId)
+    .neq('status', 'withdrawn')
+    .order('registered_at', { ascending: true });
+
+  return teams ?? [];
+}
+
 // ── Register a team with a roster ─────────────────────────────────────────────
 
 export async function registerTeamAction(categoryId: string, name: string, memberUsernames: string[]) {

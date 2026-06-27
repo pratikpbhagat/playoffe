@@ -7,6 +7,8 @@ import { AppNav } from '@/components/layout/AppNav';
 import { EntryList } from '@/components/tournaments/EntryList';
 import { AddPlayerByEmail } from '@/components/tournaments/AddPlayerByEmail';
 import { ImportPlayersPanel } from '@/components/tournaments/ImportPlayersPanel';
+import { AddTeamByEmail } from '@/components/tournaments/AddTeamByEmail';
+import { TeamRosterList } from '@/components/tournaments/TeamRosterList';
 import { DrawSection } from '@/components/tournaments/DrawSection';
 import { TeamBracketView } from '@/components/tournaments/TeamBracketView';
 import { StandingsTable, TeamStandingsTable } from '@/components/tournaments/StandingsTable';
@@ -16,6 +18,7 @@ import { SeedingPanel } from '@/components/tournaments/SeedingPanel';
 import { getCategoryWithEntries, getStageScoringAction } from '@/lib/actions/categories';
 import { getTournamentStageScoringAction } from '@/lib/actions/tournaments';
 import { getMatchesForCategory, getTiesForCategory } from '@/lib/actions/draws';
+import { getTeamsForCategoryAction } from '@/lib/actions/teams';
 import { isFeatureEnabled } from '@/lib/features';
 import { checkPermission } from '@/lib/permissions';
 import { DRAW_FORMATS, PLAY_FORMATS } from '@pickleball/shared';
@@ -98,10 +101,11 @@ export default async function CategoryPage({ params }: Props) {
   const categoryId = categoryRow.id;
 
   // Fetch category + entries + matches + stage scoring + social flag in parallel
-  const [data, matches, ties, stageRows, tournamentStageRows, organiserSocialEnabled, seedingPanelEnabled] = await Promise.all([
+  const [data, matches, ties, teams, stageRows, tournamentStageRows, organiserSocialEnabled, seedingPanelEnabled] = await Promise.all([
     getCategoryWithEntries(categoryId),
     getMatchesForCategory(categoryId),
     getTiesForCategory(categoryId),
+    getTeamsForCategoryAction(categoryId),
     getStageScoringAction(categoryId),
     getTournamentStageScoringAction(tournament.id),
     isFeatureEnabled('social_media_organiser'),
@@ -303,7 +307,14 @@ export default async function CategoryPage({ params }: Props) {
 
         {/* Entry list — grouped standings for rr/swiss/group formats, flat otherwise */}
         <section className="mb-8">
-          {showGroupStandings ? (
+          {isTeamEvent && !isDrawn ? (
+            <>
+              <h2 className="mb-3 text-sm font-semibold text-slate-400 uppercase tracking-wide">
+                Teams
+              </h2>
+              <TeamRosterList teams={teams} tournamentId={tournament.id} />
+            </>
+          ) : showGroupStandings ? (
             // StandingsTable renders its own section header ("Groups" / "Standings")
             // and shows all players even before matches are played.
             isTeamEvent ? (
@@ -337,15 +348,21 @@ export default async function CategoryPage({ params }: Props) {
         {categoryStatus === 'pending' || categoryStatus === 'registration' ? (
           <>
             <section className="mb-6">
-              <AddPlayerByEmail
-                tournamentId={tournament.id}
-                categoryId={categoryId}
-                playFormat={(category as { play_format: string }).play_format as 'singles' | 'doubles' | 'mixed_doubles'}
-              />
+              {isTeamEvent ? (
+                <AddTeamByEmail tournamentId={tournament.id} categoryId={categoryId} />
+              ) : (
+                <AddPlayerByEmail
+                  tournamentId={tournament.id}
+                  categoryId={categoryId}
+                  playFormat={(category as { play_format: string }).play_format as 'singles' | 'doubles' | 'mixed_doubles'}
+                />
+              )}
             </section>
-            <section className="mb-10">
-              <ImportPlayersPanel tournamentId={tournament.id} categoryId={categoryId} />
-            </section>
+            {!isTeamEvent && (
+              <section className="mb-10">
+                <ImportPlayersPanel tournamentId={tournament.id} categoryId={categoryId} />
+              </section>
+            )}
           </>
         ) : (
           <div className="mb-10 rounded-lg border border-slate-800 bg-surface-card px-4 py-3 text-xs text-slate-500">
