@@ -27,6 +27,7 @@ export const createTournamentSchema = z.object({
 
 const rubberLineupItemSchema = z.object({
   sequence: z.number().int().min(1),
+  name: z.string().min(1).max(40),
   play_format: z.enum(['singles', 'doubles', 'mixed_doubles']),
 });
 

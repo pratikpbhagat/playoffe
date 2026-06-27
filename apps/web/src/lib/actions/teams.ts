@@ -250,15 +250,16 @@ export async function submitTieLineupAction(tieId: string, lineup: LineupSlot[])
     .eq('id', tie.category_id)
     .single();
 
-  const rubberLineup = (category?.rubber_lineup ?? []) as { sequence: number; play_format: string }[];
+  const rubberLineup = (category?.rubber_lineup ?? []) as { sequence: number; name: string; play_format: string }[];
   const lineupBySeq = new Map(lineup.map((l) => [l.rubber_sequence, l]));
 
   for (const rubber of rubberLineup) {
+    const label = rubber.name || `Rubber ${rubber.sequence}`;
     const slot = lineupBySeq.get(rubber.sequence);
-    if (!slot) return { error: `Missing lineup for rubber ${rubber.sequence}.` };
+    if (!slot) return { error: `Missing lineup for ${label}.` };
     const needsPartner = rubber.play_format === 'doubles' || rubber.play_format === 'mixed_doubles';
-    if (needsPartner && !slot.partner_id) return { error: `Rubber ${rubber.sequence} (${rubber.play_format}) requires two players.` };
-    if (!needsPartner && slot.partner_id) return { error: `Rubber ${rubber.sequence} (singles) only takes one player.` };
+    if (needsPartner && !slot.partner_id) return { error: `${label} (${rubber.play_format}) requires two players.` };
+    if (!needsPartner && slot.partner_id) return { error: `${label} (singles) only takes one player.` };
 
     const { data: confirmedMember } = await admin
       .from('team_members')
@@ -268,7 +269,7 @@ export async function submitTieLineupAction(tieId: string, lineup: LineupSlot[])
       .eq('status', 'active')
       .maybeSingle();
     const isCaptainPlaying = slot.player_id === captainTeam.captain_id;
-    if (!confirmedMember && !isCaptainPlaying) return { error: `Player in rubber ${rubber.sequence} is not a confirmed roster member.` };
+    if (!confirmedMember && !isCaptainPlaying) return { error: `Player in ${label} is not a confirmed roster member.` };
 
     if (slot.partner_id) {
       const { data: confirmedPartner } = await admin
@@ -279,7 +280,7 @@ export async function submitTieLineupAction(tieId: string, lineup: LineupSlot[])
         .eq('status', 'active')
         .maybeSingle();
       const isCaptainPartner = slot.partner_id === captainTeam.captain_id;
-      if (!confirmedPartner && !isCaptainPartner) return { error: `Partner in rubber ${rubber.sequence} is not a confirmed roster member.` };
+      if (!confirmedPartner && !isCaptainPartner) return { error: `Partner in ${label} is not a confirmed roster member.` };
     }
 
     const { data: entry, error: entryErr } = await admin
@@ -295,7 +296,7 @@ export async function submitTieLineupAction(tieId: string, lineup: LineupSlot[])
       .select('id')
       .single();
 
-    if (entryErr || !entry) return { error: `Failed to register lineup for rubber ${rubber.sequence}.` };
+    if (entryErr || !entry) return { error: `Failed to register lineup for ${label}.` };
 
     const entryColumn = side === 'a' ? 'entry_a_id' : 'entry_b_id';
     await admin

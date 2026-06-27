@@ -47,10 +47,10 @@ export function AddCategoryInline({
   const [categoryType, setCategoryType] = useState<(typeof CATEGORY_TYPES)[number]['value']>('open');
   const [playFormat, setPlayFormat] = useState<(typeof PLAY_FORMATS)[number]['value']>('singles');
   const [drawFormat, setDrawFormat] = useState<(typeof DRAW_FORMATS)[number]['value']>('single_elimination');
-  const [rubberLineup, setRubberLineup] = useState<{ sequence: number; play_format: 'singles' | 'doubles' | 'mixed_doubles' }[]>([
-    { sequence: 1, play_format: 'singles' },
-    { sequence: 2, play_format: 'singles' },
-    { sequence: 3, play_format: 'doubles' },
+  const [rubberLineup, setRubberLineup] = useState<{ sequence: number; name: string; play_format: 'singles' | 'doubles' | 'mixed_doubles' }[]>([
+    { sequence: 1, name: 'Rubber 1', play_format: 'singles' },
+    { sequence: 2, name: 'Rubber 2', play_format: 'singles' },
+    { sequence: 3, name: 'Rubber 3', play_format: 'doubles' },
   ]);
   const [maxEntries, setMaxEntries] = useState<string>('');
   const [minAge, setMinAge] = useState<string>('');
@@ -134,7 +134,7 @@ export function AddCategoryInline({
   function canProceedStep1() {
     if (!name.trim() || name.trim().length < 2) return false;
     if (isGroupStage && !hasMaxEntries) return false;
-    if (isTeamEvent && rubberLineup.length === 0) return false;
+    if (isTeamEvent && (rubberLineup.length === 0 || rubberLineup.some((r) => !r.name.trim()))) return false;
     return true;
   }
 
@@ -294,7 +294,19 @@ export function AddCategoryInline({
           </p>
           {rubberLineup.map((r, i) => (
             <div key={r.sequence} className="flex items-center gap-2">
-              <span className="w-14 text-xs text-slate-500">Rubber {r.sequence}</span>
+              <span className="w-6 text-xs text-slate-500">{r.sequence}.</span>
+              <input
+                type="text"
+                value={r.name}
+                onChange={(e) => {
+                  const next = [...rubberLineup];
+                  next[i] = { ...r, name: e.target.value };
+                  setRubberLineup(next);
+                }}
+                placeholder={`Rubber ${r.sequence}`}
+                maxLength={40}
+                className={`${inputClass} flex-1`}
+              />
               <select
                 value={r.play_format}
                 onChange={(e) => {
@@ -320,7 +332,7 @@ export function AddCategoryInline({
           ))}
           <button
             type="button"
-            onClick={() => setRubberLineup([...rubberLineup, { sequence: rubberLineup.length + 1, play_format: 'singles' }])}
+            onClick={() => setRubberLineup([...rubberLineup, { sequence: rubberLineup.length + 1, name: `Rubber ${rubberLineup.length + 1}`, play_format: 'singles' }])}
             className="text-xs font-medium text-brand-400 hover:text-brand-300 transition-colors"
           >
             + Add rubber

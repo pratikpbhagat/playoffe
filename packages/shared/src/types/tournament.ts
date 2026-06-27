@@ -28,6 +28,7 @@ export interface Tournament {
 
 export interface RubberLineupItem {
   sequence: number;
+  name: string;
   play_format: 'singles' | 'doubles' | 'mixed_doubles';
 }
 
