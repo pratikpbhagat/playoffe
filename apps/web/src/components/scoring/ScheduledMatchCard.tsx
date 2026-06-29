@@ -42,6 +42,15 @@ interface Props {
   entryB: MatchEntry | null;
   playFormat: string;
   activeReferees: ActiveReferee[];
+  /** Pre-computed display names — used by team-event rubbers to show the
+   *  tie's team names when entryA/entryB are still null (lineup not yet
+   *  submitted). Falls back to deriving from entryA/entryB when omitted. */
+  playerAOverride?: string;
+  playerBOverride?: string;
+  /** False for matches that can't be opened for scoring yet (e.g. a
+   *  team-event rubber awaiting a lineup) — court/referee assignment still
+   *  works, but the header/footer no longer link into the score-entry page. */
+  linkToDetail?: boolean;
 }
 
 function teamName(entry: MatchEntry | null, playFormat: string): string {
@@ -83,6 +92,9 @@ export function ScheduledMatchCard({
   entryB,
   playFormat,
   activeReferees,
+  playerAOverride,
+  playerBOverride,
+  linkToDetail = true,
 }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -105,8 +117,8 @@ export function ScheduledMatchCard({
     setError(null);
   }, [matchId, court, assignedRefereeName]);
 
-  const aName = teamName(entryA, playFormat);
-  const bName = teamName(entryB, playFormat);
+  const aName = playerAOverride ?? teamName(entryA, playFormat);
+  const bName = playerBOverride ?? teamName(entryB, playFormat);
 
   // Determine which button label to show
   const hasAssignment = !!court && !!assignedRefereeName;
@@ -168,68 +180,89 @@ export function ScheduledMatchCard({
         </div>
       )}
 
-      {/* Match header — link to detail */}
-      <Link
-        href={`/tournaments/${tournamentSlug}/scoring/${matchId}`}
-        className="flex items-start gap-4 px-5 py-4 hover:bg-white/[0.02] transition-colors group"
-      >
-        <div className="w-14 shrink-0 text-center space-y-1 pt-0.5">
-          {scheduledTime && !pausedForReassignment && (
-            <p className="text-xs font-mono text-slate-400">
-              {fmt12h(scheduledTime)}
-            </p>
-          )}
-          {court && (
-            <span className={`block rounded px-2 py-0.5 text-[11px] font-mono ${
-              pausedForReassignment ? 'bg-amber-900/30 text-amber-500' : 'bg-surface text-slate-500'
-            }`}>
-              Ct {court}
-            </span>
-          )}
-        </div>
+      {/* Match header — link to detail (when scoreable) */}
+      {(() => {
+        const headerInner = (
+          <>
+            <div className="w-14 shrink-0 text-center space-y-1 pt-0.5">
+              {scheduledTime && !pausedForReassignment && (
+                <p className="text-xs font-mono text-slate-400">
+                  {fmt12h(scheduledTime)}
+                </p>
+              )}
+              {court && (
+                <span className={`block rounded px-2 py-0.5 text-[11px] font-mono ${
+                  pausedForReassignment ? 'bg-amber-900/30 text-amber-500' : 'bg-surface text-slate-500'
+                }`}>
+                  Ct {court}
+                </span>
+              )}
+            </div>
 
-        <div className="flex-1 min-w-0">
-          {/* Mobile: stacked names */}
-          <div className="sm:hidden">
-            <p className="text-sm font-semibold text-white truncate">{aName}</p>
-            <p className="text-[11px] text-slate-500 font-normal my-0.5">vs</p>
-            <p className="text-sm font-semibold text-white truncate">{bName}</p>
-          </div>
-          {/* Desktop: single line */}
-          <p className="hidden sm:block text-sm font-semibold text-white truncate">
-            {aName}
-            <span className="mx-2 text-slate-500 font-normal">vs</span>
-            {bName}
-          </p>
-          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-            <p className="text-xs text-slate-500 truncate">
-              {categoryName}
-              {roundLabel ? ` · ${roundLabel}` : ''}
-              {groupName ? ` · ${groupName}` : ''}
-            </p>
-            {assignedRefereeName && (
-              <span className="text-[11px] text-slate-600">
-                Ref: <span className="text-slate-500">{assignedRefereeName}</span>
-              </span>
+            <div className="flex-1 min-w-0">
+              {/* Mobile: stacked names */}
+              <div className="sm:hidden">
+                <p className="text-sm font-semibold text-white truncate">{aName}</p>
+                <p className="text-[11px] text-slate-500 font-normal my-0.5">vs</p>
+                <p className="text-sm font-semibold text-white truncate">{bName}</p>
+              </div>
+              {/* Desktop: single line */}
+              <p className="hidden sm:block text-sm font-semibold text-white truncate">
+                {aName}
+                <span className="mx-2 text-slate-500 font-normal">vs</span>
+                {bName}
+              </p>
+              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                <p className="text-xs text-slate-500 truncate">
+                  {categoryName}
+                  {roundLabel ? ` · ${roundLabel}` : ''}
+                  {groupName ? ` · ${groupName}` : ''}
+                </p>
+                {assignedRefereeName && (
+                  <span className="text-[11px] text-slate-600">
+                    Ref: <span className="text-slate-500">{assignedRefereeName}</span>
+                  </span>
+                )}
+                {!linkToDetail && (
+                  <span className="text-[11px] text-slate-600">Awaiting lineup</span>
+                )}
+              </div>
+            </div>
+
+            {/* Desktop only — hidden on mobile since the whole row is tappable */}
+            {linkToDetail && (
+              <div className="hidden sm:flex items-center gap-1 shrink-0">
+                <span className="text-xs text-brand-400 font-medium">
+                  Score →
+                </span>
+              </div>
             )}
-          </div>
-        </div>
+          </>
+        );
 
-        {/* Desktop only — hidden on mobile since the whole row is tappable */}
-        <div className="hidden sm:flex items-center gap-1 shrink-0">
-          <span className="text-xs text-brand-400 font-medium">
-            Score →
-          </span>
-        </div>
-      </Link>
+        return linkToDetail ? (
+          <Link
+            href={`/tournaments/${tournamentSlug}/scoring/${matchId}`}
+            className="flex items-start gap-4 px-5 py-4 hover:bg-white/[0.02] transition-colors group"
+          >
+            {headerInner}
+          </Link>
+        ) : (
+          <div className="flex items-start gap-4 px-5 py-4">
+            {headerInner}
+          </div>
+        );
+      })()}
 
       {/* Mobile-only full-width Score button — gives player names room to breathe */}
-      <Link
-        href={`/tournaments/${tournamentSlug}/scoring/${matchId}`}
-        className="flex items-center justify-center gap-1.5 border-t border-surface-border/40 py-2.5 text-xs font-semibold text-brand-400 hover:bg-white/[0.02] transition-colors sm:hidden"
-      >
-        Score →
-      </Link>
+      {linkToDetail && (
+        <Link
+          href={`/tournaments/${tournamentSlug}/scoring/${matchId}`}
+          className="flex items-center justify-center gap-1.5 border-t border-surface-border/40 py-2.5 text-xs font-semibold text-brand-400 hover:bg-white/[0.02] transition-colors sm:hidden"
+        >
+          Score →
+        </Link>
+      )}
 
       {/* Assignment controls */}
       <div className={`border-t px-5 py-3 flex flex-wrap items-center gap-3 ${

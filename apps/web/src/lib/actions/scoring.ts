@@ -277,6 +277,54 @@ export async function assignMatchDetailsAction(
   return { success: true };
 }
 
+// ── Assign court/referee to every rubber in a team-event tie at once ─────────
+// A tie's rubbers always play on the same court back-to-back, so rather than
+// assigning each one individually, the organiser can set it once for the
+// whole tie. Only rubbers still 'scheduled' are touched — any rubber that's
+// already live or completed keeps its own assignment untouched.
+export async function assignTieDetailsAction(
+  tieId: string,
+  court: number | null,
+  refereeName: string | null,
+) {
+  const user = await getCurrentUser();
+  if (!user) return { error: 'Not authenticated' };
+
+  const admin = createAdminClient();
+
+  const { data: tie } = await admin.from('ties').select('id, tournament_id').eq('id', tieId).single();
+  if (!tie) return { error: 'Tie not found' };
+
+  const { data: t } = await admin.from('tournaments').select('club_id, slug').eq('id', tie.tournament_id).single();
+  if (!t) return { error: 'Tournament not found' };
+
+  const { data: mgr } = await admin
+    .from('club_managers')
+    .select('role')
+    .eq('club_id', t.club_id)
+    .eq('player_id', user.id)
+    .maybeSingle();
+  if (!mgr) return { error: 'Permission denied' };
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const patch: Record<string, any> = {
+    paused_for_reassignment: false,
+    assigned_at: new Date().toISOString(),
+  };
+  if (court !== null) patch.court = court;
+  if (refereeName !== null) patch.assigned_referee_name = refereeName || null;
+
+  const { error } = await admin
+    .from('matches')
+    .update(patch)
+    .eq('tie_id', tieId)
+    .eq('status', 'scheduled');
+  if (error) return { error: 'Failed to update tie' };
+
+  revalidatePath(`/tournaments/${t.slug}/scoring`);
+  return { success: true };
+}
+
 // ── Pause a live match so the admin can re-assign court / referee ──────────────
 // Admin-initiated version (uses user session auth).
 export async function pauseMatchForReassignmentAction(matchId: string) {

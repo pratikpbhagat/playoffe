@@ -35,6 +35,11 @@ export interface MatchForScheduling {
    *  placeholder like "1st Group A" or "Winner of Quarter-Final Match 1". */
   player_a_is_placeholder?: boolean;
   player_b_is_placeholder?: boolean;
+  /** Team-event rubber matches — used to keep a tie's rubbers in their
+   *  configured playing order regardless of scheduled time. */
+  tie_id?: string | null;
+  rubber_sequence?: number | null;
+  is_decider?: boolean;
 }
 
 interface Props {
@@ -289,6 +294,14 @@ export function ScheduleEditor({
     // freshly generated/edited schedule re-orders immediately, before saving.
     function byScheduledTime(list: MatchForScheduling[]): MatchForScheduling[] {
       return [...list].sort((a, b) => {
+        // A tie's rubbers always play in their configured order, on the same
+        // court, back-to-back — never re-sort them relative to each other by
+        // time, even if one happens to get an earlier/later edited time.
+        if (a.tie_id && a.tie_id === b.tie_id) {
+          const seqA = a.is_decider ? Infinity : a.rubber_sequence ?? 0;
+          const seqB = b.is_decider ? Infinity : b.rubber_sequence ?? 0;
+          return seqA - seqB;
+        }
         const ta = edits[a.id]?.time || '';
         const tb = edits[b.id]?.time || '';
         if (ta && tb) return ta < tb ? -1 : ta > tb ? 1 : 0;
@@ -565,6 +578,13 @@ export function ScheduleEditor({
                             <span className={m.player_a_is_placeholder ? 'text-sm text-slate-400 italic' : 'text-sm font-medium text-white'}>{m.player_a}</span>
                             <span className="text-slate-500 text-xs">vs</span>
                             <span className={m.player_b_is_placeholder ? 'text-sm text-slate-400 italic' : 'text-sm font-medium text-white'}>{m.player_b}</span>
+                            {/* Team-event ties share the same player_a/player_b across all their
+                                rubbers — tag each row with the configured rubber name so they're distinguishable. */}
+                            {m.tie_id && m.round_name?.includes('·') && (
+                              <span className="rounded bg-surface px-1.5 py-0.5 text-[10px] font-medium text-brand-300 ring-1 ring-surface-border">
+                                {m.round_name.split('·').pop()?.trim()}
+                              </span>
+                            )}
                             {isWalkover && (
                               <span className="ml-1 rounded-full bg-amber-900/30 px-2 py-0.5 text-[10px] font-semibold text-amber-400">
                                 Walkover

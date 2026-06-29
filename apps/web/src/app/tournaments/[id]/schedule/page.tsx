@@ -73,6 +73,7 @@ export default async function SchedulePage({ params }: Props) {
     .from('matches')
     .select(`
       id, status, court, scheduled_time, round, round_name, group_name, category_id, bracket_position,
+      tie_id, rubber_sequence, is_decider,
       ea:tournament_entries!entry_a_id(
         players!player_id(full_name),
         partner:players!partner_id(full_name)
@@ -81,7 +82,11 @@ export default async function SchedulePage({ params }: Props) {
         players!player_id(full_name),
         partner:players!partner_id(full_name)
       ),
-      tc:tournament_categories!category_id(name, draw_format, groups_count, advance_per_group, scoring_override, scoring_format, num_sets, schedule_day, schedule_order)
+      tc:tournament_categories!category_id(name, draw_format, groups_count, advance_per_group, scoring_override, scoring_format, num_sets, schedule_day, schedule_order, rubber_lineup),
+      tie:ties!tie_id(
+        team_a:tournament_teams!team_a_id(name),
+        team_b:tournament_teams!team_b_id(name)
+      )
     `)
     .eq('tournament_id', tData.id)
     .eq('status', 'scheduled')
@@ -99,12 +104,20 @@ export default async function SchedulePage({ params }: Props) {
     group_name: string | null;
     category_id: string;
     bracket_position: number | null;
+    tie_id: string | null;
+    rubber_sequence: number | null;
+    is_decider: boolean;
     ea: RawEntry;
     eb: RawEntry;
     tc: {
       name: string; draw_format: string | null; groups_count: number | null; advance_per_group: number | null;
       scoring_override: boolean | null; scoring_format: string | null; num_sets: number | null;
       schedule_day: string | null; schedule_order: number | null;
+      rubber_lineup: { sequence: number; name: string; play_format: string }[] | null;
+    } | null;
+    tie: {
+      team_a: { name: string } | null;
+      team_b: { name: string } | null;
     } | null;
   };
 
@@ -201,8 +214,28 @@ export default async function SchedulePage({ params }: Props) {
   function buildName(entry: RawEntry, m: RawMatch, slot: 'a' | 'b'): string {
     const main = entry?.players?.full_name;
     const partner = entry?.partner?.full_name;
-    if (!main) return placeholderLabel(m, slot);
-    return partner ? `${main} / ${partner}` : main;
+    if (main) return partner ? `${main} / ${partner}` : main;
+    // Rubber matches (team_event): the lineup for this specific rubber may
+    // not be submitted yet, but the tie's two teams are already known — show
+    // the team name instead of a generic "TBD" like singles/doubles gets.
+    if (m.tie_id) {
+      const teamName = slot === 'a' ? m.tie?.team_a?.name : m.tie?.team_b?.name;
+      if (teamName) return teamName;
+    }
+    return placeholderLabel(m, slot);
+  }
+
+  // Rubber matches need a label distinguishing them from their tie's other
+  // rubbers — singles/doubles matches are already one-per-round-slot, but a
+  // tie can have several rubber rows sharing the same round/round_name.
+  function buildRoundName(m: RawMatch): string | null {
+    if (!m.tie_id) return m.round_name;
+    if (m.is_decider) return m.round_name ? `${m.round_name} · Decider` : 'Decider';
+    const rubberName = m.rubber_sequence
+      ? m.tc?.rubber_lineup?.find((r) => r.sequence === m.rubber_sequence)?.name
+      : null;
+    const label = rubberName ?? (m.rubber_sequence ? `Rubber ${m.rubber_sequence}` : null);
+    return label ? `${m.round_name ?? 'Tie'} · ${label}` : m.round_name;
   }
 
   const matches: MatchForScheduling[] = allRaw.map((m) => ({
@@ -211,14 +244,17 @@ export default async function SchedulePage({ params }: Props) {
     court: m.court,
     scheduled_time: m.scheduled_time,
     round: m.round,
-    round_name: m.round_name,
+    round_name: buildRoundName(m),
     group_name: m.group_name,
     category_id: m.category_id,
     category_name: m.tc?.name ?? 'Unknown category',
     player_a: buildName(m.ea, m, 'a'),
     player_b: buildName(m.eb, m, 'b'),
-    player_a_is_placeholder: !m.ea?.players?.full_name,
-    player_b_is_placeholder: !m.eb?.players?.full_name,
+    player_a_is_placeholder: !m.ea?.players?.full_name && !m.tie?.team_a?.name,
+    player_b_is_placeholder: !m.eb?.players?.full_name && !m.tie?.team_b?.name,
+    tie_id: m.tie_id,
+    rubber_sequence: m.rubber_sequence,
+    is_decider: m.is_decider,
   }));
 
   const scheduledCount = matches.filter((m) => m.scheduled_time).length;
