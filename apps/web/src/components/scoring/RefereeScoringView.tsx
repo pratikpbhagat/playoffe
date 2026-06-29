@@ -9,6 +9,8 @@ import {
   startMatchAsRefereeAction,
   saveScoreAsRefereeAction,
   requestMatchRestartAction,
+  getRubberLineupOptionsAction,
+  setRubberLineupAsRefereeAction,
 } from '@/lib/actions/referee';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -47,6 +49,12 @@ interface Match {
   server_number: number | null;
   /** Entry ID of the currently assigned server (may be pre-set from DB) */
   serving_entry_id: string | null;
+  /** Team-event rubber whose lineup hasn't been submitted yet — shown as a
+   *  read-only "awaiting lineup" card instead of a scoreable match. */
+  is_placeholder?: boolean;
+  team_a_name?: string | null;
+  team_b_name?: string | null;
+  rubber_label?: string | null;
 }
 
 type AutoSaveStatus = 'idle' | 'pending' | 'saving' | 'saved' | 'error';
@@ -220,7 +228,10 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
     locallyStarted.has(m.id) || m.status === 'in_progress',
   );
   const scheduledMatches = activeMatches.filter(
-    (m) => !locallyStarted.has(m.id) && m.status === 'scheduled',
+    (m) => !locallyStarted.has(m.id) && m.status === 'scheduled' && !m.is_placeholder,
+  );
+  const awaitingLineupMatches = activeMatches.filter(
+    (m) => !locallyStarted.has(m.id) && m.status === 'scheduled' && m.is_placeholder,
   );
 
   // ── Score entry helpers ───────────────────────────────────────────────────
@@ -894,6 +905,159 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
     );
   }
 
+  // ── Awaiting-lineup card (team event) ────────────────────────────────────
+  // Assigned to this referee already, but the captain hasn't submitted a
+  // lineup yet. Rather than block, the referee can pick the players
+  // themselves (they're standing right there at the court) and start play
+  // immediately — the team names are enough to run the match.
+  function AwaitingLineupCard({ match }: { match: Match }) {
+    const context = match.group_name ?? match.round_name ?? `Round ${match.round}`;
+    type RosterPlayer = { id: string; full_name: string };
+    type RosterOptions = {
+      playFormat: 'singles' | 'doubles' | 'mixed_doubles';
+      needsLineupA: boolean;
+      needsLineupB: boolean;
+      teamA: { id: string; name: string; roster: RosterPlayer[] };
+      teamB: { id: string; name: string; roster: RosterPlayer[] };
+    };
+
+    const [options, setOptions] = useState<RosterOptions | 'error' | null>(null);
+    const [playerA, setPlayerA] = useState('');
+    const [partnerA, setPartnerA] = useState('');
+    const [playerB, setPlayerB] = useState('');
+    const [partnerB, setPartnerB] = useState('');
+    const [submittingLineup, setSubmittingLineup] = useState(false);
+    const [lineupError, setLineupError] = useState<string | null>(null);
+
+    useEffect(() => {
+      let active = true;
+      (async () => {
+        const result = await getRubberLineupOptionsAction(match.id, pin);
+        if (!active) return;
+        if ('error' in result) { setOptions('error'); return; }
+        setOptions(result as RosterOptions);
+      })();
+      return () => { active = false; };
+    }, [match.id]);
+
+    if (options === null) return <p className="px-1 text-xs text-slate-600">Loading…</p>;
+    if (options === 'error') return null;
+
+    const needsPartner = options.playFormat === 'doubles' || options.playFormat === 'mixed_doubles';
+
+    async function handleStartWithLineup() {
+      if (options === null || options === 'error') return;
+      if (options.needsLineupA && !playerA) { setLineupError(`Pick a player for ${options.teamA.name}.`); return; }
+      if (options.needsLineupB && !playerB) { setLineupError(`Pick a player for ${options.teamB.name}.`); return; }
+      if (needsPartner && options.needsLineupA && !partnerA) { setLineupError(`Pick a partner for ${options.teamA.name}.`); return; }
+      if (needsPartner && options.needsLineupB && !partnerB) { setLineupError(`Pick a partner for ${options.teamB.name}.`); return; }
+
+      setLineupError(null);
+      setSubmittingLineup(true);
+
+      const lineupResult = await setRubberLineupAsRefereeAction(
+        match.id,
+        pin,
+        options.needsLineupA ? { playerId: playerA, partnerId: partnerA || null } : null,
+        options.needsLineupB ? { playerId: playerB, partnerId: partnerB || null } : null,
+      );
+      if (lineupResult?.error) {
+        setLineupError(lineupResult.error);
+        setSubmittingLineup(false);
+        return;
+      }
+
+      const startResult = await startMatchAsRefereeAction(match.id, pin);
+      if (startResult?.error) {
+        setLineupError(startResult.error);
+        setSubmittingLineup(false);
+        return;
+      }
+
+      setLocallyStarted((prev) => new Set([...prev, match.id]));
+      router.refresh();
+      setSubmittingLineup(false);
+    }
+
+    return (
+      <div className="rounded-xl bg-surface-card p-4 ring-1 ring-surface-border">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-sm font-semibold text-white truncate">
+            {match.team_a_name ?? 'TBD'}
+            <span className="mx-2 text-slate-500 font-normal">vs</span>
+            {match.team_b_name ?? 'TBD'}
+          </p>
+          {match.court && (
+            <span className="shrink-0 rounded bg-surface px-2 py-0.5 text-[11px] font-mono text-slate-500">
+              Ct {match.court}
+            </span>
+          )}
+        </div>
+        <p className="mt-0.5 text-xs text-slate-500 truncate">
+          {context}{match.rubber_label ? ` · ${match.rubber_label}` : ''}
+        </p>
+
+        <div className="mt-3 space-y-2">
+          {options.needsLineupA && (
+            <div className="flex items-center gap-2">
+              <span className="w-20 shrink-0 text-[11px] text-slate-500">{options.teamA.name}</span>
+              <select
+                value={playerA}
+                onChange={(e) => setPlayerA(e.target.value)}
+                className="flex-1 rounded border border-slate-700 bg-surface px-2 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-brand-500"
+              >
+                <option value="">Choose player…</option>
+                {options.teamA.roster.map((p) => <option key={p.id} value={p.id}>{p.full_name}</option>)}
+              </select>
+              {needsPartner && (
+                <select
+                  value={partnerA}
+                  onChange={(e) => setPartnerA(e.target.value)}
+                  className="flex-1 rounded border border-slate-700 bg-surface px-2 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-brand-500"
+                >
+                  <option value="">Choose partner…</option>
+                  {options.teamA.roster.map((p) => <option key={p.id} value={p.id}>{p.full_name}</option>)}
+                </select>
+              )}
+            </div>
+          )}
+          {options.needsLineupB && (
+            <div className="flex items-center gap-2">
+              <span className="w-20 shrink-0 text-[11px] text-slate-500">{options.teamB.name}</span>
+              <select
+                value={playerB}
+                onChange={(e) => setPlayerB(e.target.value)}
+                className="flex-1 rounded border border-slate-700 bg-surface px-2 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-brand-500"
+              >
+                <option value="">Choose player…</option>
+                {options.teamB.roster.map((p) => <option key={p.id} value={p.id}>{p.full_name}</option>)}
+              </select>
+              {needsPartner && (
+                <select
+                  value={partnerB}
+                  onChange={(e) => setPartnerB(e.target.value)}
+                  className="flex-1 rounded border border-slate-700 bg-surface px-2 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-brand-500"
+                >
+                  <option value="">Choose partner…</option>
+                  {options.teamB.roster.map((p) => <option key={p.id} value={p.id}>{p.full_name}</option>)}
+                </select>
+              )}
+            </div>
+          )}
+        </div>
+
+        <button
+          onClick={handleStartWithLineup}
+          disabled={submittingLineup}
+          className="mt-3 w-full rounded-lg bg-brand-600 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-700 transition-colors disabled:opacity-50"
+        >
+          {submittingLineup ? 'Starting…' : 'Start match'}
+        </button>
+        {lineupError && <p className="mt-2 text-xs text-red-400">{lineupError}</p>}
+      </div>
+    );
+  }
+
   // ── Match card ────────────────────────────────────────────────────────────
   function MatchCard({ match }: { match: Match }) {
     const isOpen = activeMatchId === match.id;
@@ -1062,6 +1226,20 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
           <div className="space-y-3">
             {scheduledMatches.map((m) => (
               <MatchCard key={m.id} match={m} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* ── Awaiting lineup — team-event rubbers assigned but not yet playable ── */}
+      {awaitingLineupMatches.length > 0 && (
+        <section>
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-slate-500">
+            Awaiting lineup — {awaitingLineupMatches.length} match{awaitingLineupMatches.length !== 1 ? 'es' : ''}
+          </h2>
+          <div className="space-y-3">
+            {awaitingLineupMatches.map((m) => (
+              <AwaitingLineupCard key={m.id} match={m} />
             ))}
           </div>
         </section>
