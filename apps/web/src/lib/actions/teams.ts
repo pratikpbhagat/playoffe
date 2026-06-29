@@ -6,6 +6,7 @@ import { checkPermission } from '@/lib/permissions';
 import { registerTeamSchema, type RosterCompositionRule } from '@pickleball/shared';
 import { sendTeamInviteNotification } from '@/lib/email/notifications';
 import { checkAndAdvanceTie } from './scoring';
+import { detectConflictsFromUpdates, resolveCategoryDurationMins, type ScheduleUpdate } from '@/lib/scheduling-utils';
 
 // ── Roster composition: soft warning only, never blocks registration ─────────
 function playerAge(dob: string | null): number | null {
@@ -282,6 +283,93 @@ export async function walkoverTieAction(tieId: string, winningTeamId: string) {
 
   revalidatePath(`/tournaments/${t.slug}`);
   return { success: true };
+}
+
+// ── Organizer: schedule a tie's rubbers as one atomic same-court unit ────────
+// A tie's rubbers always run on the same court, back-to-back, in the
+// organizer-configured rubber order. Rather than letting the general
+// match-by-match Gantt/AI scheduler (built for singles/doubles, one match per
+// slot) reach into ties, this is a dedicated action: pick a court + start
+// time for the tie, and every rubber gets sequential back-to-back slots on
+// that court automatically — the rubbers are never independently movable.
+export async function scheduleTieAction(tieId: string, court: number, startTimeIso: string) {
+  const user = await getCurrentUser();
+  if (!user) return { error: 'Not authenticated' };
+
+  const admin = createAdminClient();
+
+  const { data: tie } = await admin
+    .from('ties')
+    .select('id, tournament_id, category_id')
+    .eq('id', tieId)
+    .single();
+  if (!tie) return { error: 'Tie not found' };
+
+  const t = await assertTournamentManager(tie.tournament_id, user.id);
+  if (!t) return { error: 'Permission denied' };
+
+  const { data: tournament } = await admin
+    .from('tournaments')
+    .select('court_count, scoring_format, num_sets')
+    .eq('id', tie.tournament_id)
+    .single();
+  if (!tournament) return { error: 'Tournament not found' };
+  if (court < 1 || court > tournament.court_count) return { error: `Court must be between 1 and ${tournament.court_count}` };
+
+  const { data: category } = await admin
+    .from('tournament_categories')
+    .select('scoring_override, scoring_format, num_sets')
+    .eq('id', tie.category_id)
+    .single();
+
+  const durationMins = resolveCategoryDurationMins(
+    category,
+    { scoringFormat: (tournament.scoring_format ?? 'rally') as 'rally' | 'traditional', numSets: tournament.num_sets ?? 1 },
+    5,
+  );
+
+  const { data: rubberMatches } = await admin
+    .from('matches')
+    .select('id, rubber_sequence, is_decider, status')
+    .eq('tie_id', tieId)
+    .order('is_decider', { ascending: true })
+    .order('rubber_sequence', { ascending: true });
+
+  const schedulable = (rubberMatches ?? []).filter((m) => m.status === 'scheduled');
+  if (schedulable.length === 0) return { error: 'No schedulable rubbers found for this tie' };
+
+  const updates: ScheduleUpdate[] = schedulable.map((m, i) => ({
+    matchId: m.id,
+    scheduledTime: new Date(new Date(startTimeIso).getTime() + i * durationMins * 60_000).toISOString(),
+    court,
+  }));
+
+  // Check against every other already-scheduled match in the tournament on
+  // this court (excluding this tie's own rubbers, which we're about to move).
+  const { data: otherOnCourt } = await admin
+    .from('matches')
+    .select('id, scheduled_time, court')
+    .eq('tournament_id', tie.tournament_id)
+    .eq('court', court)
+    .not('scheduled_time', 'is', null)
+    .not('tie_id', 'eq', tieId);
+
+  const existingUpdates: ScheduleUpdate[] = (otherOnCourt ?? []).map((m) => ({
+    matchId: m.id, scheduledTime: m.scheduled_time, court: m.court,
+  }));
+
+  const conflicts = detectConflictsFromUpdates([...existingUpdates, ...updates], durationMins);
+  const newConflicts = conflicts.filter((c) => updates.some((u) => u.matchId === c.matchId));
+  if (newConflicts.length > 0) {
+    return { error: `Scheduling conflict on court ${court}: ${newConflicts[0].message}` };
+  }
+
+  await Promise.all(
+    updates.map((u) => admin.from('matches').update({ scheduled_time: u.scheduledTime, court: u.court }).eq('id', u.matchId)),
+  );
+
+  revalidatePath(`/tournaments/${t.slug}`);
+  return { success: true, scheduled: updates.length };
 }
 
 // ── Organizer: remove a team ──────────────────────────────────────────────────

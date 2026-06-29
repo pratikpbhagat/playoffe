@@ -3,13 +3,15 @@
 import { useState } from 'react';
 import type { TieWithTeams } from '@/lib/actions/draws';
 import { TieLineupForm } from './TieLineupForm';
-import { walkoverTieAction } from '@/lib/actions/teams';
+import { walkoverTieAction, scheduleTieAction } from '@/lib/actions/teams';
 import { promoteGroupWinnerTiesAction } from '@/lib/actions/draws';
 import { useRouter } from 'next/navigation';
 
 interface Props {
   ties: TieWithTeams[];
   categoryId: string;
+  /** Hides organizer-only controls (walkover, scheduling, promote) on public pages. */
+  isManager?: boolean;
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -20,14 +22,28 @@ const STATUS_LABEL: Record<string, string> = {
   completed: 'Completed',
 };
 
-function TieCard({ tie, isExpanded, onToggle }: { tie: TieWithTeams; isExpanded: boolean; onToggle: () => void }) {
+function TieCard({ tie, isExpanded, onToggle, isManager }: { tie: TieWithTeams; isExpanded: boolean; onToggle: () => void; isManager: boolean }) {
   const router = useRouter();
   const aName = tie.team_a?.name ?? 'TBD';
   const bName = tie.team_b?.name ?? (tie.team_a ? 'Bye' : 'TBD');
+  const [court, setCourt] = useState('');
+  const [startTime, setStartTime] = useState('');
+  const [scheduling, setScheduling] = useState(false);
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
 
   async function handleWalkover(winningTeamId: string) {
     await walkoverTieAction(tie.id, winningTeamId);
     router.refresh();
+  }
+
+  async function handleSchedule() {
+    if (!court || !startTime) return;
+    setScheduling(true);
+    setScheduleError(null);
+    const result = await scheduleTieAction(tie.id, parseInt(court, 10), new Date(startTime).toISOString());
+    if (result.error) setScheduleError(result.error);
+    else router.refresh();
+    setScheduling(false);
   }
 
   return (
@@ -61,9 +77,39 @@ function TieCard({ tie, isExpanded, onToggle }: { tie: TieWithTeams; isExpanded:
         </div>
       )}
 
+      {isManager && isExpanded && tie.status !== 'completed' && tie.team_a && tie.team_b && (
+        <div className="border-t border-surface-border px-4 py-2 space-y-1.5 bg-surface/40">
+          <p className="text-[11px] text-slate-500">Schedule all rubbers — same court, back-to-back:</p>
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              min={1}
+              placeholder="Court"
+              value={court}
+              onChange={(e) => setCourt(e.target.value)}
+              className="w-16 rounded border border-slate-600 bg-surface px-2 py-1 text-xs text-white outline-none"
+            />
+            <input
+              type="datetime-local"
+              value={startTime}
+              onChange={(e) => setStartTime(e.target.value)}
+              className="rounded border border-slate-600 bg-surface px-2 py-1 text-xs text-white outline-none"
+            />
+            <button
+              onClick={handleSchedule}
+              disabled={scheduling || !court || !startTime}
+              className="rounded bg-brand-600 px-2 py-1 text-xs font-medium text-white hover:bg-brand-700 transition-colors disabled:opacity-50"
+            >
+              {scheduling ? 'Saving…' : 'Schedule'}
+            </button>
+          </div>
+          {scheduleError && <p className="text-[11px] text-red-400">{scheduleError}</p>}
+        </div>
+      )}
+
       {isExpanded && tie.status !== 'completed' && <TieLineupForm tieId={tie.id} />}
 
-      {isExpanded && tie.status !== 'completed' && tie.team_a && tie.team_b && (
+      {isManager && isExpanded && tie.status !== 'completed' && tie.team_a && tie.team_b && (
         <div className="border-t border-surface-border px-4 py-2 flex items-center gap-2 bg-surface/40">
           <span className="text-[11px] text-slate-500">Walkover to:</span>
           <button onClick={() => handleWalkover(tie.team_a!.id)} className="text-[11px] text-amber-400 hover:text-amber-300 transition-colors">{aName}</button>
@@ -75,7 +121,7 @@ function TieCard({ tie, isExpanded, onToggle }: { tie: TieWithTeams; isExpanded:
   );
 }
 
-export function TeamBracketView({ ties, categoryId }: Props) {
+export function TeamBracketView({ ties, categoryId, isManager = true }: Props) {
   const router = useRouter();
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [promoting, setPromoting] = useState(false);
@@ -126,7 +172,7 @@ export function TeamBracketView({ ties, categoryId }: Props) {
               <div key={groupName} className="flex flex-col gap-3">
                 <p className="text-xs font-bold uppercase tracking-widest text-slate-500">{groupName}</p>
                 {groupTies.filter((t) => t.group_name === groupName).map((tie) => (
-                  <TieCard key={tie.id} tie={tie} isExpanded={expanded.has(tie.id)} onToggle={() => toggle(tie.id)} />
+                  <TieCard key={tie.id} tie={tie} isExpanded={expanded.has(tie.id)} onToggle={() => toggle(tie.id)} isManager={isManager} />
                 ))}
               </div>
             ))}
@@ -138,7 +184,7 @@ export function TeamBracketView({ ties, categoryId }: Props) {
         <section className="mt-8">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wide">Bracket</h3>
-            {canPromoteGroups && (
+            {isManager && canPromoteGroups && (
               <button
                 onClick={handlePromoteGroups}
                 disabled={promoting}
@@ -158,7 +204,7 @@ export function TeamBracketView({ ties, categoryId }: Props) {
                     {roundTies[0]?.round_name ?? `Round ${round}`}
                   </p>
                   {roundTies.map((tie) => (
-                    <TieCard key={tie.id} tie={tie} isExpanded={expanded.has(tie.id)} onToggle={() => toggle(tie.id)} />
+                    <TieCard key={tie.id} tie={tie} isExpanded={expanded.has(tie.id)} onToggle={() => toggle(tie.id)} isManager={isManager} />
                   ))}
                 </div>
               );

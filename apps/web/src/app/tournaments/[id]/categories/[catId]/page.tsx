@@ -9,6 +9,7 @@ import { AddPlayerByEmail } from '@/components/tournaments/AddPlayerByEmail';
 import { ImportPlayersPanel } from '@/components/tournaments/ImportPlayersPanel';
 import { AddTeamByEmail } from '@/components/tournaments/AddTeamByEmail';
 import { TeamRosterList } from '@/components/tournaments/TeamRosterList';
+import { ImportTeamsPanel } from '@/components/tournaments/ImportTeamsPanel';
 import { DrawSection } from '@/components/tournaments/DrawSection';
 import { TeamBracketView } from '@/components/tournaments/TeamBracketView';
 import { StandingsTable, TeamStandingsTable } from '@/components/tournaments/StandingsTable';
@@ -361,11 +362,13 @@ export default async function CategoryPage({ params }: Props) {
                 />
               )}
             </section>
-            {!isTeamEvent && (
-              <section className="mb-10">
+            <section className="mb-10">
+              {isTeamEvent ? (
+                <ImportTeamsPanel tournamentId={tournament.id} categoryId={categoryId} />
+              ) : (
                 <ImportPlayersPanel tournamentId={tournament.id} categoryId={categoryId} />
-              </section>
-            )}
+              )}
+            </section>
           </>
         ) : (
           <div className="mb-10 rounded-lg border border-slate-800 bg-surface-card px-4 py-3 text-xs text-slate-500">
