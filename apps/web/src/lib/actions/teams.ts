@@ -392,7 +392,7 @@ export async function getTeamsForCategoryAction(categoryId: string) {
   const { data: teams } = await admin
     .from('tournament_teams')
     .select(`
-      id, name, seed, status, registered_at, owner_name,
+      id, name, seed, status, registered_at, owner_name, default_lineup, default_lineup_enabled,
       captain:players!captain_id(id, full_name, username, gender, dob),
       marquee:players!marquee_player_id(id, full_name, username),
       team_members(id, status, player:players!player_id(id, full_name, username, gender, dob))
@@ -406,7 +406,11 @@ export async function getTeamsForCategoryAction(categoryId: string) {
       ...(team.captain ? [team.captain] : []),
       ...team.team_members.filter((m) => m.status === 'active' && m.player).map((m) => m.player!),
     ];
-    return { ...team, composition_warning: checkRosterComposition(rules, roster) };
+    return {
+      ...team,
+      composition_warning: checkRosterComposition(rules, roster),
+      default_lineup: (team.default_lineup ?? []) as unknown as LineupSlot[],
+    };
   });
 }
 
@@ -829,6 +833,126 @@ export async function submitTieLineupAsManagerAction(
 
   revalidatePath(`/tournaments/${t.slug}/registrations`);
   return { success: true };
+}
+
+// ── Team default lineup (one player/pair per rubber, reused across ties) ────
+// Set from the Registrations page so the organizer doesn't have to re-enter
+// the same lineup for every tie. When enabled, this is auto-applied to every
+// not-yet-started rubber the team plays — both immediately (existing ties)
+// and going forward, via fillTeamDefaultLineupForTie being called whenever a
+// new tie is created (draw generation, group-stage promotion).
+export async function setTeamDefaultLineupAction(
+  teamId: string,
+  lineup: LineupSlot[],
+  applyToAll: boolean,
+): Promise<{ error: string } | { success: true }> {
+  const user = await getCurrentUser();
+  if (!user) return { error: 'Not authenticated.' };
+
+  const admin = createAdminClient();
+
+  const { data: team } = await admin
+    .from('tournament_teams')
+    .select('id, tournament_id, category_id, captain_id')
+    .eq('id', teamId)
+    .single();
+  if (!team) return { error: 'Team not found.' };
+
+  const t = await assertTournamentManager(team.tournament_id, user.id);
+  if (!t) return { error: 'Permission denied' };
+
+  const { data: cat } = await admin
+    .from('tournament_categories')
+    .select('rubber_lineup')
+    .eq('id', team.category_id)
+    .single();
+  const rubberLineup = (cat?.rubber_lineup ?? []) as { sequence: number; name: string; play_format: string }[];
+
+  // A default lineup must cover every rubber — a partial default would leave
+  // some rubbers silently unfilled when applied to a new tie.
+  const lineupBySeq = new Map(lineup.map((l) => [l.rubber_sequence, l]));
+  for (const rubber of rubberLineup) {
+    const label = rubber.name || `Rubber ${rubber.sequence}`;
+    const slot = lineupBySeq.get(rubber.sequence);
+    if (!slot || !slot.player_id) return { error: `Missing default player for ${label}.` };
+    const needsPartner = rubber.play_format === 'doubles' || rubber.play_format === 'mixed_doubles';
+    if (needsPartner && !slot.partner_id) return { error: `${label} (${rubber.play_format}) requires two players.` };
+    if (!needsPartner && slot.partner_id) return { error: `${label} (singles) only takes one player.` };
+  }
+
+  // Validate every named player is on this team's confirmed roster.
+  const captainId = team.captain_id;
+  async function isRosterMember(playerId: string) {
+    if (playerId === captainId) return true;
+    const { data } = await admin
+      .from('team_members')
+      .select('id')
+      .eq('team_id', teamId)
+      .eq('player_id', playerId)
+      .eq('status', 'active')
+      .maybeSingle();
+    return !!data;
+  }
+  for (const slot of lineup) {
+    if (!(await isRosterMember(slot.player_id))) return { error: 'A selected player is not on this team\'s roster.' };
+    if (slot.partner_id && !(await isRosterMember(slot.partner_id))) return { error: 'A selected partner is not on this team\'s roster.' };
+  }
+
+  const { error: saveErr } = await admin
+    .from('tournament_teams')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .update({ default_lineup: lineup as any, default_lineup_enabled: applyToAll })
+    .eq('id', teamId);
+  if (saveErr) return { error: 'Failed to save default lineup.' };
+
+  if (applyToAll) {
+    const { data: ties } = await admin
+      .from('ties')
+      .select('id')
+      .or(`team_a_id.eq.${teamId},team_b_id.eq.${teamId}`);
+    for (const tie of ties ?? []) {
+      await fillTeamDefaultLineupForTie(admin, tie.id);
+    }
+  }
+
+  revalidatePath(`/tournaments/${t.slug}/registrations`);
+  revalidatePath(`/tournaments/${t.slug}/categories/${team.category_id}`);
+  return { success: true };
+}
+
+// ── Apply both teams' default lineups (if enabled) to one tie's rubbers ─────
+// Called immediately after a tie's rubber matches are created (draw
+// generation, group-stage promotion) so a team with "apply to all" on never
+// has to manually submit a lineup for a new tie at all.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function fillTeamDefaultLineupForTie(admin: any, tieId: string) {
+  const { data: tie } = await admin
+    .from('ties')
+    .select('id, category_id, tournament_id, team_a_id, team_b_id, lineup_a_submitted_at, lineup_b_submitted_at')
+    .eq('id', tieId)
+    .single();
+  if (!tie || !tie.team_a_id || !tie.team_b_id) return;
+
+  const { data: teamRows } = await admin
+    .from('tournament_teams')
+    .select('id, captain_id, default_lineup, default_lineup_enabled')
+    .in('id', [tie.team_a_id, tie.team_b_id]);
+  const teamA = (teamRows ?? []).find((x: { id: string }) => x.id === tie.team_a_id);
+  const teamB = (teamRows ?? []).find((x: { id: string }) => x.id === tie.team_b_id);
+
+  if (teamA?.default_lineup_enabled && (teamA.default_lineup ?? []).length > 0) {
+    await applySideLineup(admin, tie, 'a', teamA, teamA.default_lineup as LineupSlot[]);
+  }
+  if (teamB?.default_lineup_enabled && (teamB.default_lineup ?? []).length > 0) {
+    // Re-fetch — applying side A above may have flipped lineup_a_submitted_at
+    // (and possibly the tie's status), which side B's call needs to see.
+    const { data: freshTie } = await admin
+      .from('ties')
+      .select('id, category_id, tournament_id, team_a_id, team_b_id, lineup_a_submitted_at, lineup_b_submitted_at')
+      .eq('id', tieId)
+      .single();
+    if (freshTie) await applySideLineup(admin, freshTie, 'b', teamB, teamB.default_lineup as LineupSlot[]);
+  }
 }
 
 // ── Fetch everything a captain's lineup-submission form needs for one tie ────

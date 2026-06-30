@@ -155,7 +155,7 @@ export default async function PublicDrawPage({ params }: Props) {
           </div>
         ) : isTeamEvent ? (
           <>
-            <TeamStandingsTable ties={ties} />
+            <TeamStandingsTable ties={ties} advancePerGroup={(cat as { advance_per_group?: number }).advance_per_group ?? 2} />
             <TeamBracketView ties={ties} categoryId={cat.id} isManager={isManager} />
           </>
         ) : (

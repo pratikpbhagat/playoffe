@@ -5,8 +5,6 @@ import dynamic from 'next/dynamic';
 import { AddPlayerByEmail } from './AddPlayerByEmail';
 import { AddTeamByEmail } from './AddTeamByEmail';
 import { TeamRosterList, type Team } from './TeamRosterList';
-import { AdminTieLineupForm } from './AdminTieLineupForm';
-import type { TieWithTeams } from '@/lib/actions/draws';
 
 const PendingEntriesPanel = dynamic(() => import('./PendingEntriesPanel').then((m) => m.PendingEntriesPanel));
 const ImportPlayersPanel = dynamic(() => import('./ImportPlayersPanel').then((m) => m.ImportPlayersPanel));
@@ -45,7 +43,7 @@ interface Props {
   canAdminWithdraw?: boolean;
   /** Team-event categories only — keyed by category_id. */
   teamsByCategory?: Record<string, Team[]>;
-  tiesByCategory?: Record<string, TieWithTeams[]>;
+  rubberLineupByCategory?: Record<string, { sequence: number; name: string; play_format: string }[]>;
 }
 
 const STATUS_OPTS = [
@@ -59,7 +57,7 @@ const STATUS_OPTS = [
 
 export function RegistrationsClient({
   tournamentSlug, tournamentId, categories, allEntries, canAdminWithdraw = true,
-  teamsByCategory = {}, tiesByCategory = {},
+  teamsByCategory = {}, rubberLineupByCategory = {},
 }: Props) {
   const [activeCatId, setActiveCatId] = useState(categories[0]?.id ?? '');
   const [search, setSearch] = useState('');
@@ -170,7 +168,7 @@ export function RegistrationsClient({
           categoryId={activeCategory.id}
           categoryStatus={activeCategory.status}
           teams={teamsByCategory[activeCategory.id] ?? []}
-          ties={tiesByCategory[activeCategory.id] ?? []}
+          rubberLineup={rubberLineupByCategory[activeCategory.id] ?? []}
         />
       ) : (
         <>
@@ -208,49 +206,26 @@ export function RegistrationsClient({
   );
 }
 
-// ── Team event: rosters (same view as the category page) + lineup submission ──
+// ── Team event: rosters, each with an inline "Default lineup" toggle ────────
+// Per-tie lineup editing/overriding still exists — on the category page's
+// bracket view (click a tie → "Submit / edit lineup"). This page only sets
+// the team-level default that gets auto-applied to every tie that team
+// plays (current and future), so captains don't re-pick the same lineup
+// every round.
 function TeamEventRegistrations({
-  tournamentId, categoryId, categoryStatus, teams, ties,
+  tournamentId, categoryId, categoryStatus, teams, rubberLineup,
 }: {
   tournamentId: string;
   categoryId: string;
   categoryStatus: string;
   teams: Team[];
-  ties: TieWithTeams[];
+  rubberLineup: { sequence: number; name: string; play_format: string }[];
 }) {
   const isDrawn = ['draw_generated', 'in_progress', 'completed'].includes(categoryStatus);
-  // Ties whose two teams are known and the tie isn't finished yet — these are
-  // the ones a captain (or admin, standing in) can still submit a lineup for.
-  const liveTies = ties.filter((t) => t.team_a && t.team_b && t.status !== 'completed');
 
   return (
     <div className="space-y-5">
-      <TeamRosterList teams={teams} tournamentId={tournamentId} />
-
-      {isDrawn && liveTies.length > 0 && (
-        <div>
-          <h2 className="mb-3 text-sm font-semibold text-slate-400 uppercase tracking-wide">
-            Submit tie lineups
-          </h2>
-          <div className="space-y-3">
-            {liveTies.map((tie) => (
-              <div key={tie.id} className="rounded-xl bg-surface-card ring-1 ring-surface-border overflow-hidden">
-                <div className="px-4 py-3">
-                  <p className="text-sm font-medium text-white">
-                    {tie.team_a!.name}
-                    <span className="mx-2 text-slate-500 font-normal">vs</span>
-                    {tie.team_b!.name}
-                  </p>
-                  <p className="mt-0.5 text-xs text-slate-500">
-                    {tie.round_name ?? `Round ${tie.round}`}{tie.group_name ? ` · ${tie.group_name}` : ''}
-                  </p>
-                </div>
-                <AdminTieLineupForm tieId={tie.id} />
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      <TeamRosterList teams={teams} tournamentId={tournamentId} rubberLineup={rubberLineup} />
 
       {!isDrawn && (
         <>

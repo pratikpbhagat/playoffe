@@ -2149,6 +2149,8 @@ export type Database = {
         Row: {
           captain_id: string
           category_id: string
+          default_lineup: Json
+          default_lineup_enabled: boolean
           id: string
           marquee_player_id: string | null
           name: string
@@ -2161,6 +2163,8 @@ export type Database = {
         Insert: {
           captain_id: string
           category_id: string
+          default_lineup?: Json
+          default_lineup_enabled?: boolean
           id?: string
           marquee_player_id?: string | null
           name: string
@@ -2173,6 +2177,8 @@ export type Database = {
         Update: {
           captain_id?: string
           category_id?: string
+          default_lineup?: Json
+          default_lineup_enabled?: boolean
           id?: string
           marquee_player_id?: string | null
           name?: string

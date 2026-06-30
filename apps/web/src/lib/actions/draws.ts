@@ -6,6 +6,7 @@ import { generateDraw } from '@pickleball/draw-engine';
 import type { DrawConfig, DrawEntry } from '@pickleball/shared';
 import { createNotificationsForPlayers } from './notifications';
 import { checkAndAdvanceTie } from './scoring';
+import { fillTeamDefaultLineupForTie } from './teams';
 
 // ── Auth guard ────────────────────────────────────────────────────────────────
 async function assertCategoryManager(categoryId: string, userId: string) {
@@ -376,7 +377,13 @@ async function generateTeamEventDraw(
       }));
 
       const { error: rubberErr } = await admin.from('matches').insert(rubberRows);
-      if (!rubberErr) rubberCount += rubberRows.length;
+      if (!rubberErr) {
+        rubberCount += rubberRows.length;
+        // Auto-fill from either team's saved default lineup, if they have
+        // "apply to all ties" enabled — skips captains who'd otherwise have
+        // to manually resubmit the same lineup for every tie.
+        await fillTeamDefaultLineupForTie(admin, tie.id);
+      }
     }
   }
 
@@ -1413,6 +1420,9 @@ export async function promoteGroupWinnerTiesAction(categoryId: string) {
         rubber_sequence: r.sequence,
       }));
       await admin.from('matches').insert(rubberRows);
+      // Auto-fill from either advancing team's saved default lineup, same as
+      // a freshly-generated draw does.
+      await fillTeamDefaultLineupForTie(admin, tie.id);
     } else {
       // Bye straight into this knockout slot — resolve and advance immediately.
       const winner = teamA ?? teamB;

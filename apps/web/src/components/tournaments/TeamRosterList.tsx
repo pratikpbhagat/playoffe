@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { removeTeamAction, reassignTeamCaptainAction } from '@/lib/actions/teams';
 import { useConfirm } from '@/components/ui/ConfirmProvider';
+import { TeamDefaultLineupForm } from './TeamDefaultLineupForm';
 
 interface Player {
   id: string;
@@ -28,11 +29,16 @@ export interface Team {
   marquee: Player | null;
   team_members: TeamMember[];
   composition_warning?: string | null;
+  default_lineup?: { rubber_sequence: number; player_id: string; partner_id?: string | null }[] | null;
+  default_lineup_enabled?: boolean | null;
 }
 
 interface Props {
   teams: Team[];
   tournamentId: string;
+  /** Team-event only — when provided, each team's card gets a collapsible
+   *  "Default lineup" toggle instead of needing a separate section/page. */
+  rubberLineup?: { sequence: number; name: string; play_format: string }[];
 }
 
 function Avatar({ name, isCaptain }: { name: string; isCaptain?: boolean }) {
@@ -43,11 +49,12 @@ function Avatar({ name, isCaptain }: { name: string; isCaptain?: boolean }) {
   );
 }
 
-export function TeamRosterList({ teams, tournamentId }: Props) {
+export function TeamRosterList({ teams, tournamentId, rubberLineup }: Props) {
   const router = useRouter();
   const { confirm } = useConfirm();
   const [removing, setRemoving] = useState<string | null>(null);
   const [reassigningTeam, setReassigningTeam] = useState<string | null>(null);
+  const [expandedLineupTeam, setExpandedLineupTeam] = useState<string | null>(null);
 
   async function handleRemove(teamId: string, teamName: string) {
     if (!await confirm({
@@ -174,6 +181,32 @@ export function TeamRosterList({ teams, tournamentId }: Props) {
               <p className="mt-2 rounded bg-amber-900/20 px-2 py-1 text-[11px] text-amber-300">
                 ⚠ {team.composition_warning}
               </p>
+            )}
+
+            {rubberLineup && rubberLineup.length > 0 && team.captain && (
+              <div className="mt-3 -mx-4 -mb-4 border-t border-surface-border">
+                <button
+                  onClick={() => setExpandedLineupTeam((prev) => (prev === team.id ? null : team.id))}
+                  className="w-full px-4 py-2 text-left flex items-center justify-between gap-3 hover:bg-surface-border/40 transition-colors"
+                  title="Set this team's usual lineup once and reuse it across ties"
+                >
+                  <span className="flex items-center gap-1.5 text-xs font-medium text-slate-400">
+                    <span aria-hidden>📋</span>
+                    Default lineup
+                    {team.default_lineup_enabled ? (
+                      <span className="ml-1 text-accent-400">✓ Applying to all ties</span>
+                    ) : (
+                      <span className="ml-1 rounded-full bg-brand-900/40 px-2 py-0.5 text-[10px] font-normal text-brand-300">
+                        Click to set
+                      </span>
+                    )}
+                  </span>
+                  <span className={`shrink-0 text-slate-500 transition-transform ${expandedLineupTeam === team.id ? 'rotate-180' : ''}`}>▾</span>
+                </button>
+                {expandedLineupTeam === team.id && (
+                  <TeamDefaultLineupForm team={team} rubberLineup={rubberLineup} />
+                )}
+              </div>
             )}
           </div>
         );

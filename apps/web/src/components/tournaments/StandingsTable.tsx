@@ -350,7 +350,7 @@ function sortTeamStandings(standings: TeamStanding[], ties: TieWithTeams[]): Tea
   });
 }
 
-export const TeamStandingsTable = memo(function TeamStandingsTable({ ties }: { ties: TieWithTeams[] }) {
+export const TeamStandingsTable = memo(function TeamStandingsTable({ ties, advancePerGroup }: { ties: TieWithTeams[]; advancePerGroup?: number }) {
   const relevantTies = useMemo(() => ties.filter((t) => t.group_name !== null), [ties]);
   const { completed, total, standingsMap } = useMemo(() => ({
     completed: relevantTies.filter((t) => t.status === 'completed').length,
@@ -382,7 +382,7 @@ export const TeamStandingsTable = memo(function TeamStandingsTable({ ties }: { t
                   <p className="text-xs font-bold uppercase tracking-widest text-slate-300">{groupName}</p>
                   <span className="text-[11px] text-slate-600">{gCompleted}/{gTotal} played</span>
                 </div>
-                <TeamStandingsRows standings={sorted} />
+                <TeamStandingsRows standings={sorted} advancePerGroup={advancePerGroup} allTiesDone={gTotal > 0 && gCompleted === gTotal} />
               </div>
             );
           })}
@@ -406,7 +406,19 @@ export const TeamStandingsTable = memo(function TeamStandingsTable({ ties }: { t
   );
 });
 
-function TeamStandingsRows({ standings }: { standings: TeamStanding[] }) {
+function TeamStandingsRows({
+  standings,
+  advancePerGroup,
+  allTiesDone = false,
+}: {
+  standings: TeamStanding[];
+  advancePerGroup?: number;
+  /** Only highlight qualifying rows once every tie in this group has been
+   *  played — showing it before any results exist is misleading. */
+  allTiesDone?: boolean;
+}) {
+  const cutAt = (allTiesDone && advancePerGroup != null && advancePerGroup > 0) ? advancePerGroup : null;
+
   return (
     <table className="w-full text-xs">
       <thead>
@@ -422,10 +434,23 @@ function TeamStandingsRows({ standings }: { standings: TeamStanding[] }) {
       </thead>
       <tbody>
         {standings.map((s, idx) => {
+          const qualifies = cutAt !== null && idx < cutAt;
+          // Draw a dashed cut-line after the last qualifying row
+          const isCutRow = cutAt !== null && idx === cutAt - 1 && cutAt < standings.length;
           const diffStr = s.pointDiff > 0 ? `+${s.pointDiff}` : `${s.pointDiff}`;
           return (
-            <tr key={s.teamId} className="border-b border-surface-border">
-              <td className="px-4 py-2.5 font-semibold text-slate-500">{idx + 1}</td>
+            <tr
+              key={s.teamId}
+              className={[
+                qualifies ? 'bg-accent-500/10' : '',
+                isCutRow
+                  ? 'border-b-2 border-dashed border-accent-500/40'
+                  : 'border-b border-surface-border',
+              ].join(' ')}
+            >
+              <td className={`px-4 py-2.5 font-semibold ${qualifies ? 'text-accent-400' : 'text-slate-500'}`}>
+                {idx + 1}
+              </td>
               <td className="px-2 py-2 font-medium text-slate-200">{s.teamName}</td>
               <td className="px-2 py-2.5 text-center text-slate-400">{s.played}</td>
               <td className="px-2 py-2.5 text-center font-semibold text-white">{s.wins}</td>

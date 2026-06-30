@@ -322,7 +322,7 @@ export default async function CategoryPage({ params }: Props) {
             // StandingsTable renders its own section header ("Groups" / "Standings")
             // and shows all players even before matches are played.
             isTeamEvent ? (
-              <TeamStandingsTable ties={ties} />
+              <TeamStandingsTable ties={ties} advancePerGroup={(category as { advance_per_group?: number }).advance_per_group ?? 2} />
             ) : (
               <StandingsTable
                 matches={matches}
