@@ -309,16 +309,22 @@ function buildTeamStandings(ties: TieWithTeams[]): Map<string, TeamStanding> {
     const a = getOrCreate(tie.team_a.id, tie.team_a.name);
     const b = getOrCreate(tie.team_b.id, tie.team_b.name);
 
-    if (tie.status !== 'completed') continue;
-
-    a.played++;
-    b.played++;
+    // Rubbers won/lost and point differential are live on the tie row — the
+    // DB trigger recomputes them after every individual rubber completes,
+    // independent of whether the tie itself has been decided yet. Show that
+    // progress immediately instead of waiting for the whole tie to finish.
     a.rubbersWon += tie.rubbers_won_a;
     a.rubbersLost += tie.rubbers_won_b;
     b.rubbersWon += tie.rubbers_won_b;
     b.rubbersLost += tie.rubbers_won_a;
     a.pointDiff += tie.point_diff_a;
     b.pointDiff -= tie.point_diff_a;
+
+    // Played/Win/Loss only make sense once the tie itself is fully decided.
+    if (tie.status !== 'completed') continue;
+
+    a.played++;
+    b.played++;
 
     if (tie.winner_team_id === tie.team_a.id) { a.wins++; b.losses++; }
     else if (tie.winner_team_id === tie.team_b.id) { b.wins++; a.losses++; }

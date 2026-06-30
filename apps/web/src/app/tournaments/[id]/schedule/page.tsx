@@ -248,13 +248,20 @@ export default async function SchedulePage({ params }: Props) {
     group_name: m.group_name,
     category_id: m.category_id,
     category_name: m.tc?.name ?? 'Unknown category',
-    player_a: buildName(m.ea, m, 'a'),
-    player_b: buildName(m.eb, m, 'b'),
+    // Team-event rows show the team names in their own header row (below),
+    // so player_a/player_b here are purely the lineup — left blank (not the
+    // team-name fallback) until a lineup is actually submitted.
+    player_a: m.tie_id ? (m.ea?.players?.full_name ? buildName(m.ea, m, 'a') : '') : buildName(m.ea, m, 'a'),
+    player_b: m.tie_id ? (m.eb?.players?.full_name ? buildName(m.eb, m, 'b') : '') : buildName(m.eb, m, 'b'),
     player_a_is_placeholder: !m.ea?.players?.full_name && !m.tie?.team_a?.name,
     player_b_is_placeholder: !m.eb?.players?.full_name && !m.tie?.team_b?.name,
     tie_id: m.tie_id,
     rubber_sequence: m.rubber_sequence,
     is_decider: m.is_decider,
+    // Always populated for team-event rows — shown as the header line above
+    // the lineup, regardless of whether the lineup has been submitted yet.
+    team_a_name: m.tie_id ? m.tie?.team_a?.name ?? null : null,
+    team_b_name: m.tie_id ? m.tie?.team_b?.name ?? null : null,
   }));
 
   const scheduledCount = matches.filter((m) => m.scheduled_time).length;

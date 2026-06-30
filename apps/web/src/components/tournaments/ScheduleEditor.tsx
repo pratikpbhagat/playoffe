@@ -5,11 +5,14 @@ import {
   batchScheduleMatchesAction,
   generateSmartScheduleAction,
   updateCourtCountAction,
+  resetCategoryScheduleAction,
 } from '@/lib/actions/scheduling';
 import type { ScheduleUpdate, ConflictInfo } from '@/lib/actions/scheduling';
 import { detectConflictsFromUpdates } from '@/lib/scheduling-utils';
 import { ScheduleSettingsModal } from './ScheduleSettingsModal';
 import type { ScheduleSettings } from './ScheduleSettingsModal';
+import { useConfirm } from '@/components/ui/ConfirmProvider';
+import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 
 // Loaded on demand — only rendered when the user opens the AI panel,
@@ -40,6 +43,11 @@ export interface MatchForScheduling {
   tie_id?: string | null;
   rubber_sequence?: number | null;
   is_decider?: boolean;
+  /** Only set once a lineup is in (player_a/player_b are then individual
+   *  player names) — shown as a differently-colored prefix so the row is
+   *  still identifiable as belonging to that team. */
+  team_a_name?: string | null;
+  team_b_name?: string | null;
 }
 
 interface Props {
@@ -92,6 +100,10 @@ export function ScheduleEditor({
   aiEnabled = false,
   aiConfigured = false,
 }: Props) {
+  const router = useRouter();
+  const { confirm } = useConfirm();
+  const [resettingSchedule, setResettingSchedule] = useState(false);
+
   // Resolve each match's own duration (per-category override → tournament fallback)
   const durationByMatchId = useMemo(
     () => new Map(matches.map((m) => [m.id, categoryDurationMins[m.category_id] ?? matchDurationMins])),
@@ -231,6 +243,37 @@ export function ScheduleEditor({
     } else {
       setSaveMsg({ ok: `Schedule generated for ${result.updates.length} matches — review and save.` });
     }
+  }
+
+  // ── Reset one category's schedule ─────────────────────────────────────────
+  async function handleResetCategorySchedule() {
+    const category = categories.find((c) => c.id === activeCatId);
+    if (!category) return;
+    const ok = await confirm({
+      title: 'Reset schedule',
+      message: `Clear the court/time for every scheduled match in "${category.name}"? This can't be undone — you'll need to re-run "Schedule all matches" or reassign manually.`,
+      confirmLabel: 'Reset schedule',
+      variant: 'danger',
+    });
+    if (!ok) return;
+
+    setResettingSchedule(true);
+    const result = await resetCategoryScheduleAction(tournamentSlug, activeCatId);
+    setResettingSchedule(false);
+
+    if ('error' in result) {
+      setSaveMsg({ err: result.error });
+      return;
+    }
+    setEdits((prev) => {
+      const next = { ...prev };
+      for (const m of matches) {
+        if (m.category_id === activeCatId) next[m.id] = { time: '', court: '' };
+      }
+      return next;
+    });
+    setSaveMsg({ ok: `Schedule reset for ${result.count} match${result.count !== 1 ? 'es' : ''} in "${category.name}".` });
+    router.refresh();
   }
 
   // ── Apply AI updates ──────────────────────────────────────────────────────
@@ -460,6 +503,15 @@ export function ScheduleEditor({
             </select>
             <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">▾</span>
           </div>
+          {activeCatId && (
+            <button
+              onClick={handleResetCategorySchedule}
+              disabled={resettingSchedule}
+              className="shrink-0 rounded-lg border border-slate-600 px-3 py-2 text-xs font-medium text-slate-400 hover:border-red-600 hover:text-red-400 transition-colors disabled:opacity-50"
+            >
+              {resettingSchedule ? 'Resetting…' : '↺ Reset schedule for this category'}
+            </button>
+          )}
         </div>
 
         {/* ── Groups ──────────────────────────────────────────────────────── */}
@@ -573,30 +625,49 @@ export function ScheduleEditor({
                       >
                         <td className="px-4 py-2.5 text-xs text-slate-500">{idx + 1}</td>
                         <td className="px-4 py-2.5">
-                          {/* Player names */}
-                          <div className="flex items-center gap-1 flex-wrap">
-                            <span className={m.player_a_is_placeholder ? 'text-sm text-slate-400 italic' : 'text-sm font-medium text-white'}>{m.player_a}</span>
-                            <span className="text-slate-500 text-xs">vs</span>
-                            <span className={m.player_b_is_placeholder ? 'text-sm text-slate-400 italic' : 'text-sm font-medium text-white'}>{m.player_b}</span>
-                            {/* Team-event ties share the same player_a/player_b across all their
-                                rubbers — tag each row with the configured rubber name so they're distinguishable. */}
-                            {m.tie_id && m.round_name?.includes('·') && (
-                              <span className="rounded bg-surface px-1.5 py-0.5 text-[10px] font-medium text-brand-300 ring-1 ring-surface-border">
-                                {m.round_name.split('·').pop()?.trim()}
-                              </span>
-                            )}
+                          {/* Player names — team-event rows get a header line with the two
+                              team names + rubber tag, then the actual lineup underneath
+                              (or "Awaiting lineup" until the captain submits one). */}
+                          {m.team_a_name || m.team_b_name ? (
+                            <>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-sm font-semibold text-brand-300">{m.team_a_name}</span>
+                                <span className="text-slate-500 text-xs">vs</span>
+                                <span className="text-sm font-semibold text-brand-300">{m.team_b_name}</span>
+                                {m.round_name?.includes('·') && (
+                                  <span className="rounded bg-surface px-1.5 py-0.5 text-[10px] font-medium text-brand-300 ring-1 ring-surface-border">
+                                    {m.round_name.split('·').pop()?.trim()}
+                                  </span>
+                                )}
+                              </div>
+                              {m.player_a || m.player_b ? (
+                                <p className="text-xs text-slate-400 mt-0.5">
+                                  {m.player_a || 'TBD'} <span className="text-slate-600">vs</span> {m.player_b || 'TBD'}
+                                </p>
+                              ) : (
+                                <p className="text-xs text-slate-600 italic mt-0.5">Awaiting lineup</p>
+                              )}
+                            </>
+                          ) : (
+                            <div className="flex items-center gap-1 flex-wrap">
+                              <span className={m.player_a_is_placeholder ? 'text-sm text-slate-400 italic' : 'text-sm font-medium text-white'}>{m.player_a}</span>
+                              <span className="text-slate-500 text-xs">vs</span>
+                              <span className={m.player_b_is_placeholder ? 'text-sm text-slate-400 italic' : 'text-sm font-medium text-white'}>{m.player_b}</span>
+                            </div>
+                          )}
+                          <div className="mt-1 flex items-center gap-1 flex-wrap">
                             {isWalkover && (
-                              <span className="ml-1 rounded-full bg-amber-900/30 px-2 py-0.5 text-[10px] font-semibold text-amber-400">
+                              <span className="rounded-full bg-amber-900/30 px-2 py-0.5 text-[10px] font-semibold text-amber-400">
                                 Walkover
                               </span>
                             )}
                             {conflict && (
-                              <span className="ml-1 rounded px-1.5 py-0.5 text-[10px] bg-red-900/40 text-red-300" title={conflict}>
+                              <span className="rounded px-1.5 py-0.5 text-[10px] bg-red-900/40 text-red-300" title={conflict}>
                                 ⚠️ Conflict
                               </span>
                             )}
                             {courtInvalid && (
-                              <span className="ml-1 rounded px-1.5 py-0.5 text-[10px] bg-amber-900/40 text-amber-300">
+                              <span className="rounded px-1.5 py-0.5 text-[10px] bg-amber-900/40 text-amber-300">
                                 ⚠️ Court removed
                               </span>
                             )}

@@ -691,6 +691,7 @@ export type MatchWithPlayers = {
   winner_entry_id: string | null;
   sets: unknown;
   court: number | null;
+  scheduled_time: string | null;
   entry_a: {
     entry_status?: string; // 'active' | 'withdrawn' | etc.
     id: string;
@@ -873,7 +874,7 @@ export async function getMatchesForCategory(categoryId: string): Promise<MatchWi
   const { data } = await admin
     .from('matches')
     .select(
-      `id, round, round_name, group_name, bracket_type, status, winner_entry_id, sets, court,
+      `id, round, round_name, group_name, bracket_type, status, winner_entry_id, sets, court, scheduled_time,
        ea:tournament_entries!entry_a_id(id, seed, status, players!player_id(full_name, username), partner:players!partner_id(full_name)),
        eb:tournament_entries!entry_b_id(id, seed, status, players!player_id(full_name, username), partner:players!partner_id(full_name))`,
     )
@@ -905,6 +906,7 @@ export async function getMatchesForCategory(categoryId: string): Promise<MatchWi
       winner_entry_id: m.winner_entry_id,
       sets: m.sets,
       court: m.court,
+      scheduled_time: m.scheduled_time,
       entry_a: ea
         ? {
             id: ea.id,

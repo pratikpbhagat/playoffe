@@ -653,34 +653,19 @@ interface LineupSlot {
   partner_id?: string;
 }
 
-export async function submitTieLineupAction(tieId: string, lineup: LineupSlot[]) {
-  const user = await getCurrentUser();
-  if (!user) return { error: 'Not authenticated.' };
-
-  const admin = createAdminClient();
-
-  const { data: tie } = await admin
-    .from('ties')
-    .select('id, category_id, tournament_id, team_a_id, team_b_id, lineup_a_submitted_at, lineup_b_submitted_at')
-    .eq('id', tieId)
-    .single();
-
-  if (!tie || !tie.team_a_id || !tie.team_b_id) return { error: 'Tie not found.' };
-
-  const { data: teamA } = await admin.from('tournament_teams').select('id, captain_id').eq('id', tie.team_a_id).single();
-  const { data: teamB } = await admin.from('tournament_teams').select('id, captain_id').eq('id', tie.team_b_id).single();
-
-  let side: 'a' | 'b';
-  let captainTeam: { id: string; captain_id: string };
-  if (teamA?.captain_id === user.id) { side = 'a'; captainTeam = teamA; }
-  else if (teamB?.captain_id === user.id) { side = 'b'; captainTeam = teamB; }
-  else return { error: 'Only a team captain can submit a lineup for this tie.' };
-
-  // Per-rubber lock: a captain can edit their lineup unilaterally, any time,
-  // for any rubber whose match hasn't started yet ('scheduled' status). Once
-  // a rubber's match leaves 'scheduled' (in_progress/completed/walkover),
-  // that rubber's assignment is frozen — but other not-yet-started rubbers in
-  // the same tie remain editable. No whole-tie lock.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function applySideLineup(
+  admin: any,
+  tie: { id: string; category_id: string; tournament_id: string; lineup_a_submitted_at: string | null; lineup_b_submitted_at: string | null },
+  side: 'a' | 'b',
+  captainTeam: { id: string; captain_id: string },
+  lineup: LineupSlot[],
+): Promise<{ error: string } | { success: true }> {
+  // Per-rubber lock: editable any time for any rubber whose match hasn't
+  // started yet ('scheduled' status). Once a rubber's match leaves
+  // 'scheduled' (in_progress/completed/walkover), that rubber's assignment
+  // is frozen — but other not-yet-started rubbers in the same tie remain
+  // editable. No whole-tie lock.
   const { data: category } = await admin
     .from('tournament_categories')
     .select('rubber_lineup')
@@ -694,14 +679,14 @@ export async function submitTieLineupAction(tieId: string, lineup: LineupSlot[])
   const { data: rubberMatches } = await admin
     .from('matches')
     .select('id, rubber_sequence, status, entry_a_id, entry_b_id')
-    .eq('tie_id', tieId)
+    .eq('tie_id', tie.id)
     .eq('is_decider', false);
 
-  const matchBySeq = new Map((rubberMatches ?? []).map((m) => [m.rubber_sequence, m]));
+  const matchBySeq = new Map((rubberMatches ?? []).map((m: { rubber_sequence: number }) => [m.rubber_sequence, m]));
 
   for (const rubber of rubberLineup) {
     const label = rubber.name || `Rubber ${rubber.sequence}`;
-    const match = matchBySeq.get(rubber.sequence);
+    const match = matchBySeq.get(rubber.sequence) as { id: string; status: string; entry_a_id: string | null; entry_b_id: string | null } | undefined;
     if (!match) continue;
     if (match.status !== 'scheduled') continue; // already started/completed — frozen, silently skip
 
@@ -774,8 +759,75 @@ export async function submitTieLineupAction(tieId: string, lineup: LineupSlot[])
       ...(!alreadySubmitted && { [lockField]: new Date().toISOString() }),
       ...(otherSubmitted && { status: 'scheduled' }),
     })
-    .eq('id', tieId);
+    .eq('id', tie.id);
 
+  return { success: true };
+}
+
+export async function submitTieLineupAction(tieId: string, lineup: LineupSlot[]) {
+  const user = await getCurrentUser();
+  if (!user) return { error: 'Not authenticated.' };
+
+  const admin = createAdminClient();
+
+  const { data: tie } = await admin
+    .from('ties')
+    .select('id, category_id, tournament_id, team_a_id, team_b_id, lineup_a_submitted_at, lineup_b_submitted_at')
+    .eq('id', tieId)
+    .single();
+
+  if (!tie || !tie.team_a_id || !tie.team_b_id) return { error: 'Tie not found.' };
+
+  const { data: teamA } = await admin.from('tournament_teams').select('id, captain_id').eq('id', tie.team_a_id).single();
+  const { data: teamB } = await admin.from('tournament_teams').select('id, captain_id').eq('id', tie.team_b_id).single();
+
+  let side: 'a' | 'b';
+  let captainTeam: { id: string; captain_id: string };
+  if (teamA?.captain_id === user.id) { side = 'a'; captainTeam = teamA; }
+  else if (teamB?.captain_id === user.id) { side = 'b'; captainTeam = teamB; }
+  else return { error: 'Only a team captain can submit a lineup for this tie.' };
+
+  return applySideLineup(admin, tie, side, captainTeam, lineup);
+}
+
+// ── Organizer/manager: submit a lineup on behalf of either (or both) teams ──
+// For when a captain isn't available to submit through their own account —
+// the organizer already manages the roster from this page, so let them fill
+// in the lineup directly instead of blocking the tie from being scheduled.
+export async function submitTieLineupAsManagerAction(
+  tieId: string,
+  lineupA: LineupSlot[],
+  lineupB: LineupSlot[],
+): Promise<{ error: string } | { success: true }> {
+  const user = await getCurrentUser();
+  if (!user) return { error: 'Not authenticated.' };
+
+  const admin = createAdminClient();
+
+  const { data: tie } = await admin
+    .from('ties')
+    .select('id, category_id, tournament_id, team_a_id, team_b_id, lineup_a_submitted_at, lineup_b_submitted_at')
+    .eq('id', tieId)
+    .single();
+  if (!tie || !tie.team_a_id || !tie.team_b_id) return { error: 'Tie not found.' };
+
+  const t = await assertTournamentManager(tie.tournament_id, user.id);
+  if (!t) return { error: 'Permission denied' };
+
+  const { data: teamA } = await admin.from('tournament_teams').select('id, captain_id').eq('id', tie.team_a_id).single();
+  const { data: teamB } = await admin.from('tournament_teams').select('id, captain_id').eq('id', tie.team_b_id).single();
+  if (!teamA || !teamB) return { error: 'Teams not found.' };
+
+  if (lineupA.length > 0) {
+    const result = await applySideLineup(admin, tie, 'a', teamA, lineupA);
+    if ('error' in result) return result;
+  }
+  if (lineupB.length > 0) {
+    const result = await applySideLineup(admin, tie, 'b', teamB, lineupB);
+    if ('error' in result) return result;
+  }
+
+  revalidatePath(`/tournaments/${t.slug}/registrations`);
   return { success: true };
 }
 
@@ -936,5 +988,78 @@ export async function submitDeciderLineupAction(tieId: string, playerId: string,
     await admin.from('matches').update({ [entryColumn]: entry.id }).eq('id', deciderMatch.id);
   }
 
+  return { success: true };
+}
+
+// ── Reorder a team event's rubber playing order (after the draw is generated) ─
+// The set of rubbers can't be changed post-draw (matches already exist per
+// rubber, possibly with lineups/results attached) — but their play order is
+// just display/scheduling metadata, safe to change as long as nothing has
+// started yet anywhere in the category. `newOrder` is the rubber lineup's
+// current sequence numbers listed in the desired new order, e.g. [2, 1, 3].
+export async function reorderRubberLineupAction(
+  categoryId: string,
+  newOrder: number[],
+): Promise<{ error: string } | { success: true }> {
+  const user = await getCurrentUser();
+  if (!user) return { error: 'Not authenticated.' };
+
+  const admin = createAdminClient();
+
+  const { data: cat } = await admin
+    .from('tournament_categories')
+    .select('id, tournament_id, play_format, rubber_lineup')
+    .eq('id', categoryId)
+    .single();
+  if (!cat || cat.play_format !== 'team_event') return { error: 'Not a team event category.' };
+
+  const t = await assertTournamentManager(cat.tournament_id, user.id);
+  if (!t) return { error: 'Permission denied' };
+
+  const rubberLineup = (cat.rubber_lineup ?? []) as { sequence: number; name: string; play_format: string }[];
+  if (newOrder.length !== rubberLineup.length || new Set(newOrder).size !== rubberLineup.length) {
+    return { error: 'Reordered list must contain every existing rubber exactly once.' };
+  }
+  const bySeq = new Map(rubberLineup.map((r) => [r.sequence, r]));
+  if (newOrder.some((seq) => !bySeq.has(seq))) return { error: 'Unknown rubber in reorder list.' };
+
+  // Block if any rubber (in any tie) has already started — reordering would
+  // desync an in-progress/completed match's recorded rubber number from the
+  // category's lineup.
+  const { data: startedMatch } = await admin
+    .from('matches')
+    .select('id')
+    .eq('category_id', categoryId)
+    .not('tie_id', 'is', null)
+    .eq('is_decider', false)
+    .neq('status', 'scheduled')
+    .limit(1)
+    .maybeSingle();
+  if (startedMatch) return { error: 'Cannot reorder — at least one rubber has already started.' };
+
+  // old sequence -> new sequence (1-indexed, per newOrder's position)
+  const oldToNewSeq = new Map(newOrder.map((oldSeq, i) => [oldSeq, i + 1]));
+  const reorderedLineup = newOrder.map((oldSeq, i) => ({ ...bySeq.get(oldSeq)!, sequence: i + 1 }));
+
+  const { error: catErr } = await admin
+    .from('tournament_categories')
+    .update({ rubber_lineup: reorderedLineup })
+    .eq('id', categoryId);
+  if (catErr) return { error: 'Failed to save new rubber order.' };
+
+  const { data: rubberMatches } = await admin
+    .from('matches')
+    .select('id, rubber_sequence')
+    .eq('category_id', categoryId)
+    .not('tie_id', 'is', null)
+    .eq('is_decider', false);
+
+  await Promise.all(
+    (rubberMatches ?? [])
+      .filter((m) => m.rubber_sequence !== null && oldToNewSeq.has(m.rubber_sequence))
+      .map((m) => admin.from('matches').update({ rubber_sequence: oldToNewSeq.get(m.rubber_sequence!) }).eq('id', m.id)),
+  );
+
+  revalidatePath(`/tournaments/${t.slug}/categories/${categoryId}`);
   return { success: true };
 }

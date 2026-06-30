@@ -95,13 +95,22 @@ export default async function TournamentPage({ params }: Props) {
   // Entry counts, pending approvals, and match stages — all independent, run in parallel.
   const [
     { data: entryCounts },
+    { data: teamCounts },
     { count: pendingCount },
     { count: pendingScoreCount },
     { data: stageMatches },
   ] = await Promise.all([
-    // Entry count per category (active only)
+    // Entry count per category (active only) — singles/doubles
     admin
       .from('tournament_entries')
+      .select('category_id')
+      .eq('tournament_id', t.id)
+      .eq('status', 'active'),
+    // Team count per category (active only) — team_event categories don't
+    // create tournament_entries rows until a rubber's lineup is submitted,
+    // so they're counted from tournament_teams instead.
+    admin
+      .from('tournament_teams')
       .select('category_id')
       .eq('tournament_id', t.id)
       .eq('status', 'active'),
@@ -129,6 +138,10 @@ export default async function TournamentPage({ params }: Props) {
   const countByCategory: Record<string, number> = {};
   for (const e of entryCounts ?? []) {
     countByCategory[e.category_id] = (countByCategory[e.category_id] ?? 0) + 1;
+  }
+  const teamCountByCategory: Record<string, number> = {};
+  for (const team of teamCounts ?? []) {
+    teamCountByCategory[team.category_id] = (teamCountByCategory[team.category_id] ?? 0) + 1;
   }
 
   const stageByCategory: Record<string, string> = {};
@@ -360,7 +373,9 @@ export default async function TournamentPage({ params }: Props) {
           ) : (
             <div className="mt-4 space-y-2">
               {categories.map((cat) => {
-                const entryCount = countByCategory[cat.id] ?? 0;
+                const entryCount = cat.play_format === 'team_event'
+                  ? (teamCountByCategory[cat.id] ?? 0)
+                  : (countByCategory[cat.id] ?? 0);
                 const catStatus = CATEGORY_STATUS[cat.status] ?? CATEGORY_STATUS.pending;
                 const stageLabel = stageByCategory[cat.id];
                 return (

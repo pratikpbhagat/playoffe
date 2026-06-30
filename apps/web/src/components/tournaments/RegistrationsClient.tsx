@@ -3,9 +3,14 @@
 import { useState, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { AddPlayerByEmail } from './AddPlayerByEmail';
+import { AddTeamByEmail } from './AddTeamByEmail';
+import { TeamRosterList, type Team } from './TeamRosterList';
+import { AdminTieLineupForm } from './AdminTieLineupForm';
+import type { TieWithTeams } from '@/lib/actions/draws';
 
 const PendingEntriesPanel = dynamic(() => import('./PendingEntriesPanel').then((m) => m.PendingEntriesPanel));
 const ImportPlayersPanel = dynamic(() => import('./ImportPlayersPanel').then((m) => m.ImportPlayersPanel));
+const ImportTeamsPanel = dynamic(() => import('./ImportTeamsPanel').then((m) => m.ImportTeamsPanel));
 
 interface EntryRow {
   id: string;
@@ -38,6 +43,9 @@ interface Props {
   allEntries: EntryRow[];
   /** Controlled by role_permissions — super admin can disable admin withdraw/remove */
   canAdminWithdraw?: boolean;
+  /** Team-event categories only — keyed by category_id. */
+  teamsByCategory?: Record<string, Team[]>;
+  tiesByCategory?: Record<string, TieWithTeams[]>;
 }
 
 const STATUS_OPTS = [
@@ -49,7 +57,10 @@ const STATUS_OPTS = [
   { value: 'withdrawn',   label: 'Withdrawn / Removed' },
 ];
 
-export function RegistrationsClient({ tournamentSlug, tournamentId, categories, allEntries, canAdminWithdraw = true }: Props) {
+export function RegistrationsClient({
+  tournamentSlug, tournamentId, categories, allEntries, canAdminWithdraw = true,
+  teamsByCategory = {}, tiesByCategory = {},
+}: Props) {
   const [activeCatId, setActiveCatId] = useState(categories[0]?.id ?? '');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -152,33 +163,100 @@ export function RegistrationsClient({ tournamentSlug, tournamentId, categories, 
         </div>
       </div>
 
-      {/* ── Entries panel ───────────────────────────────────────────────────── */}
-      {activeCategory && (
-        <PendingEntriesPanel
-          tournamentSlug={tournamentSlug}
-          tournamentId={tournamentId}
-          category={activeCategory}
-          entries={filteredEntries}
-          isFiltered={!!(search || statusFilter)}
-          canWithdraw={canAdminWithdraw}
-        />
-      )}
-
-      {/* ── Add player / pair ────────────────────────────────────────────────── */}
-      {activeCategory && (
-        <AddPlayerByEmail
+      {/* ── Team event: rosters + lineup submission, instead of entries ───────── */}
+      {activeCategory && activeCategory.play_format === 'team_event' ? (
+        <TeamEventRegistrations
           tournamentId={tournamentId}
           categoryId={activeCategory.id}
-          playFormat={activeCategory.play_format as 'singles' | 'doubles' | 'mixed_doubles'}
+          categoryStatus={activeCategory.status}
+          teams={teamsByCategory[activeCategory.id] ?? []}
+          ties={tiesByCategory[activeCategory.id] ?? []}
         />
+      ) : (
+        <>
+          {/* ── Entries panel ─────────────────────────────────────────────────── */}
+          {activeCategory && (
+            <PendingEntriesPanel
+              tournamentSlug={tournamentSlug}
+              tournamentId={tournamentId}
+              category={activeCategory}
+              entries={filteredEntries}
+              isFiltered={!!(search || statusFilter)}
+              canWithdraw={canAdminWithdraw}
+            />
+          )}
+
+          {/* ── Add player / pair ─────────────────────────────────────────────── */}
+          {activeCategory && (
+            <AddPlayerByEmail
+              tournamentId={tournamentId}
+              categoryId={activeCategory.id}
+              playFormat={activeCategory.play_format as 'singles' | 'doubles' | 'mixed_doubles'}
+            />
+          )}
+
+          {/* ── CSV import ─────────────────────────────────────────────────────── */}
+          {activeCategory && (
+            <ImportPlayersPanel
+              tournamentId={tournamentId}
+              categoryId={activeCategory.id}
+            />
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Team event: rosters (same view as the category page) + lineup submission ──
+function TeamEventRegistrations({
+  tournamentId, categoryId, categoryStatus, teams, ties,
+}: {
+  tournamentId: string;
+  categoryId: string;
+  categoryStatus: string;
+  teams: Team[];
+  ties: TieWithTeams[];
+}) {
+  const isDrawn = ['draw_generated', 'in_progress', 'completed'].includes(categoryStatus);
+  // Ties whose two teams are known and the tie isn't finished yet — these are
+  // the ones a captain (or admin, standing in) can still submit a lineup for.
+  const liveTies = ties.filter((t) => t.team_a && t.team_b && t.status !== 'completed');
+
+  return (
+    <div className="space-y-5">
+      <TeamRosterList teams={teams} tournamentId={tournamentId} />
+
+      {isDrawn && liveTies.length > 0 && (
+        <div>
+          <h2 className="mb-3 text-sm font-semibold text-slate-400 uppercase tracking-wide">
+            Submit tie lineups
+          </h2>
+          <div className="space-y-3">
+            {liveTies.map((tie) => (
+              <div key={tie.id} className="rounded-xl bg-surface-card ring-1 ring-surface-border overflow-hidden">
+                <div className="px-4 py-3">
+                  <p className="text-sm font-medium text-white">
+                    {tie.team_a!.name}
+                    <span className="mx-2 text-slate-500 font-normal">vs</span>
+                    {tie.team_b!.name}
+                  </p>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    {tie.round_name ?? `Round ${tie.round}`}{tie.group_name ? ` · ${tie.group_name}` : ''}
+                  </p>
+                </div>
+                <AdminTieLineupForm tieId={tie.id} />
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
-      {/* ── CSV import ───────────────────────────────────────────────────────── */}
-      {activeCategory && (
-        <ImportPlayersPanel
-          tournamentId={tournamentId}
-          categoryId={activeCategory.id}
-        />
+      {!isDrawn && (
+        <>
+          <AddTeamByEmail tournamentId={tournamentId} categoryId={categoryId} />
+          <ImportTeamsPanel tournamentId={tournamentId} categoryId={categoryId} />
+        </>
       )}
     </div>
   );

@@ -95,7 +95,7 @@ export function TieLineupForm({ tieId }: Props) {
     }
 
     const result = await submitTieLineupAction(tieId, lineup);
-    if (result.error) setError(result.error);
+    if ('error' in result) setError(result.error);
     else { setSuccess('Lineup submitted.'); router.refresh(); }
     setSaving(false);
   }

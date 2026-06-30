@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { WinByDeuceFields } from './WinByDeuceFields';
 import { GroupStageConfigPanel } from './AddCategoryInline';
 import { RubberLineupEditor, RosterCompositionEditor, DeciderFormatSelect, type RubberLineupRow } from './RubberLineupEditor';
+import { RubberOrderEditor } from './RubberOrderEditor';
 import { PLAY_FORMATS as PLAY_FORMAT_OPTS, DRAW_FORMATS as DRAW_FORMAT_OPTS, type RosterCompositionRule } from '@pickleball/shared';
 import {
   suggestGroupConfig,
@@ -321,6 +322,11 @@ export function CategoryEditInline({
               <RosterCompositionEditor value={rosterComposition} onChange={setRosterComposition} />
               <DeciderFormatSelect value={deciderFormat} onChange={setDeciderFormat} />
             </>
+          )}
+
+          {/* Post-draw: the lineup itself is locked, but the play order can still change */}
+          {!canEditFormats && currentPlayFormat === 'team_event' && (
+            <RubberOrderEditor categoryId={categoryId} rubberLineup={rubberLineup} />
           )}
 
           {/* Group stage configuration panel */}

@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache';
 import { headers, cookies } from 'next/headers';
 import { createAdminClient, createClient, getCurrentUser } from '@/lib/supabase/server';
 import { createNotificationsForPlayers } from '@/lib/actions/notifications';
+import { checkAndAdvanceTie } from './scoring';
 
 function hashPin(pin: string) {
   return crypto.createHash('sha256').update(pin.trim()).digest('hex');
@@ -727,7 +728,7 @@ export async function scoreMatchAsRefereeAction(
 
   const { data: match } = await admin
     .from('matches')
-    .select('id, tournament_id, entry_a_id, entry_b_id, status')
+    .select('id, tournament_id, entry_a_id, entry_b_id, status, tie_id')
     .eq('id', matchId)
     .eq('tournament_id', validated.tournament!.id)
     .single();
@@ -755,6 +756,15 @@ export async function scoreMatchAsRefereeAction(
     .eq('id', matchId);
 
   if (matchErr) return { error: 'Failed to save result: ' + matchErr.message };
+
+  // team_event: this match is a rubber within a tie — the DB trigger already
+  // recomputed the tie's aggregates, but deciding whether the tie itself is
+  // now finished (and advancing the winner) is business logic that only runs
+  // here in app code. Without this, ties scored via the referee PIN flow
+  // never flip to 'completed' and standings never reflect them.
+  if (match.tie_id) {
+    await checkAndAdvanceTie(admin, match.tie_id);
+  }
 
   return { success: true };
 }

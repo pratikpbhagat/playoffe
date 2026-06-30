@@ -18,7 +18,7 @@ interface TeamMember {
   player: Player | null;
 }
 
-interface Team {
+export interface Team {
   id: string;
   name: string;
   seed: number | null;

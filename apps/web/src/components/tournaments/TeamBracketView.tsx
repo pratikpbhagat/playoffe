@@ -1,11 +1,40 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { TieWithTeams } from '@/lib/actions/draws';
 import { TieLineupForm } from './TieLineupForm';
-import { walkoverTieAction, scheduleTieAction } from '@/lib/actions/teams';
+import { AdminTieLineupForm } from './AdminTieLineupForm';
+import { walkoverTieAction } from '@/lib/actions/teams';
 import { promoteGroupWinnerTiesAction } from '@/lib/actions/draws';
 import { useRouter } from 'next/navigation';
+
+// ── Lineup modal — popped up instead of expanding inline, so the tie cards
+//    stay compact even for a 3+ rubber lineup with two team columns. ────────
+function LineupModal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') onClose(); }
+    document.addEventListener('keydown', onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [onClose]);
+
+  return (
+    <div role="dialog" aria-modal="true" className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-3xl max-h-[85vh] overflow-y-auto rounded-2xl bg-surface-card ring-1 ring-surface-border shadow-2xl">
+        <div className="flex items-center justify-between border-b border-surface-border px-5 py-3 sticky top-0 bg-surface-card">
+          <h2 className="text-sm font-semibold text-white">{title}</h2>
+          <button onClick={onClose} className="text-slate-500 hover:text-slate-300 transition-colors text-sm">✕ Close</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
 
 interface Props {
   ties: TieWithTeams[];
@@ -26,25 +55,14 @@ function TieCard({ tie, isExpanded, onToggle, isManager }: { tie: TieWithTeams; 
   const router = useRouter();
   const aName = tie.team_a?.name ?? 'TBD';
   const bName = tie.team_b?.name ?? (tie.team_a ? 'Bye' : 'TBD');
-  const [court, setCourt] = useState('');
-  const [startTime, setStartTime] = useState('');
-  const [scheduling, setScheduling] = useState(false);
-  const [scheduleError, setScheduleError] = useState<string | null>(null);
+  const [lineupOpen, setLineupOpen] = useState(false);
 
   async function handleWalkover(winningTeamId: string) {
     await walkoverTieAction(tie.id, winningTeamId);
     router.refresh();
   }
 
-  async function handleSchedule() {
-    if (!court || !startTime) return;
-    setScheduling(true);
-    setScheduleError(null);
-    const result = await scheduleTieAction(tie.id, parseInt(court, 10), new Date(startTime).toISOString());
-    if (result.error) setScheduleError(result.error);
-    else router.refresh();
-    setScheduling(false);
-  }
+  const canSubmitLineup = tie.status !== 'completed' && tie.team_a && tie.team_b;
 
   return (
     <div className="rounded-xl bg-surface-card ring-1 ring-surface-border overflow-hidden">
@@ -77,37 +95,22 @@ function TieCard({ tie, isExpanded, onToggle, isManager }: { tie: TieWithTeams; 
         </div>
       )}
 
-      {isManager && isExpanded && tie.status !== 'completed' && tie.team_a && tie.team_b && (
-        <div className="border-t border-surface-border px-4 py-2 space-y-1.5 bg-surface/40">
-          <p className="text-[11px] text-slate-500">Schedule all rubbers — same court, back-to-back:</p>
-          <div className="flex items-center gap-2">
-            <input
-              type="number"
-              min={1}
-              placeholder="Court"
-              value={court}
-              onChange={(e) => setCourt(e.target.value)}
-              className="w-16 rounded border border-slate-600 bg-surface px-2 py-1 text-xs text-white outline-none"
-            />
-            <input
-              type="datetime-local"
-              value={startTime}
-              onChange={(e) => setStartTime(e.target.value)}
-              className="rounded border border-slate-600 bg-surface px-2 py-1 text-xs text-white outline-none"
-            />
-            <button
-              onClick={handleSchedule}
-              disabled={scheduling || !court || !startTime}
-              className="rounded bg-brand-600 px-2 py-1 text-xs font-medium text-white hover:bg-brand-700 transition-colors disabled:opacity-50"
-            >
-              {scheduling ? 'Saving…' : 'Schedule'}
-            </button>
-          </div>
-          {scheduleError && <p className="text-[11px] text-red-400">{scheduleError}</p>}
+      {isExpanded && canSubmitLineup && (
+        <div className="border-t border-surface-border px-4 py-2 bg-surface/40">
+          <button
+            onClick={() => setLineupOpen(true)}
+            className="rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 transition-colors"
+          >
+            {isManager ? 'Submit / edit lineup' : 'Submit lineup'}
+          </button>
         </div>
       )}
 
-      {isExpanded && tie.status !== 'completed' && <TieLineupForm tieId={tie.id} />}
+      {lineupOpen && (
+        <LineupModal title={`${aName} vs ${bName} — lineup`} onClose={() => setLineupOpen(false)}>
+          {isManager ? <AdminTieLineupForm tieId={tie.id} /> : <TieLineupForm tieId={tie.id} />}
+        </LineupModal>
+      )}
 
       {isManager && isExpanded && tie.status !== 'completed' && tie.team_a && tie.team_b && (
         <div className="border-t border-surface-border px-4 py-2 flex items-center gap-2 bg-surface/40">
