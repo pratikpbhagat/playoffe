@@ -3,9 +3,10 @@ import Link from 'next/link';
 import { createAdminClient, createClient, getCurrentUser } from '@/lib/supabase/server';
 import { AppNav } from '@/components/layout/AppNav';
 import { BracketView } from '@/components/tournaments/BracketView';
-import { StandingsTable } from '@/components/tournaments/StandingsTable';
+import { StandingsTable, TeamStandingsTable } from '@/components/tournaments/StandingsTable';
+import { TeamBracketView } from '@/components/tournaments/TeamBracketView';
 import { PrintButton } from '@/components/ui/PrintButton';
-import { getMatchesForCategory } from '@/lib/actions/draws';
+import { getMatchesForCategory, getTiesForCategory } from '@/lib/actions/draws';
 import type { Metadata } from 'next';
 
 interface Props {
@@ -59,19 +60,21 @@ export default async function PublicDrawPage({ params }: Props) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: cat } = await (admin as any)
     .from('tournament_categories')
-    .select('id, name, draw_format, status, tournament_id, advance_per_group')
+    .select('id, name, draw_format, play_format, status, tournament_id, advance_per_group')
     .eq('slug', catSlug)
     .eq('tournament_id', tournament.id)
-    .single() as { data: { id: string; name: string; draw_format: string; status: string; tournament_id: string; advance_per_group: number } | null };
+    .single() as { data: { id: string; name: string; draw_format: string; play_format: string; status: string; tournament_id: string; advance_per_group: number } | null };
 
   if (!cat) notFound();
 
   // Only show if draw is generated or later
   if (!['draw_generated', 'in_progress', 'completed'].includes(cat.status)) notFound();
 
-  const matches = await getMatchesForCategory(cat.id);
+  const isTeamEvent = cat.play_format === 'team_event';
+  const matches = isTeamEvent ? [] : await getMatchesForCategory(cat.id);
+  const ties = isTeamEvent ? await getTiesForCategory(cat.id) : [];
 
-  // Find the winner: the last match with a winner (final/grand final)
+  // Find the winner: the last match/tie with a winner (final/grand final)
   const completedMatches = matches.filter((m) => m.status === 'completed' || m.status === 'walkover');
   const finalMatch = completedMatches.length > 0
     ? completedMatches.reduce((a, b) => (b.round > a.round ? b : a), completedMatches[0])
@@ -79,6 +82,15 @@ export default async function PublicDrawPage({ params }: Props) {
   const winnerEntry = finalMatch?.winner_entry_id
     ? (finalMatch.winner_entry_id === finalMatch.entry_a?.id ? finalMatch.entry_a : finalMatch.entry_b)
     : null;
+
+  const finalKnockoutTies = ties.filter((t) => t.group_name === null && t.status === 'completed' && t.winner_team_id);
+  const finalTie = finalKnockoutTies.length > 0
+    ? finalKnockoutTies.reduce((a, b) => (b.round > a.round ? b : a), finalKnockoutTies[0])
+    : null;
+  const winnerTeamName = finalTie
+    ? (finalTie.winner_team_id === finalTie.team_a?.id ? finalTie.team_a?.name : finalTie.team_b?.name)
+    : null;
+
   const isCompleted = cat.status === 'completed';
 
   return (
@@ -122,23 +134,30 @@ export default async function PublicDrawPage({ params }: Props) {
         </div>
 
         {/* Winner banner — shown when category is completed */}
-        {isCompleted && winnerEntry && (
+        {isCompleted && (winnerEntry || winnerTeamName) && (
           <div className="mb-8 overflow-hidden rounded-2xl bg-gradient-to-r from-brand-900/60 to-brand-800/30 ring-1 ring-brand-700/50 px-8 py-7 text-center">
             <p className="text-4xl mb-3">🏆</p>
             <p className="text-xs font-semibold uppercase tracking-widest text-brand-400 mb-1">Champion</p>
             <p className="text-2xl font-bold text-white">
-              {winnerEntry.partner_name
-                ? `${winnerEntry.player_name} / ${winnerEntry.partner_name}`
-                : winnerEntry.player_name}
+              {isTeamEvent
+                ? winnerTeamName
+                : winnerEntry?.partner_name
+                  ? `${winnerEntry.player_name} / ${winnerEntry.partner_name}`
+                  : winnerEntry?.player_name}
             </p>
             <p className="mt-1 text-sm text-slate-400">{cat.name} · {tournament.name}</p>
           </div>
         )}
 
-        {matches.length === 0 ? (
+        {(isTeamEvent ? ties.length : matches.length) === 0 ? (
           <div className="rounded-xl bg-surface-card p-10 text-center ring-1 ring-surface-border">
             <p className="text-sm text-slate-500">Draw not yet available.</p>
           </div>
+        ) : isTeamEvent ? (
+          <>
+            <TeamStandingsTable ties={ties} advancePerGroup={(cat as { advance_per_group?: number }).advance_per_group ?? 2} />
+            <TeamBracketView ties={ties} categoryId={cat.id} isManager={isManager} />
+          </>
         ) : (
           <>
             <StandingsTable

@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache';
 import { headers, cookies } from 'next/headers';
 import { createAdminClient, createClient, getCurrentUser } from '@/lib/supabase/server';
 import { createNotificationsForPlayers } from '@/lib/actions/notifications';
+import { checkAndAdvanceTie } from './scoring';
 
 function hashPin(pin: string) {
   return crypto.createHash('sha256').update(pin.trim()).digest('hex');
@@ -270,9 +271,14 @@ export async function getRefereeMatchesAction(pin: string, refereeName?: string)
     id, round, round_name, group_name, court, status, sets, winner_entry_id,
     assigned_referee_name, paused_for_reassignment, restart_requested, restart_requested_reason,
     assigned_at, completed_at, serving_entry_id, server_number,
+    tie_id, rubber_sequence, is_decider,
     ea:tournament_entries!entry_a_id(id, seed, players!player_id(full_name, username), partner:players!partner_id(full_name)),
     eb:tournament_entries!entry_b_id(id, seed, players!player_id(full_name, username), partner:players!partner_id(full_name)),
-    tc:tournament_categories!category_id(scoring_override, scoring_format, points_per_set, win_by)
+    tc:tournament_categories!category_id(scoring_override, scoring_format, points_per_set, win_by, rubber_lineup),
+    tie:ties!tie_id(
+      team_a:tournament_teams!team_a_id(name),
+      team_b:tournament_teams!team_b_id(name)
+    )
   `;
 
   // Fetch tournament-level scoring defaults as a fallback
@@ -290,8 +296,10 @@ export async function getRefereeMatchesAction(pin: string, refereeName?: string)
     .eq('tournament_id', validated.tournament.id)
     .in('status', ['scheduled', 'in_progress'])
     .eq('paused_for_reassignment', false)
-    .not('entry_a_id', 'is', null)
-    .not('entry_b_id', 'is', null);
+    // Team-event rubbers can be assigned to a referee before the captains
+    // submit a lineup — show those too (as a non-scoreable placeholder),
+    // same leniency as the admin scoring hub.
+    .or('and(entry_a_id.not.is.null,entry_b_id.not.is.null),tie_id.not.is.null');
 
   let completedQ = admin
     .from('matches')
@@ -345,11 +353,20 @@ export async function getRefereeMatchesAction(pin: string, refereeName?: string)
   function formatMatch(m: Record<string, unknown>) {
     const ea = m.ea as EntryRaw;
     const eb = m.eb as EntryRaw;
-    const tc = m.tc as { scoring_override: boolean; scoring_format: string | null; points_per_set: number | null; win_by: number | null } | null;
+    const tc = m.tc as { scoring_override: boolean; scoring_format: string | null; points_per_set: number | null; win_by: number | null; rubber_lineup: { sequence: number; name: string }[] | null } | null;
+    const tie = m.tie as { team_a: { name: string } | null; team_b: { name: string } | null } | null;
     // Resolve effective scoring: category override → tournament default → built-in default
     const pointsPerSet = (tc?.scoring_override ? tc?.points_per_set : null) ?? tScoring?.points_per_set ?? 11;
     const winBy = (tc?.scoring_override ? tc?.win_by : null) ?? tScoring?.win_by ?? 2;
     const scoringFormat = ((tc?.scoring_override ? tc?.scoring_format : null) ?? tScoring?.scoring_format ?? 'traditional') as 'rally' | 'traditional';
+
+    const tieId = m.tie_id as string | null;
+    const isDecider = m.is_decider as boolean;
+    const rubberSequence = m.rubber_sequence as number | null;
+    const rubberLabel = tieId
+      ? (isDecider ? 'Decider' : (rubberSequence ? tc?.rubber_lineup?.find((r) => r.sequence === rubberSequence)?.name : null) ?? (rubberSequence ? `Rubber ${rubberSequence}` : null))
+      : null;
+
     return {
       id: m.id as string,
       round: m.round as number,
@@ -382,6 +399,11 @@ export async function getRefereeMatchesAction(pin: string, refereeName?: string)
       scoring_format: scoringFormat,
       serving_entry_id: (m.serving_entry_id ?? null) as string | null,
       server_number: (m.server_number ?? null) as number | null,
+      // Team-event only — null for ordinary singles/doubles matches.
+      is_placeholder: !!tieId && (!ea || !eb),
+      team_a_name: tie?.team_a?.name ?? null,
+      team_b_name: tie?.team_b?.name ?? null,
+      rubber_label: rubberLabel,
     };
   }
 
@@ -458,6 +480,157 @@ export async function pauseMatchAsRefereeAction(matchId: string, pin: string) {
         `/tournaments/${t.slug}/scoring`,
       );
     }
+  }
+
+  return { success: true };
+}
+
+// ── Fetch roster options for a team-event rubber (PIN-authenticated) ─────────
+// Used when a referee opens an "awaiting lineup" rubber — lets them pick the
+// players themselves (from each team's confirmed roster) instead of blocking
+// until the captain submits one through the app.
+export async function getRubberLineupOptionsAction(matchId: string, pin: string) {
+  const validated = await validateRefereePinAction(pin);
+  if (!validated.success || !validated.tournament) return { error: validated.error ?? 'Invalid PIN' };
+
+  const admin = createAdminClient();
+
+  const { data: match } = await admin
+    .from('matches')
+    .select('id, tournament_id, tie_id, rubber_sequence, is_decider, status, entry_a_id, entry_b_id, category_id')
+    .eq('id', matchId)
+    .eq('tournament_id', validated.tournament.id)
+    .single();
+  if (!match || !match.tie_id) return { error: 'Rubber not found' };
+
+  const { data: category } = await admin
+    .from('tournament_categories')
+    .select('rubber_lineup, decider_format')
+    .eq('id', match.category_id)
+    .single();
+
+  const playFormat = match.is_decider
+    ? (category?.decider_format ?? 'singles')
+    : ((category?.rubber_lineup ?? []) as { sequence: number; play_format: string }[]).find((r) => r.sequence === match.rubber_sequence)?.play_format ?? 'singles';
+
+  const { data: tie } = await admin.from('ties').select('team_a_id, team_b_id').eq('id', match.tie_id).single();
+  if (!tie?.team_a_id || !tie?.team_b_id) return { error: 'Tie not found' };
+
+  async function rosterFor(teamId: string) {
+    const { data: team } = await admin
+      .from('tournament_teams')
+      .select('id, name, captain_id, captain:players!captain_id(id, full_name)')
+      .eq('id', teamId)
+      .single();
+    const { data: members } = await admin
+      .from('team_members')
+      .select('player:players!player_id(id, full_name)')
+      .eq('team_id', teamId)
+      .eq('status', 'active');
+    const captain = team?.captain as unknown as { id: string; full_name: string } | null;
+    const memberPlayers = (members ?? []).map((m) => m.player as unknown as { id: string; full_name: string });
+    const roster = captain ? [captain, ...memberPlayers.filter((m) => m.id !== captain.id)] : memberPlayers;
+    return { id: teamId, name: team?.name ?? 'Unknown', roster };
+  }
+
+  const [teamA, teamB] = await Promise.all([rosterFor(tie.team_a_id), rosterFor(tie.team_b_id)]);
+
+  return {
+    success: true,
+    playFormat: playFormat as 'singles' | 'doubles' | 'mixed_doubles',
+    needsLineupA: !match.entry_a_id,
+    needsLineupB: !match.entry_b_id,
+    teamA,
+    teamB,
+  };
+}
+
+// ── Referee sets the lineup for one rubber and starts it (PIN-authenticated) ──
+// Stand-in for the captain when a lineup hasn't been submitted through the
+// app yet — the referee already knows who's standing on court, so rather
+// than block the match, let them record it directly. Only fills in whichever
+// side is still missing; a side the captain already submitted is left as-is.
+export async function setRubberLineupAsRefereeAction(
+  matchId: string,
+  pin: string,
+  sideA: { playerId: string; partnerId?: string | null } | null,
+  sideB: { playerId: string; partnerId?: string | null } | null,
+) {
+  const validated = await validateRefereePinAction(pin);
+  if (!validated.success || !validated.tournament) return { error: validated.error ?? 'Invalid PIN' };
+
+  const admin = createAdminClient();
+
+  const { data: match } = await admin
+    .from('matches')
+    .select('id, tournament_id, tie_id, category_id, status, entry_a_id, entry_b_id')
+    .eq('id', matchId)
+    .eq('tournament_id', validated.tournament.id)
+    .single();
+  if (!match || !match.tie_id) return { error: 'Rubber not found' };
+  if (match.status !== 'scheduled') return { error: 'Rubber has already started' };
+  const matchTournamentId = match.tournament_id;
+  const matchCategoryId = match.category_id;
+
+  const { data: tie } = await admin.from('ties').select('team_a_id, team_b_id').eq('id', match.tie_id).single();
+  if (!tie?.team_a_id || !tie?.team_b_id) return { error: 'Tie not found' };
+
+  async function validateAndCreate(
+    side: { playerId: string; partnerId?: string | null },
+    teamId: string,
+  ): Promise<{ entryId: string } | { error: string }> {
+    const { data: team } = await admin.from('tournament_teams').select('id, captain_id').eq('id', teamId).single();
+    if (!team) return { error: 'Team not found' };
+    const captainId = team.captain_id;
+
+    async function isRosterMember(playerId: string) {
+      if (playerId === captainId) return true;
+      const { data } = await admin
+        .from('team_members')
+        .select('id')
+        .eq('team_id', teamId)
+        .eq('player_id', playerId)
+        .eq('status', 'active')
+        .maybeSingle();
+      return !!data;
+    }
+
+    if (!(await isRosterMember(side.playerId))) return { error: 'Selected player is not on this team\'s roster' };
+    if (side.partnerId && !(await isRosterMember(side.partnerId))) return { error: 'Selected partner is not on this team\'s roster' };
+
+    const { data: entry, error } = await admin
+      .from('tournament_entries')
+      .insert({
+        tournament_id: matchTournamentId,
+        category_id: matchCategoryId,
+        player_id: side.playerId,
+        partner_id: side.partnerId ?? null,
+        team_id: teamId,
+        status: 'active',
+      })
+      .select('id')
+      .single();
+    if (error || !entry) return { error: 'Failed to record lineup' };
+    return { entryId: entry.id };
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const patch: Record<string, any> = {};
+
+  if (sideA && !match.entry_a_id) {
+    const result = await validateAndCreate(sideA, tie.team_a_id);
+    if ('error' in result) return { error: result.error };
+    patch.entry_a_id = result.entryId;
+  }
+  if (sideB && !match.entry_b_id) {
+    const result = await validateAndCreate(sideB, tie.team_b_id);
+    if ('error' in result) return { error: result.error };
+    patch.entry_b_id = result.entryId;
+  }
+
+  if (Object.keys(patch).length > 0) {
+    const { error } = await admin.from('matches').update(patch).eq('id', matchId);
+    if (error) return { error: 'Failed to save lineup' };
   }
 
   return { success: true };
@@ -555,7 +728,7 @@ export async function scoreMatchAsRefereeAction(
 
   const { data: match } = await admin
     .from('matches')
-    .select('id, tournament_id, entry_a_id, entry_b_id, status')
+    .select('id, tournament_id, entry_a_id, entry_b_id, status, tie_id')
     .eq('id', matchId)
     .eq('tournament_id', validated.tournament!.id)
     .single();
@@ -583,6 +756,15 @@ export async function scoreMatchAsRefereeAction(
     .eq('id', matchId);
 
   if (matchErr) return { error: 'Failed to save result: ' + matchErr.message };
+
+  // team_event: this match is a rubber within a tie — the DB trigger already
+  // recomputed the tie's aggregates, but deciding whether the tie itself is
+  // now finished (and advancing the winner) is business logic that only runs
+  // here in app code. Without this, ties scored via the referee PIN flow
+  // never flip to 'completed' and standings never reflect them.
+  if (match.tie_id) {
+    await checkAndAdvanceTie(admin, match.tie_id);
+  }
 
   return { success: true };
 }

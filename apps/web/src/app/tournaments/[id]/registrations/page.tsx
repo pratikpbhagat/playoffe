@@ -6,6 +6,7 @@ import { createAdminClient, getCurrentUser, getUserRoles } from '@/lib/supabase/
 import { checkPermission } from '@/lib/permissions';
 import { AppNav } from '@/components/layout/AppNav';
 import { RegistrationsClient } from '@/components/tournaments/RegistrationsClient';
+import { getTeamsForCategoryAction } from '@/lib/actions/teams';
 
 export const metadata: Metadata = { title: 'Registrations' };
 
@@ -92,6 +93,22 @@ export default async function RegistrationsPage({ params }: Props) {
   const cats = (categories ?? []) as Array<{ id: string; name: string; slug: string; play_format: string; max_entries: number | null; status: string }>;
   const pendingTotal = allEntries.filter((e) => e.status === 'pending').length;
 
+  // Team-event categories don't use tournament_entries at all — fetch their
+  // rosters (for the same TeamRosterList view used on the category page) and
+  // each category's rubber lineup config (needed to render the per-rubber
+  // default-lineup pickers). Per-tie editing/overriding lives on the
+  // category page now, not here, so ties aren't needed on this page.
+  const teamEventCatIds = cats.filter((c) => c.play_format === 'team_event').map((c) => c.id);
+  const [teamsByCatEntries, rubberLineupByCatEntries] = await Promise.all([
+    Promise.all(teamEventCatIds.map(async (id) => [id, await getTeamsForCategoryAction(id)] as const)),
+    Promise.all(teamEventCatIds.map(async (id) => {
+      const { data } = await admin.from('tournament_categories').select('rubber_lineup').eq('id', id).single();
+      return [id, (data?.rubber_lineup ?? []) as { sequence: number; name: string; play_format: string }[]] as const;
+    })),
+  ]);
+  const teamsByCategory = Object.fromEntries(teamsByCatEntries);
+  const rubberLineupByCategory = Object.fromEntries(rubberLineupByCatEntries);
+
   return (
     <div className="min-h-screen bg-surface">
       <AppNav />
@@ -128,6 +145,8 @@ export default async function RegistrationsPage({ params }: Props) {
           categories={cats}
           allEntries={allEntries}
           canAdminWithdraw={canAdminWithdraw}
+          teamsByCategory={teamsByCategory}
+          rubberLineupByCategory={rubberLineupByCategory}
         />
       </main>
     </div>

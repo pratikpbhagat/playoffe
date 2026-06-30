@@ -9,6 +9,8 @@ import {
   startMatchAsRefereeAction,
   saveScoreAsRefereeAction,
   requestMatchRestartAction,
+  getRubberLineupOptionsAction,
+  setRubberLineupAsRefereeAction,
 } from '@/lib/actions/referee';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -47,6 +49,12 @@ interface Match {
   server_number: number | null;
   /** Entry ID of the currently assigned server (may be pre-set from DB) */
   serving_entry_id: string | null;
+  /** Team-event rubber whose lineup hasn't been submitted yet — shown as a
+   *  read-only "awaiting lineup" card instead of a scoreable match. */
+  is_placeholder?: boolean;
+  team_a_name?: string | null;
+  team_b_name?: string | null;
+  rubber_label?: string | null;
 }
 
 type AutoSaveStatus = 'idle' | 'pending' | 'saving' | 'saved' | 'error';
@@ -220,7 +228,10 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
     locallyStarted.has(m.id) || m.status === 'in_progress',
   );
   const scheduledMatches = activeMatches.filter(
-    (m) => !locallyStarted.has(m.id) && m.status === 'scheduled',
+    (m) => !locallyStarted.has(m.id) && m.status === 'scheduled' && !m.is_placeholder,
+  );
+  const awaitingLineupMatches = activeMatches.filter(
+    (m) => !locallyStarted.has(m.id) && m.status === 'scheduled' && m.is_placeholder,
   );
 
   // ── Score entry helpers ───────────────────────────────────────────────────
@@ -576,30 +587,30 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
                       )}
                     </div>
                   </div>
-                  {/* Score inputs */}
+                  {/* Score inputs — locked until the match is started */}
                   <div className="grid grid-cols-2 gap-3">
-                    <input type="number" min={0} max={99} value={set.score_a}
+                    <input type="number" min={0} max={99} value={set.score_a} disabled={!isInProgress}
                       onChange={(e) => updateSet(i, 'score_a', parseInt(e.target.value) || 0)}
-                      className={inputClsA}
+                      className={`${inputClsA} disabled:opacity-40 disabled:cursor-not-allowed`}
                     />
-                    <input type="number" min={0} max={99} value={set.score_b}
+                    <input type="number" min={0} max={99} value={set.score_b} disabled={!isInProgress}
                       onChange={(e) => updateSet(i, 'score_b', parseInt(e.target.value) || 0)}
-                      className={inputClsB}
+                      className={`${inputClsB} disabled:opacity-40 disabled:cursor-not-allowed`}
                     />
                   </div>
-                  {/* +/− buttons */}
+                  {/* +/− buttons — locked until the match is started */}
                   <div className="grid grid-cols-2 gap-3">
                     <div className="flex gap-2">
-                      <button onClick={() => updateSet(i, 'score_a', set.score_a - 1)} disabled={set.score_a <= 0}
+                      <button onClick={() => updateSet(i, 'score_a', set.score_a - 1)} disabled={!isInProgress || set.score_a <= 0}
                         className="flex-1 h-12 rounded-xl bg-surface ring-1 ring-surface-border text-slate-400 hover:text-white hover:ring-slate-500 disabled:opacity-25 transition-colors text-xl font-bold">−</button>
-                      <button onClick={() => handlePlusClick(i, 'score_a')}
-                        className="flex-1 h-12 rounded-xl bg-brand-600 text-white hover:bg-brand-500 transition-colors text-xl font-bold">+</button>
+                      <button onClick={() => handlePlusClick(i, 'score_a')} disabled={!isInProgress}
+                        className="flex-1 h-12 rounded-xl bg-brand-600 text-white hover:bg-brand-500 transition-colors text-xl font-bold disabled:opacity-25">+</button>
                     </div>
                     <div className="flex gap-2">
-                      <button onClick={() => updateSet(i, 'score_b', set.score_b - 1)} disabled={set.score_b <= 0}
+                      <button onClick={() => updateSet(i, 'score_b', set.score_b - 1)} disabled={!isInProgress || set.score_b <= 0}
                         className="flex-1 h-12 rounded-xl bg-surface ring-1 ring-surface-border text-slate-400 hover:text-white hover:ring-slate-500 disabled:opacity-25 transition-colors text-xl font-bold">−</button>
-                      <button onClick={() => handlePlusClick(i, 'score_b')}
-                        className="flex-1 h-12 rounded-xl bg-brand-600 text-white hover:bg-brand-500 transition-colors text-xl font-bold">+</button>
+                      <button onClick={() => handlePlusClick(i, 'score_b')} disabled={!isInProgress}
+                        className="flex-1 h-12 rounded-xl bg-brand-600 text-white hover:bg-brand-500 transition-colors text-xl font-bold disabled:opacity-25">+</button>
                     </div>
                   </div>
                 </div>
@@ -618,18 +629,18 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
                       )}
                     </div>
                     <div className="flex items-center gap-1">
-                      <button onClick={() => updateSet(i, 'score_a', set.score_a - 1)} disabled={set.score_a <= 0}
+                      <button onClick={() => updateSet(i, 'score_a', set.score_a - 1)} disabled={!isInProgress || set.score_a <= 0}
                         className="h-11 w-11 shrink-0 rounded-xl bg-surface ring-1 ring-surface-border text-slate-400 hover:text-white hover:ring-slate-500 disabled:opacity-25 transition-colors text-xl font-bold">−</button>
-                      <input type="number" min={0} max={99} value={set.score_a}
+                      <input type="number" min={0} max={99} value={set.score_a} disabled={!isInProgress}
                         onChange={(e) => updateSet(i, 'score_a', parseInt(e.target.value) || 0)}
-                        className={`flex-1 min-w-0 rounded-xl border px-2 py-2.5 text-center text-xl font-bold outline-none transition ${
+                        className={`flex-1 min-w-0 rounded-xl border px-2 py-2.5 text-center text-xl font-bold outline-none transition disabled:opacity-40 disabled:cursor-not-allowed ${
                           aWonSet ? 'border-accent-500/60 bg-accent-500/10 text-accent-300'
                           : bWonSet ? 'border-red-900/30 bg-red-950/20 text-slate-500'
                           : 'border-slate-700 bg-surface text-white focus:border-brand-500'
                         }`}
                       />
-                      <button onClick={() => handlePlusClick(i, 'score_a')}
-                        className="h-11 w-11 shrink-0 rounded-xl bg-brand-600 text-white hover:bg-brand-500 transition-colors text-xl font-bold">+</button>
+                      <button onClick={() => handlePlusClick(i, 'score_a')} disabled={!isInProgress}
+                        className="h-11 w-11 shrink-0 rounded-xl bg-brand-600 text-white hover:bg-brand-500 transition-colors text-xl font-bold disabled:opacity-25">+</button>
                     </div>
                   </div>
                   <span className="text-slate-600 font-bold text-sm shrink-0">–</span>
@@ -645,18 +656,18 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
                       )}
                     </div>
                     <div className="flex items-center gap-1">
-                      <button onClick={() => updateSet(i, 'score_b', set.score_b - 1)} disabled={set.score_b <= 0}
+                      <button onClick={() => updateSet(i, 'score_b', set.score_b - 1)} disabled={!isInProgress || set.score_b <= 0}
                         className="h-11 w-11 shrink-0 rounded-xl bg-surface ring-1 ring-surface-border text-slate-400 hover:text-white hover:ring-slate-500 disabled:opacity-25 transition-colors text-xl font-bold">−</button>
-                      <input type="number" min={0} max={99} value={set.score_b}
+                      <input type="number" min={0} max={99} value={set.score_b} disabled={!isInProgress}
                         onChange={(e) => updateSet(i, 'score_b', parseInt(e.target.value) || 0)}
-                        className={`flex-1 min-w-0 rounded-xl border px-2 py-2.5 text-center text-xl font-bold outline-none transition ${
+                        className={`flex-1 min-w-0 rounded-xl border px-2 py-2.5 text-center text-xl font-bold outline-none transition disabled:opacity-40 disabled:cursor-not-allowed ${
                           bWonSet ? 'border-accent-500/60 bg-accent-500/10 text-accent-300'
                           : aWonSet ? 'border-red-900/30 bg-red-950/20 text-slate-500'
                           : 'border-slate-700 bg-surface text-white focus:border-brand-500'
                         }`}
                       />
-                      <button onClick={() => handlePlusClick(i, 'score_b')}
-                        className="h-11 w-11 shrink-0 rounded-xl bg-brand-600 text-white hover:bg-brand-500 transition-colors text-xl font-bold">+</button>
+                      <button onClick={() => handlePlusClick(i, 'score_b')} disabled={!isInProgress}
+                        className="h-11 w-11 shrink-0 rounded-xl bg-brand-600 text-white hover:bg-brand-500 transition-colors text-xl font-bold disabled:opacity-25">+</button>
                     </div>
                   </div>
                 </div>
@@ -665,10 +676,11 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
           })}
         </div>
 
-        {/* Add set */}
+        {/* Add set — locked until the match is started */}
         <button
           onClick={isRally ? addSet : handleAddSetTraditional}
-          className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+          disabled={!isInProgress}
+          className="text-xs text-slate-500 hover:text-slate-300 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           + Add set
         </button>
@@ -707,7 +719,8 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
                 <button
                   key={entry.id}
                   onClick={() => setManualWinnerId(entry.id)}
-                  className={`flex-1 rounded-xl py-2.5 text-sm font-semibold transition-colors ${
+                  disabled={!isInProgress}
+                  className={`flex-1 rounded-xl py-2.5 text-sm font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
                     isSelected
                       ? 'bg-brand-600 text-white ring-2 ring-brand-500'
                       : 'bg-surface text-slate-400 hover:text-white ring-1 ring-surface-border'
@@ -782,18 +795,15 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
 
   // ── Completed match card ──────────────────────────────────────────────────
   function CompletedMatchCard({ match }: { match: Match }) {
-    const context = match.group_name ?? match.round_name ?? `Round ${match.round}`;
+    const context = [match.group_name ?? match.round_name ?? `Round ${match.round}`, match.rubber_label].filter(Boolean).join(' · ');
     const isWalkover = match.status === 'walkover';
 
-    // Identify winner/loser entries for display
-    const winnerEntry =
-      match.winner_entry_id === match.entry_a?.id ? match.entry_a
-      : match.winner_entry_id === match.entry_b?.id ? match.entry_b
-      : null;
-    const loserEntry =
-      match.winner_entry_id === match.entry_a?.id ? match.entry_b
-      : match.winner_entry_id === match.entry_b?.id ? match.entry_a
-      : null;
+    // Identify winner/loser entries (and their team names) for display
+    const aWon = match.winner_entry_id === match.entry_a?.id;
+    const winnerEntry = aWon ? match.entry_a : match.winner_entry_id === match.entry_b?.id ? match.entry_b : null;
+    const loserEntry = aWon ? match.entry_b : match.winner_entry_id === match.entry_b?.id ? match.entry_a : null;
+    const winnerTeamName = aWon ? match.team_a_name : match.team_b_name;
+    const loserTeamName = aWon ? match.team_b_name : match.team_a_name;
 
     // Score string e.g. "11–7  11–4"
     const scoreStr =
@@ -843,7 +853,10 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
           {winnerEntry ? (
             <div className="space-y-1">
               <div className="flex items-center justify-between gap-3">
-                <p className="text-sm font-semibold text-white truncate">{entryLabel(winnerEntry)}</p>
+                <p className="text-sm font-semibold text-white truncate">
+                  {winnerTeamName && <span className="text-xs font-semibold text-brand-300">{winnerTeamName}: </span>}
+                  {entryLabel(winnerEntry)}
+                </p>
                 <div className="flex items-center gap-2 shrink-0">
                   {scoreStr && (
                     <span className="font-mono text-sm font-bold text-accent-400">{scoreStr}</span>
@@ -854,15 +867,24 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
                 </div>
               </div>
               {loserEntry && (
-                <p className="text-sm text-slate-500 truncate">{entryLabel(loserEntry)}</p>
+                <p className="text-sm text-slate-500 truncate">
+                  {loserTeamName && <span className="text-xs font-medium text-slate-500">{loserTeamName}: </span>}
+                  {entryLabel(loserEntry)}
+                </p>
               )}
             </div>
           ) : (
             // No winner set (shouldn't normally happen for completed matches)
             <div className="space-y-0.5">
-              <p className="text-sm font-semibold text-white truncate">{entryLabel(match.entry_a)}</p>
+              <p className="text-sm font-semibold text-white truncate">
+                {match.team_a_name && <span className="text-xs font-semibold text-brand-300">{match.team_a_name}: </span>}
+                {entryLabel(match.entry_a)}
+              </p>
               <p className="text-xs text-slate-500">vs</p>
-              <p className="text-sm font-semibold text-white truncate">{entryLabel(match.entry_b)}</p>
+              <p className="text-sm font-semibold text-white truncate">
+                {match.team_b_name && <span className="text-xs font-semibold text-brand-300">{match.team_b_name}: </span>}
+                {entryLabel(match.entry_b)}
+              </p>
             </div>
           )}
 
@@ -894,10 +916,163 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
     );
   }
 
+  // ── Awaiting-lineup card (team event) ────────────────────────────────────
+  // Assigned to this referee already, but the captain hasn't submitted a
+  // lineup yet. Rather than block, the referee can pick the players
+  // themselves (they're standing right there at the court) and start play
+  // immediately — the team names are enough to run the match.
+  function AwaitingLineupCard({ match }: { match: Match }) {
+    const context = match.group_name ?? match.round_name ?? `Round ${match.round}`;
+    type RosterPlayer = { id: string; full_name: string };
+    type RosterOptions = {
+      playFormat: 'singles' | 'doubles' | 'mixed_doubles';
+      needsLineupA: boolean;
+      needsLineupB: boolean;
+      teamA: { id: string; name: string; roster: RosterPlayer[] };
+      teamB: { id: string; name: string; roster: RosterPlayer[] };
+    };
+
+    const [options, setOptions] = useState<RosterOptions | 'error' | null>(null);
+    const [playerA, setPlayerA] = useState('');
+    const [partnerA, setPartnerA] = useState('');
+    const [playerB, setPlayerB] = useState('');
+    const [partnerB, setPartnerB] = useState('');
+    const [submittingLineup, setSubmittingLineup] = useState(false);
+    const [lineupError, setLineupError] = useState<string | null>(null);
+
+    useEffect(() => {
+      let active = true;
+      (async () => {
+        const result = await getRubberLineupOptionsAction(match.id, pin);
+        if (!active) return;
+        if ('error' in result) { setOptions('error'); return; }
+        setOptions(result as RosterOptions);
+      })();
+      return () => { active = false; };
+    }, [match.id]);
+
+    if (options === null) return <p className="px-1 text-xs text-slate-600">Loading…</p>;
+    if (options === 'error') return null;
+
+    const needsPartner = options.playFormat === 'doubles' || options.playFormat === 'mixed_doubles';
+
+    async function handleStartWithLineup() {
+      if (options === null || options === 'error') return;
+      if (options.needsLineupA && !playerA) { setLineupError(`Pick a player for ${options.teamA.name}.`); return; }
+      if (options.needsLineupB && !playerB) { setLineupError(`Pick a player for ${options.teamB.name}.`); return; }
+      if (needsPartner && options.needsLineupA && !partnerA) { setLineupError(`Pick a partner for ${options.teamA.name}.`); return; }
+      if (needsPartner && options.needsLineupB && !partnerB) { setLineupError(`Pick a partner for ${options.teamB.name}.`); return; }
+
+      setLineupError(null);
+      setSubmittingLineup(true);
+
+      const lineupResult = await setRubberLineupAsRefereeAction(
+        match.id,
+        pin,
+        options.needsLineupA ? { playerId: playerA, partnerId: partnerA || null } : null,
+        options.needsLineupB ? { playerId: playerB, partnerId: partnerB || null } : null,
+      );
+      if (lineupResult?.error) {
+        setLineupError(lineupResult.error);
+        setSubmittingLineup(false);
+        return;
+      }
+
+      const startResult = await startMatchAsRefereeAction(match.id, pin);
+      if (startResult?.error) {
+        setLineupError(startResult.error);
+        setSubmittingLineup(false);
+        return;
+      }
+
+      setLocallyStarted((prev) => new Set([...prev, match.id]));
+      router.refresh();
+      setSubmittingLineup(false);
+    }
+
+    return (
+      <div className="rounded-xl bg-surface-card p-4 ring-1 ring-surface-border">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-sm font-semibold text-white truncate">
+            {match.team_a_name ?? 'TBD'}
+            <span className="mx-2 text-slate-500 font-normal">vs</span>
+            {match.team_b_name ?? 'TBD'}
+          </p>
+          {match.court && (
+            <span className="shrink-0 rounded bg-surface px-2 py-0.5 text-[11px] font-mono text-slate-500">
+              Ct {match.court}
+            </span>
+          )}
+        </div>
+        <p className="mt-0.5 text-xs text-slate-500 truncate">
+          {context}{match.rubber_label ? ` · ${match.rubber_label}` : ''}
+        </p>
+
+        <div className="mt-3 space-y-2">
+          {options.needsLineupA && (
+            <div className="flex items-center gap-2">
+              <span className="w-20 shrink-0 text-[11px] text-slate-500">{options.teamA.name}</span>
+              <select
+                value={playerA}
+                onChange={(e) => setPlayerA(e.target.value)}
+                className="flex-1 rounded border border-slate-700 bg-surface px-2 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-brand-500"
+              >
+                <option value="">Choose player…</option>
+                {options.teamA.roster.map((p) => <option key={p.id} value={p.id}>{p.full_name}</option>)}
+              </select>
+              {needsPartner && (
+                <select
+                  value={partnerA}
+                  onChange={(e) => setPartnerA(e.target.value)}
+                  className="flex-1 rounded border border-slate-700 bg-surface px-2 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-brand-500"
+                >
+                  <option value="">Choose partner…</option>
+                  {options.teamA.roster.map((p) => <option key={p.id} value={p.id}>{p.full_name}</option>)}
+                </select>
+              )}
+            </div>
+          )}
+          {options.needsLineupB && (
+            <div className="flex items-center gap-2">
+              <span className="w-20 shrink-0 text-[11px] text-slate-500">{options.teamB.name}</span>
+              <select
+                value={playerB}
+                onChange={(e) => setPlayerB(e.target.value)}
+                className="flex-1 rounded border border-slate-700 bg-surface px-2 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-brand-500"
+              >
+                <option value="">Choose player…</option>
+                {options.teamB.roster.map((p) => <option key={p.id} value={p.id}>{p.full_name}</option>)}
+              </select>
+              {needsPartner && (
+                <select
+                  value={partnerB}
+                  onChange={(e) => setPartnerB(e.target.value)}
+                  className="flex-1 rounded border border-slate-700 bg-surface px-2 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-brand-500"
+                >
+                  <option value="">Choose partner…</option>
+                  {options.teamB.roster.map((p) => <option key={p.id} value={p.id}>{p.full_name}</option>)}
+                </select>
+              )}
+            </div>
+          )}
+        </div>
+
+        <button
+          onClick={handleStartWithLineup}
+          disabled={submittingLineup}
+          className="mt-3 w-full rounded-lg bg-brand-600 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-700 transition-colors disabled:opacity-50"
+        >
+          {submittingLineup ? 'Starting…' : 'Start match'}
+        </button>
+        {lineupError && <p className="mt-2 text-xs text-red-400">{lineupError}</p>}
+      </div>
+    );
+  }
+
   // ── Match card ────────────────────────────────────────────────────────────
   function MatchCard({ match }: { match: Match }) {
     const isOpen = activeMatchId === match.id;
-    const context = match.group_name ?? match.round_name ?? `Round ${match.round}`;
+    const context = [match.group_name ?? match.round_name ?? `Round ${match.round}`, match.rubber_label].filter(Boolean).join(' · ');
     const effectiveStatus = locallyStarted.has(match.id) ? 'in_progress' : match.status;
     const isStarted = effectiveStatus === 'in_progress';
 
@@ -957,6 +1132,7 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
               <div className="space-y-0.5">
                 {/* Team A — amber dot + S1/S2 badge when this team is serving */}
                 <div className="flex items-center gap-1.5 truncate">
+                  {match.team_a_name && <span className="text-xs font-semibold text-brand-300 shrink-0">{match.team_a_name}:</span>}
                   <p className="text-sm font-semibold text-white truncate">{entryLabel(match.entry_a)}</p>
                   {isStarted && match.serving_entry_id === match.entry_a?.id && (
                     <>
@@ -970,6 +1146,7 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
                 <p className="text-xs text-slate-500">vs</p>
                 {/* Team B — amber dot + S1/S2 badge when this team is serving */}
                 <div className="flex items-center gap-1.5 truncate">
+                  {match.team_b_name && <span className="text-xs font-semibold text-brand-300 shrink-0">{match.team_b_name}:</span>}
                   <p className="text-sm font-semibold text-white truncate">{entryLabel(match.entry_b)}</p>
                   {isStarted && match.serving_entry_id === match.entry_b?.id && (
                     <>
@@ -1062,6 +1239,20 @@ export function RefereeScoringView({ matches, completedMatches = [], pin, refere
           <div className="space-y-3">
             {scheduledMatches.map((m) => (
               <MatchCard key={m.id} match={m} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* ── Awaiting lineup — team-event rubbers assigned but not yet playable ── */}
+      {awaitingLineupMatches.length > 0 && (
+        <section>
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-slate-500">
+            Awaiting lineup — {awaitingLineupMatches.length} match{awaitingLineupMatches.length !== 1 ? 'es' : ''}
+          </h2>
+          <div className="space-y-3">
+            {awaitingLineupMatches.map((m) => (
+              <AwaitingLineupCard key={m.id} match={m} />
             ))}
           </div>
         </section>

@@ -6,6 +6,9 @@ import { updateCategoryAction } from '@/lib/actions/categories';
 import { useRouter } from 'next/navigation';
 import { WinByDeuceFields } from './WinByDeuceFields';
 import { GroupStageConfigPanel } from './AddCategoryInline';
+import { RubberLineupEditor, RosterCompositionEditor, DeciderFormatSelect, type RubberLineupRow } from './RubberLineupEditor';
+import { RubberOrderEditor } from './RubberOrderEditor';
+import { PLAY_FORMATS as PLAY_FORMAT_OPTS, DRAW_FORMATS as DRAW_FORMAT_OPTS, type RosterCompositionRule } from '@pickleball/shared';
 import {
   suggestGroupConfig,
   deriveGroupSize,
@@ -42,21 +45,10 @@ interface Props {
   currentAdvancePerGroup: number;
   currentHasThirdPlaceMatch: boolean;
   currentKnockoutSeeding?: 'auto' | 'manual';
+  currentRubberLineup?: RubberLineupRow[];
+  currentRosterComposition?: RosterCompositionRule[];
+  currentDeciderFormat?: 'singles' | 'doubles' | null;
 }
-
-const PLAY_FORMAT_OPTS = [
-  { value: 'singles', label: 'Singles' },
-  { value: 'doubles', label: 'Doubles' },
-  { value: 'mixed_doubles', label: 'Mixed doubles' },
-];
-
-const DRAW_FORMAT_OPTS = [
-  { value: 'round_robin', label: 'Round robin' },
-  { value: 'single_elimination', label: 'Single elimination' },
-  { value: 'double_elimination', label: 'Double elimination' },
-  { value: 'group_stage_knockout', label: 'Group stage + knockout' },
-  { value: 'swiss', label: 'Swiss' },
-];
 
 const inputClass =
   'block w-full rounded-lg border border-slate-600 bg-surface px-3 py-2 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30';
@@ -84,6 +76,9 @@ export function CategoryEditInline({
   currentAdvancePerGroup,
   currentHasThirdPlaceMatch,
   currentKnockoutSeeding,
+  currentRubberLineup,
+  currentRosterComposition,
+  currentDeciderFormat,
 }: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -92,8 +87,16 @@ export function CategoryEditInline({
   const [mounted, setMounted] = useState(false);
 
   // Controlled fields
+  const [localPlayFormat, setLocalPlayFormat] = useState(currentPlayFormat);
   const [localDrawFormat, setLocalDrawFormat] = useState(currentDrawFormat);
   const [maxEntries, setMaxEntries] = useState(currentMaxEntries != null ? String(currentMaxEntries) : '');
+  const [rubberLineup, setRubberLineup] = useState<RubberLineupRow[]>(
+    currentRubberLineup && currentRubberLineup.length > 0
+      ? currentRubberLineup
+      : [{ sequence: 1, name: 'Rubber 1', play_format: 'singles' }],
+  );
+  const [rosterComposition, setRosterComposition] = useState<RosterCompositionRule[]>(currentRosterComposition ?? []);
+  const [deciderFormat, setDeciderFormat] = useState<'singles' | 'doubles' | null>(currentDeciderFormat ?? null);
 
   // Group stage config state
   const [groupsCount, setGroupsCount] = useState(currentGroupsCount != null ? String(currentGroupsCount) : '');
@@ -182,8 +185,13 @@ export function CategoryEditInline({
       name: fd.get('name') as string,
       max_entries: maxEntries ? parseInt(maxEntries, 10) : null,
       ...(canEditFormats && {
-        play_format: fd.get('play_format') as string,
+        play_format: localPlayFormat,
         draw_format: localDrawFormat,
+        ...(localPlayFormat === 'team_event' && {
+          rubber_lineup: rubberLineup,
+          roster_composition: rosterComposition,
+          decider_format: deciderFormat,
+        }),
       }),
       scoring_override: scoringOverride,
       ...(scoringOverride && {
@@ -284,7 +292,12 @@ export function CategoryEditInline({
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-slate-400">Play format</label>
-                <select name="play_format" defaultValue={currentPlayFormat} className={`${inputClass} cursor-pointer`}>
+                <select
+                  name="play_format"
+                  value={localPlayFormat}
+                  onChange={(e) => setLocalPlayFormat(e.target.value)}
+                  className={`${inputClass} cursor-pointer`}
+                >
                   {PLAY_FORMAT_OPTS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               </div>
@@ -300,6 +313,20 @@ export function CategoryEditInline({
                 </select>
               </div>
             </div>
+          )}
+
+          {/* Rubber lineup / roster composition / decider — team_event only, editable until draw generated */}
+          {canEditFormats && localPlayFormat === 'team_event' && (
+            <>
+              <RubberLineupEditor value={rubberLineup} onChange={setRubberLineup} />
+              <RosterCompositionEditor value={rosterComposition} onChange={setRosterComposition} />
+              <DeciderFormatSelect value={deciderFormat} onChange={setDeciderFormat} />
+            </>
+          )}
+
+          {/* Post-draw: the lineup itself is locked, but the play order can still change */}
+          {!canEditFormats && currentPlayFormat === 'team_event' && (
+            <RubberOrderEditor categoryId={categoryId} rubberLineup={rubberLineup} />
           )}
 
           {/* Group stage configuration panel */}

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { LiveScoreDisplay } from './LiveScoreDisplay';
 import { RestartApproveButton } from './RestartApproveButton';
 import { ScheduledMatchCard } from './ScheduledMatchCard';
+import { TieAssignmentCard } from './TieAssignmentCard';
 
 // ── Serialisable match shape (pre-computed on the server) ─────────────────────
 
@@ -24,6 +25,24 @@ export interface ScoringMatch {
   categoryId: string;
   categoryName: string;
   playFormat: string;
+  /** Team-event rubber whose lineup hasn't been submitted yet — not yet
+   *  scoreable, so the row isn't a link into the score-entry page. */
+  isPlaceholder?: boolean;
+  /** Set for team-event rubber matches — used to group a tie's rubbers into
+   *  one assignment card instead of one card per rubber. */
+  tieId?: string | null;
+  /** Just the rubber's own name ("Singles 1", "Decider"), no round prefix —
+   *  used inside the grouped tie card where round is shown once. */
+  rubberLabel?: string | null;
+  /** The tie's two team names, always populated for team-event rubbers
+   *  regardless of whether a lineup has been submitted (playerA/playerB
+   *  switch to individual player names once it has). */
+  teamAName?: string | null;
+  teamBName?: string | null;
+  /** Round/stage name without the rubber suffix, for the grouped tie card header. */
+  tieRoundLabel?: string | null;
+  rubberSequence?: number | null;
+  isDecider?: boolean;
   court: number | null;
   scheduledTime: string | null;
   assignedRefereeName: string | null;
@@ -120,14 +139,32 @@ export const ScoringMatchList = memo(function ScoringMatchList({
   const isFiltered = !!(q || statusFilter || courtFilter);
 
   // ── Filtered sections ─────────────────────────────────────────────────────
-  const { liveActive, livePaused, assignedNotStarted, upcoming, done } = useMemo(() => {
+  const { liveActive, livePaused, assignedNotStarted, upcoming, done, tieGroups } = useMemo(() => {
     const filtered = applyFilters(matches);
+    const scheduled = filtered.filter((m) => m.status === 'scheduled');
+
+    // Team-event rubbers that haven't started — grouped into one
+    // assignment card per tie instead of one card per rubber, since a tie's
+    // rubbers always share the same court/referee back-to-back.
+    const teamEventScheduled = scheduled.filter((m) => !!m.tieId);
+    const tieGroupsMap = new Map<string, ScoringMatch[]>();
+    for (const m of teamEventScheduled) {
+      const list = tieGroupsMap.get(m.tieId!) ?? [];
+      list.push(m);
+      tieGroupsMap.set(m.tieId!, list);
+    }
+    const tieGroups = [...tieGroupsMap.values()].map((group) =>
+      [...group].sort((a, b) => (a.isDecider ? Infinity : a.rubberSequence ?? 0) - (b.isDecider ? Infinity : b.rubberSequence ?? 0)),
+    );
+
+    const nonTeamEventScheduled = scheduled.filter((m) => !m.tieId);
     return {
       liveActive: filtered.filter((m) => m.status === 'in_progress' && !m.pausedForReassignment),
       livePaused: filtered.filter((m) => m.status === 'in_progress' && m.pausedForReassignment),
-      assignedNotStarted: filtered.filter((m) => m.status === 'scheduled' && !!m.court && !!m.assignedRefereeName),
-      upcoming: filtered.filter((m) => m.status === 'scheduled' && (!m.court || !m.assignedRefereeName)),
+      assignedNotStarted: nonTeamEventScheduled.filter((m) => !!m.court && !!m.assignedRefereeName),
+      upcoming: nonTeamEventScheduled.filter((m) => !m.court || !m.assignedRefereeName),
       done: filtered.filter((m) => m.status === 'completed' || m.status === 'walkover'),
+      tieGroups,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matches, q, statusFilter, courtFilter]);
@@ -142,7 +179,8 @@ export const ScoringMatchList = memo(function ScoringMatchList({
 
   const totalVisible =
     filteredRestarts.length + liveActive.length + livePaused.length +
-    assignedNotStarted.length + upcoming.length + done.length;
+    assignedNotStarted.length + upcoming.length + done.length +
+    tieGroups.reduce((sum, g) => sum + g.length, 0);
 
   const hasActiveFilters = isFiltered && totalVisible === 0;
 
@@ -315,6 +353,42 @@ export const ScoringMatchList = memo(function ScoringMatchList({
                 activeReferees={activeReferees}
               />
             ))}
+          </div>
+        </section>
+      )}
+
+      {/* ── 3b. Team-event ties — one card per tie, all rubbers assigned together ── */}
+      {tieGroups.length > 0 && (
+        <section className="mb-8">
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-slate-500">
+            Team event ties — {tieGroups.length}
+          </h2>
+          <p className="mb-3 text-[11px] text-slate-600">
+            A tie's rubbers play on the same court back-to-back — assign court and referee once for the whole tie. The referee still sees and scores each rubber individually.
+          </p>
+          <div className="space-y-3">
+            {tieGroups.map((rubbers) => {
+              const first = rubbers[0];
+              return (
+                <TieAssignmentCard
+                  key={first.tieId}
+                  tieId={first.tieId!}
+                  teamAName={first.teamAName ?? 'TBD'}
+                  teamBName={first.teamBName ?? 'TBD'}
+                  categoryName={first.categoryName}
+                  roundLabel={first.tieRoundLabel ?? first.roundLabel}
+                  groupName={first.groupName}
+                  court={first.court}
+                  assignedRefereeName={first.assignedRefereeName}
+                  maxCourts={maxCourts}
+                  activeReferees={activeReferees}
+                  rubbers={rubbers.map((r) => ({
+                    id: r.id, label: r.rubberLabel ?? 'Rubber', isPlaceholder: r.isPlaceholder,
+                    playerA: r.playerA, playerB: r.playerB,
+                  }))}
+                />
+              );
+            })}
           </div>
         </section>
       )}

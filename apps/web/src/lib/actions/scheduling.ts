@@ -57,6 +57,44 @@ export async function batchScheduleMatchesAction(
   return { success: true, count: updates.length };
 }
 
+// ── Reset one category's schedule (court/time only — leaves day/order alone) ──
+export async function resetCategoryScheduleAction(
+  tournamentSlug: string,
+  categoryId: string,
+): Promise<{ success: true; count: number } | { error: string }> {
+  const user = await getCurrentUser();
+  if (!user) return { error: 'Not authenticated' };
+
+  const admin = createAdminClient();
+
+  const { data: t } = await admin
+    .from('tournaments')
+    .select('id, club_id')
+    .eq('slug', tournamentSlug)
+    .single();
+  if (!t) return { error: 'Tournament not found' };
+
+  const { data: mgr } = await admin
+    .from('club_managers')
+    .select('role')
+    .eq('club_id', t.club_id)
+    .eq('player_id', user.id)
+    .maybeSingle();
+  if (!mgr) return { error: 'Permission denied' };
+
+  const { data: cleared, error } = await admin
+    .from('matches')
+    .update({ scheduled_time: null, court: null })
+    .eq('tournament_id', t.id)
+    .eq('category_id', categoryId)
+    .select('id');
+  if (error) return { error: `Failed to reset schedule: ${error.message}` };
+
+  revalidatePath(`/tournaments/${tournamentSlug}/schedule`);
+  revalidatePath(`/tournaments/${tournamentSlug}/scoring`);
+  return { success: true, count: cleared?.length ?? 0 };
+}
+
 // ── Category schedule order (day + sequence) ──────────────────────────────────
 
 export interface CategoryScheduleAssignment {
@@ -167,7 +205,7 @@ export async function generateSmartScheduleAction(
   // used below, so placeholder matches schedule exactly like real ones.
   const { data: rawMatches } = await admin
     .from('matches')
-    .select('id, round, group_name, category_id, status, winner_entry_id')
+    .select('id, round, group_name, category_id, status, winner_entry_id, tie_id, rubber_sequence, is_decider')
     .eq('tournament_id', t.id)
     .order('group_name', { ascending: true, nullsFirst: false })
     .order('round', { ascending: true });
@@ -176,8 +214,42 @@ export async function generateSmartScheduleAction(
     return { updates: [], conflicts: [] };
   }
 
-  type M = { id: string; round: number; group_name: string | null; category_id: string; status: string; winner_entry_id: string | null };
+  type M = {
+    id: string; round: number; group_name: string | null; category_id: string; status: string; winner_entry_id: string | null;
+    tie_id: string | null; rubber_sequence: number | null; is_decider: boolean;
+  };
   const allMatches = rawMatches as M[];
+
+  // A team-event tie's rubbers always play on the same court, back-to-back,
+  // in their configured order — group them into one schedulable "block" so
+  // the rest of the algorithm places the whole tie as a single unit instead
+  // of scattering its rubbers across different courts/times like
+  // independent matches.
+  type Block = { id: string; round: number; group_name: string | null; matches: M[] };
+  function buildBlocks(matches: M[]): Block[] {
+    const blocks: Block[] = [];
+    const tieBlockByTieId = new Map<string, Block>();
+    for (const m of matches) {
+      if (m.tie_id) {
+        let block = tieBlockByTieId.get(m.tie_id);
+        if (!block) {
+          block = { id: `tie:${m.tie_id}`, round: m.round, group_name: m.group_name, matches: [] };
+          tieBlockByTieId.set(m.tie_id, block);
+          blocks.push(block);
+        }
+        block.matches.push(m);
+      } else {
+        blocks.push({ id: m.id, round: m.round, group_name: m.group_name, matches: [m] });
+      }
+    }
+    for (const block of blocks) {
+      block.matches.sort((a, b) => {
+        if (a.is_decider !== b.is_decider) return a.is_decider ? 1 : -1;
+        return (a.rubber_sequence ?? 0) - (b.rubber_sequence ?? 0);
+      });
+    }
+    return blocks;
+  }
 
   const { availableCourts, matchDurationMins, changeoverMins, knockoutBufferMins } = params;
   if (availableCourts.length === 0) return { error: 'No courts available' };
@@ -252,25 +324,31 @@ export async function generateSmartScheduleAction(
       const knockoutMatches = categoryMatches.filter((m) => m.group_name === null);
 
       // ── Group stage: each group → one court, sequential ──────────────────────
-      const groupMap = new Map<string, M[]>();
-      for (const m of groupMatches) {
-        if (!groupMap.has(m.group_name as string)) groupMap.set(m.group_name as string, []);
-        groupMap.get(m.group_name as string)!.push(m);
+      // Team-event ties are scheduled as one block (all rubbers back-to-back
+      // on the block's assigned court) rather than one independent match per
+      // rubber — buildBlocks() collapses same-tie_id rows together.
+      const groupBlockMap = new Map<string, Block[]>();
+      for (const block of buildBlocks(groupMatches)) {
+        const key = block.group_name as string;
+        if (!groupBlockMap.has(key)) groupBlockMap.set(key, []);
+        groupBlockMap.get(key)!.push(block);
       }
-      const sortedGroupNames = [...groupMap.keys()].sort();
+      const sortedGroupNames = [...groupBlockMap.keys()].sort();
 
       let groupCursor = 0;
       let lastGroupEndMs = categoryStartMs;
 
       for (const groupName of sortedGroupNames) {
-        const grp   = (groupMap.get(groupName) ?? []).sort((a, b) => a.round - b.round);
+        const grp   = (groupBlockMap.get(groupName) ?? []).sort((a, b) => a.round - b.round);
         const court = availableCourts[groupCursor % availableCourts.length];
         groupCursor++;
 
         let t_ms = courtFreeAt.get(court) ?? categoryStartMs;
-        for (const m of grp) {
-          updates.push({ matchId: m.id, scheduledTime: new Date(t_ms).toISOString(), court });
-          t_ms += (durationFor(m) + changeoverMins) * 60_000;
+        for (const block of grp) {
+          for (const m of block.matches) {
+            updates.push({ matchId: m.id, scheduledTime: new Date(t_ms).toISOString(), court });
+            t_ms += (durationFor(m) + changeoverMins) * 60_000;
+          }
         }
         courtFreeAt.set(court, t_ms);
         lastGroupEndMs = Math.max(lastGroupEndMs, t_ms);
@@ -281,18 +359,22 @@ export async function generateSmartScheduleAction(
         const knockoutStart = groupMatches.length > 0 ? lastGroupEndMs + bufferMs : categoryStartMs;
         for (const c of availableCourts) courtFreeAt.set(c, knockoutStart);
 
-        const rounds = [...new Set(knockoutMatches.map((m) => m.round))].sort((a, b) => a - b);
+        const knockoutBlocks = buildBlocks(knockoutMatches);
+        const rounds = [...new Set(knockoutBlocks.map((b) => b.round))].sort((a, b) => a - b);
         for (const round of rounds) {
-          const roundMatches = knockoutMatches.filter((m) => m.round === round);
+          const roundBlocks = knockoutBlocks.filter((b) => b.round === round);
           const roundStartMs = Math.max(...availableCourts.map((c) => courtFreeAt.get(c) ?? knockoutStart));
 
           let courtCursor = 0;
-          for (const m of roundMatches) {
+          for (const block of roundBlocks) {
             const court = availableCourts[courtCursor % availableCourts.length];
             courtCursor++;
-            const t_ms = Math.max(courtFreeAt.get(court) ?? roundStartMs, roundStartMs);
-            updates.push({ matchId: m.id, scheduledTime: new Date(t_ms).toISOString(), court });
-            courtFreeAt.set(court, t_ms + (durationFor(m) + changeoverMins) * 60_000);
+            let t_ms = Math.max(courtFreeAt.get(court) ?? roundStartMs, roundStartMs);
+            for (const m of block.matches) {
+              updates.push({ matchId: m.id, scheduledTime: new Date(t_ms).toISOString(), court });
+              t_ms += (durationFor(m) + changeoverMins) * 60_000;
+            }
+            courtFreeAt.set(court, t_ms);
           }
         }
       }

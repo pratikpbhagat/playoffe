@@ -12,6 +12,7 @@ import type { MatchWithPlayers } from '@/lib/actions/draws';
 import { BracketView } from './BracketView';
 import { useRealtimeCategoryMatches } from '@/hooks/useRealtimeCategoryMatches';
 import { StandingsTable } from './StandingsTable';
+import { DRAW_FORMATS } from '@pickleball/shared';
 
 interface StalenessEntry {
   id: string;
@@ -26,6 +27,10 @@ interface Props {
   categoryStatus: string;
   entryCount: number;
   initialMatches: MatchWithPlayers[];
+  /** team_event categories use ties (not individual matches) for bracket/standings
+   *  display — handled separately by the caller (TeamBracketView/TeamStandingsTable),
+   *  so this component suppresses its own BracketView/StandingsTable in that case. */
+  playFormat?: string;
   showBracket?: boolean;   // when false, hides BracketView (default true)
   showStandings?: boolean; // when false, hides StandingsTable (default true)
   readOnly?: boolean;      // when true, match tiles in BracketView are non-clickable
@@ -45,13 +50,9 @@ interface Props {
   };
 }
 
-const FORMAT_LABEL: Record<string, string> = {
-  round_robin: 'Round robin',
-  single_elimination: 'Single elimination',
-  double_elimination: 'Double elimination',
-  group_stage_knockout: 'Group stage + knockout',
-  swiss: 'Swiss',
-};
+const FORMAT_LABEL: Record<string, string> = Object.fromEntries(
+  DRAW_FORMATS.map((f) => [f.value, f.label]),
+);
 
 export function DrawSection({
   categoryId,
@@ -61,6 +62,7 @@ export function DrawSection({
   categoryStatus,
   entryCount,
   initialMatches,
+  playFormat,
   showBracket = true,
   showStandings = true,
   readOnly = false,
@@ -911,8 +913,8 @@ export function DrawSection({
         </div>
       )}
 
-      {/* Bracket / schedule */}
-      {showBracket && isDrawn && matches.length > 0 && !loading && (
+      {/* Bracket / schedule — team_event renders its own tie-based bracket/standings instead */}
+      {playFormat !== 'team_event' && showBracket && isDrawn && matches.length > 0 && !loading && (
         <BracketView
           matches={matches}
           format={drawFormat}
@@ -925,7 +927,7 @@ export function DrawSection({
       )}
 
       {/* Live standings — round-robin, swiss, group stage */}
-      {showStandings && isDrawn && matches.length > 0 && !loading && (
+      {playFormat !== 'team_event' && showStandings && isDrawn && matches.length > 0 && !loading && (
         <StandingsTable matches={matches} format={drawFormat} advancePerGroup={gsAdvance} />
       )}
 

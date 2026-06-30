@@ -14,6 +14,12 @@ export const csvImportRowSchema = z.object({
   skill_rating: z.string().optional().nullable().transform((v) => (v ? parseFloat(v) : null)),
 });
 
+export const teamCsvImportRowSchema = csvImportRowSchema.extend({
+  team_name: z.string().min(2).max(80),
+  owner_name: z.string().max(80).optional().nullable(),
+  is_captain: z.string().optional().nullable(),
+});
+
 export const bulkImportSchema = z.object({
   tournament_id: z.string().uuid(),
   rows: z.array(csvImportRowSchema).min(1).max(512),
@@ -26,5 +32,6 @@ export const selfRegisterEntrySchema = z.object({
 });
 
 export type CsvImportRow = z.infer<typeof csvImportRowSchema>;
+export type TeamCsvImportRow = z.infer<typeof teamCsvImportRowSchema>;
 export type BulkImportInput = z.infer<typeof bulkImportSchema>;
 export type SelfRegisterEntryInput = z.infer<typeof selfRegisterEntrySchema>;

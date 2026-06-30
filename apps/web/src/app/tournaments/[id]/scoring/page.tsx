@@ -97,13 +97,21 @@ export default async function ScoringHubPage({ params, searchParams }: Props) {
       assigned_referee_name, paused_for_reassignment,
       restart_requested, restart_requested_reason,
       player_reported_winner_id, player_reported_sets,
+      tie_id, rubber_sequence, is_decider,
       ea:tournament_entries!entry_a_id(id, seed, players!player_id(full_name), partner:players!partner_id(full_name)),
       eb:tournament_entries!entry_b_id(id, seed, players!player_id(full_name), partner:players!partner_id(full_name)),
-      tc:tournament_categories!category_id(id, name, play_format)
+      tc:tournament_categories!category_id(id, name, play_format, rubber_lineup),
+      tie:ties!tie_id(
+        team_a:tournament_teams!team_a_id(name),
+        team_b:tournament_teams!team_b_id(name)
+      )
     `)
     .eq('tournament_id', t.id)
-    .not('entry_a_id', 'is', null)
-    .not('entry_b_id', 'is', null)
+    // Singles/doubles matches need both entries known to be worth showing
+    // (future-round placeholders aren't scoreable yet) — but team-event
+    // rubber matches should still appear (with placeholder team names) even
+    // before the captains have submitted lineups, same as the schedule page.
+    .or('and(entry_a_id.not.is.null,entry_b_id.not.is.null),tie_id.not.is.null')
     // Play order — by assigned time first (unscheduled matches last), then
     // round/court as a stable tiebreaker for matches sharing a time slot.
     .order('scheduled_time', { ascending: true, nullsFirst: false })
@@ -125,9 +133,13 @@ export default async function ScoringHubPage({ params, searchParams }: Props) {
     sets: { set_number: number; score_a: number; score_b: number }[];
     player_reported_winner_id: string | null;
     player_reported_sets: unknown;
+    tie_id: string | null;
+    rubber_sequence: number | null;
+    is_decider: boolean;
     ea: { id: string; seed: number | null; players: { full_name: string } | null; partner: { full_name: string } | null } | null;
     eb: { id: string; seed: number | null; players: { full_name: string } | null; partner: { full_name: string } | null } | null;
-    tc: { id: string; name: string; play_format: string } | null;
+    tc: { id: string; name: string; play_format: string; rubber_lineup: { sequence: number; name: string }[] | null } | null;
+    tie: { team_a: { name: string } | null; team_b: { name: string } | null } | null;
   };
 
   const allRows = (matches ?? []) as unknown as MatchRow[];
@@ -173,17 +185,55 @@ export default async function ScoringHubPage({ params, searchParams }: Props) {
     return entry.players.full_name;
   }
 
+  // Team-event rubber matches: prefer the actual rubber lineup once the
+  // captain has submitted it, otherwise fall back to the tie's team name
+  // (known immediately from the draw) instead of a bare "TBD". A partner is
+  // shown whenever the entry actually has one — that alone is enough signal
+  // it's a doubles/mixed-doubles rubber, no need to separately look up the
+  // rubber's configured play_format.
+  function rubberSlotName(entry: MatchRow['ea'], teamName: string | null | undefined): string {
+    if (entry?.players) {
+      return entry.partner ? `${entry.players.full_name} / ${entry.partner.full_name}` : entry.players.full_name;
+    }
+    return teamName ?? 'TBD';
+  }
+
+  // Just the rubber's own name ("Singles 1", "Decider") — no round prefix,
+  // used inside a tie-grouped assignment card where the round is already
+  // shown once at the card level.
+  function rubberOwnLabel(m: MatchRow): string {
+    if (m.is_decider) return 'Decider';
+    const rubberName = m.rubber_sequence
+      ? m.tc?.rubber_lineup?.find((r) => r.sequence === m.rubber_sequence)?.name
+      : null;
+    return rubberName ?? (m.rubber_sequence ? `Rubber ${m.rubber_sequence}` : 'Rubber');
+  }
+
+  function rubberRoundLabel(m: MatchRow): string {
+    const base = m.round_name ?? `Round ${m.round}`;
+    return `${base} · ${rubberOwnLabel(m)}`;
+  }
+
   // ── Build serialisable ScoringMatch objects ───────────────────────────────
   function toScoringMatch(m: MatchRow): ScoringMatch {
+    const isTeamEvent = !!m.tie_id;
     return {
       id: m.id,
       status: m.status,
       round: m.round,
-      roundLabel: m.round_name ?? `Round ${m.round}`,
+      roundLabel: isTeamEvent ? rubberRoundLabel(m) : (m.round_name ?? `Round ${m.round}`),
       groupName: m.group_name,
       categoryId: m.tc?.id ?? '',
       categoryName: m.tc?.name ?? '',
       playFormat: m.tc?.play_format ?? 'singles',
+      isPlaceholder: isTeamEvent && (!m.ea || !m.eb),
+      tieId: m.tie_id,
+      rubberLabel: isTeamEvent ? rubberOwnLabel(m) : null,
+      rubberSequence: m.rubber_sequence,
+      isDecider: m.is_decider,
+      teamAName: m.tie?.team_a?.name ?? null,
+      teamBName: m.tie?.team_b?.name ?? null,
+      tieRoundLabel: isTeamEvent ? (m.round_name ?? `Round ${m.round}`) : null,
       court: m.court,
       scheduledTime: m.scheduled_time,
       assignedRefereeName: m.assigned_referee_name,
@@ -192,8 +242,8 @@ export default async function ScoringHubPage({ params, searchParams }: Props) {
       restartRequestedReason: m.restart_requested_reason,
       sets: (m.sets as { score_a: number; score_b: number }[]) ?? [],
       playerReportedWinnerId: m.player_reported_winner_id,
-      playerA: entryTeamName(m.ea, m.tc?.play_format),
-      playerB: entryTeamName(m.eb, m.tc?.play_format),
+      playerA: isTeamEvent ? rubberSlotName(m.ea, m.tie?.team_a?.name) : entryTeamName(m.ea, m.tc?.play_format),
+      playerB: isTeamEvent ? rubberSlotName(m.eb, m.tie?.team_b?.name) : entryTeamName(m.eb, m.tc?.play_format),
       entryA: m.ea,
       entryB: m.eb,
     };

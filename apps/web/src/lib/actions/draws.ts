@@ -5,6 +5,8 @@ import { createAdminClient, createClient, getCurrentUser } from '@/lib/supabase/
 import { generateDraw } from '@pickleball/draw-engine';
 import type { DrawConfig, DrawEntry } from '@pickleball/shared';
 import { createNotificationsForPlayers } from './notifications';
+import { checkAndAdvanceTie } from './scoring';
+import { fillTeamDefaultLineupForTie } from './teams';
 
 // ── Auth guard ────────────────────────────────────────────────────────────────
 async function assertCategoryManager(categoryId: string, userId: string) {
@@ -12,7 +14,7 @@ async function assertCategoryManager(categoryId: string, userId: string) {
 
   const { data: cat } = await admin
     .from('tournament_categories')
-    .select('id, name, tournament_id, draw_format, slug, max_entries, groups_count, group_sizes, advance_per_group, has_third_place_match, knockout_seeding, tournaments!inner(id, club_id, slug, court_count)')
+    .select('id, name, tournament_id, draw_format, play_format, rubber_lineup, slug, max_entries, groups_count, group_sizes, advance_per_group, has_third_place_match, knockout_seeding, tournaments!inner(id, club_id, slug, court_count)')
     .eq('id', categoryId)
     .single();
   if (!cat) return null;
@@ -44,6 +46,10 @@ export async function generateDrawAction(
   const admin = createAdminClient();
   const cat = await assertCategoryManager(categoryId, user.id);
   if (!cat) return { error: 'Permission denied' };
+
+  if (cat.play_format === 'team_event') {
+    return generateTeamEventDraw(admin, cat as Awaited<ReturnType<typeof assertCategoryManager>> & object, categoryId);
+  }
 
   // Fetch active entries with player info
   const { data: entries, error: entryErr } = await admin
@@ -172,8 +178,7 @@ export async function generateDrawAction(
   if (insertErr) return { error: `Failed to save draw matches: ${insertErr.message}` };
 
   // ── Auto-advance byes ────────────────────────────────────────────────────
-  const isElimination =
-    cat.draw_format === 'single_elimination' || cat.draw_format === 'double_elimination';
+  const isElimination = cat.draw_format === 'single_elimination';
 
   if (isElimination) {
     const byeMatches = matchInserts.filter(
@@ -258,6 +263,149 @@ export async function generateDrawAction(
   return { success: true, matchCount: matchInserts.length };
 }
 
+// ── Generate draw: team_event (teams paired by the draw engine, persisted as
+//    ties + N rubber matches per tie instead of a single match per pairing) ───
+async function generateTeamEventDraw(
+  admin: ReturnType<typeof createAdminClient>,
+  cat: {
+    id: string; name: string; tournament_id: string; draw_format: string; slug: string;
+    rubber_lineup: unknown;
+    max_entries?: number | null; groups_count?: number | null; group_sizes?: number[] | null;
+    advance_per_group?: number | null; has_third_place_match?: boolean | null;
+    knockout_seeding?: string | null;
+    tournamentData: { id: string; club_id: string; slug: string; court_count: number };
+  },
+  categoryId: string,
+) {
+  const rubberLineup = (cat.rubber_lineup ?? []) as { sequence: number; play_format: string }[];
+  if (rubberLineup.length === 0) return { error: 'This category has no rubber lineup configured.' };
+
+  const { data: teams, error: teamsErr } = await admin
+    .from('tournament_teams')
+    .select('id, name, seed, captain_id, team_members(player_id, status)')
+    .eq('category_id', categoryId)
+    .eq('status', 'active');
+
+  if (teamsErr || !teams) return { error: 'Failed to fetch teams' };
+  if (teams.length < 2) return { error: 'Need at least 2 teams to generate a draw' };
+
+  const drawEntries: DrawEntry[] = teams.map((t) => {
+    const rosterIds = (t.team_members ?? [])
+      .filter((m) => m.status === 'active')
+      .map((m) => m.player_id);
+    return {
+      entry_id: t.id,
+      player_ids: [t.captain_id, ...rosterIds],
+      display_name: t.name,
+      seed: t.seed,
+      rating: 3.5,
+    };
+  });
+
+  const groupsCount = cat.groups_count ?? null;
+  const groupSize = groupsCount && cat.max_entries ? Math.ceil(cat.max_entries / groupsCount) : 4;
+  const resolvedGroupSizes = cat.group_sizes?.length ? cat.group_sizes : null;
+
+  const config: DrawConfig = {
+    format: cat.draw_format as DrawConfig['format'],
+    entries: drawEntries,
+    category_id: categoryId,
+    group_size: groupSize,
+    ...(resolvedGroupSizes && { group_sizes: resolvedGroupSizes }),
+    top_per_group_advance: cat.advance_per_group ?? 2,
+    has_third_place_match: cat.has_third_place_match ?? false,
+    knockout_seeding: (cat.knockout_seeding as 'auto' | 'manual' | null) ?? 'auto',
+  };
+
+  let draw;
+  try {
+    draw = generateDraw(config);
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Failed to generate draw' };
+  }
+
+  // Clear any existing ties/matches for this category
+  await admin.from('matches').delete().eq('category_id', categoryId);
+  await admin.from('ties').delete().eq('category_id', categoryId);
+
+  let tieCount = 0;
+  let rubberCount = 0;
+
+  for (const round of draw.rounds) {
+    for (const [positionInRound, m] of round.matches.entries()) {
+      const teamAId = m.entry_a?.entry_id ?? null;
+      const teamBId = m.entry_b?.entry_id ?? null;
+
+      const { data: tie, error: tieErr } = await admin
+        .from('ties')
+        .insert({
+          tournament_id: cat.tournament_id,
+          category_id: categoryId,
+          round: m.round,
+          round_name: m.round_name,
+          group_name: m.group_name,
+          team_a_id: teamAId,
+          team_b_id: teamBId,
+          bracket_position: positionInRound,
+          // Bye: exactly one side present — resolve immediately, no rubbers needed.
+          // Both null is a knockout placeholder awaiting group-stage promotion,
+          // not a bye — it stays 'pending_lineups' like a real pairing.
+          status: (teamAId && !teamBId) || (teamBId && !teamAId) ? 'completed' : 'pending_lineups',
+          winner_team_id: (teamAId && !teamBId) ? teamAId : (teamBId && !teamAId) ? teamBId : null,
+          completed_at: (teamAId && !teamBId) || (teamBId && !teamAId) ? new Date().toISOString() : null,
+        })
+        .select('id')
+        .single();
+
+      if (tieErr || !tie) continue;
+      tieCount++;
+
+      if (!(teamAId && teamBId)) continue; // bye — no rubbers to create
+
+      const rubberRows = rubberLineup.map((r) => ({
+        tournament_id: cat.tournament_id,
+        category_id: categoryId,
+        round: m.round,
+        round_name: m.round_name,
+        group_name: m.group_name,
+        entry_a_id: null,
+        entry_b_id: null,
+        status: 'scheduled' as const,
+        sets: [],
+        tie_id: tie.id,
+        rubber_sequence: r.sequence,
+      }));
+
+      const { error: rubberErr } = await admin.from('matches').insert(rubberRows);
+      if (!rubberErr) {
+        rubberCount += rubberRows.length;
+        // Auto-fill from either team's saved default lineup, if they have
+        // "apply to all ties" enabled — skips captains who'd otherwise have
+        // to manually resubmit the same lineup for every tie.
+        await fillTeamDefaultLineupForTie(admin, tie.id);
+      }
+    }
+  }
+
+  await admin.from('tournament_categories').update({ status: 'draw_generated' }).eq('id', categoryId);
+
+  const tSlug = cat.tournamentData.slug;
+  revalidatePath(`/tournaments/${tSlug}/categories/${cat.slug}`);
+
+  const captainIds = [...new Set(teams.map((t) => t.captain_id))];
+  if (captainIds.length > 0) {
+    void createNotificationsForPlayers(
+      captainIds,
+      'draw_published',
+      'Draw is ready',
+      `The draw for ${cat.name} has been published. Submit your tie lineups!`,
+      `/events/${tSlug}/draw/${cat.slug}`,
+    );
+  }
+
+  return { success: true, tieCount, matchCount: rubberCount };
+}
+
 // ── Clear draw (for regenerate) ───────────────────────────────────────────────
 export async function clearDrawAction(categoryId: string) {
   const supabase = await createClient();
@@ -281,6 +429,9 @@ export async function clearDrawAction(categoryId: string) {
   }
 
   await admin.from('matches').delete().eq('category_id', categoryId);
+  if (cat.play_format === 'team_event') {
+    await admin.from('ties').delete().eq('category_id', categoryId);
+  }
   await admin
     .from('tournament_categories')
     .update({ status: 'registration' })
@@ -547,6 +698,7 @@ export type MatchWithPlayers = {
   winner_entry_id: string | null;
   sets: unknown;
   court: number | null;
+  scheduled_time: string | null;
   entry_a: {
     entry_status?: string; // 'active' | 'withdrawn' | etc.
     id: string;
@@ -729,7 +881,7 @@ export async function getMatchesForCategory(categoryId: string): Promise<MatchWi
   const { data } = await admin
     .from('matches')
     .select(
-      `id, round, round_name, group_name, bracket_type, status, winner_entry_id, sets, court,
+      `id, round, round_name, group_name, bracket_type, status, winner_entry_id, sets, court, scheduled_time,
        ea:tournament_entries!entry_a_id(id, seed, status, players!player_id(full_name, username), partner:players!partner_id(full_name)),
        eb:tournament_entries!entry_b_id(id, seed, status, players!player_id(full_name, username), partner:players!partner_id(full_name))`,
     )
@@ -761,6 +913,7 @@ export async function getMatchesForCategory(categoryId: string): Promise<MatchWi
       winner_entry_id: m.winner_entry_id,
       sets: m.sets,
       court: m.court,
+      scheduled_time: m.scheduled_time,
       entry_a: ea
         ? {
             id: ea.id,
@@ -783,6 +936,68 @@ export async function getMatchesForCategory(categoryId: string): Promise<MatchWi
         : null,
     };
   });
+}
+
+// ── team_event: fetch ties (with rubber matches) for a category ──────────────
+export type TieWithTeams = {
+  id: string;
+  round: number;
+  round_name: string | null;
+  group_name: string | null;
+  bracket_type: string | null;
+  status: string;
+  winner_team_id: string | null;
+  rubbers_won_a: number;
+  rubbers_won_b: number;
+  point_diff_a: number;
+  team_a: { id: string; name: string } | null;
+  team_b: { id: string; name: string } | null;
+  rubbers: MatchWithPlayers[];
+};
+
+export async function getTiesForCategory(categoryId: string): Promise<TieWithTeams[]> {
+  const admin = createAdminClient();
+
+  const { data: ties } = await admin
+    .from('ties')
+    .select(`
+      id, round, round_name, group_name, bracket_type, status, winner_team_id,
+      rubbers_won_a, rubbers_won_b, point_diff_a,
+      team_a:tournament_teams!team_a_id(id, name),
+      team_b:tournament_teams!team_b_id(id, name)
+    `)
+    .eq('category_id', categoryId)
+    .order('round', { ascending: true })
+    .order('bracket_position', { ascending: true });
+
+  if (!ties || ties.length === 0) return [];
+
+  const allMatches = await getMatchesForCategory(categoryId);
+  const matchesByTie = new Map<string, MatchWithPlayers[]>();
+  const { data: tieIdRows } = await admin.from('matches').select('id, tie_id').eq('category_id', categoryId);
+  const tieIdByMatchId = new Map((tieIdRows ?? []).map((r) => [r.id, r.tie_id]));
+  for (const m of allMatches) {
+    const tieId = tieIdByMatchId.get(m.id);
+    if (!tieId) continue;
+    if (!matchesByTie.has(tieId)) matchesByTie.set(tieId, []);
+    matchesByTie.get(tieId)!.push(m);
+  }
+
+  return ties.map((t) => ({
+    id: t.id,
+    round: t.round,
+    round_name: t.round_name,
+    group_name: t.group_name,
+    bracket_type: t.bracket_type,
+    status: t.status,
+    winner_team_id: t.winner_team_id,
+    rubbers_won_a: t.rubbers_won_a,
+    rubbers_won_b: t.rubbers_won_b,
+    point_diff_a: t.point_diff_a,
+    team_a: t.team_a as { id: string; name: string } | null,
+    team_b: t.team_b as { id: string; name: string } | null,
+    rubbers: matchesByTie.get(t.id) ?? [],
+  }));
 }
 
 // ── Shared: compute per-group standings with 6-level tiebreaker ───────────────
@@ -1024,6 +1239,203 @@ export async function promoteGroupWinnersAction(categoryId: string) {
   revalidatePath(`/tournaments/${tSlug}/categories/${cat.slug}`);
   revalidatePath(`/tournaments/${tSlug}/scoring`);
   return { success: true, promoted: advancingEntries.length };
+}
+
+// ── Team-event group standings → knockout promotion ───────────────────────────
+// Mirrors computeGroupStandings/promoteGroupWinnersAction but ranks teams via
+// ties' own aggregates (rubbers_won_a/b, point_diff_a) instead of matches.
+async function computeTeamGroupStandings(categoryId: string): Promise<
+  | { error: string }
+  | { groupNames: string[]; rankedByGroup: Map<string, string[]>; allGroupTiesDone: boolean }
+> {
+  const admin = createAdminClient();
+
+  const { data: allTies } = await admin
+    .from('ties')
+    .select('id, group_name, status, team_a_id, team_b_id, winner_team_id, rubbers_won_a, rubbers_won_b, point_diff_a')
+    .eq('category_id', categoryId);
+
+  if (!allTies || allTies.length === 0) return { error: 'No ties found' };
+
+  const groupTies = allTies.filter((t) => t.group_name !== null);
+  if (groupTies.length === 0) return { error: 'No group-stage ties found' };
+
+  const allGroupTiesDone = groupTies.every((t) => t.status === 'completed');
+  const groupNames = [...new Set(groupTies.map((t) => t.group_name as string))].sort();
+
+  const wins = new Map<string, number>();
+  const losses = new Map<string, number>();
+  const rubbersWon = new Map<string, number>();
+  const rubbersLost = new Map<string, number>();
+  const pointDiff = new Map<string, number>();
+  const initTeam = (id: string) => {
+    if (!wins.has(id)) { wins.set(id, 0); losses.set(id, 0); rubbersWon.set(id, 0); rubbersLost.set(id, 0); pointDiff.set(id, 0); }
+  };
+
+  for (const t of groupTies) {
+    if (!t.team_a_id || !t.team_b_id) continue;
+    initTeam(t.team_a_id);
+    initTeam(t.team_b_id);
+    rubbersWon.set(t.team_a_id, (rubbersWon.get(t.team_a_id) ?? 0) + t.rubbers_won_a);
+    rubbersLost.set(t.team_a_id, (rubbersLost.get(t.team_a_id) ?? 0) + t.rubbers_won_b);
+    rubbersWon.set(t.team_b_id, (rubbersWon.get(t.team_b_id) ?? 0) + t.rubbers_won_b);
+    rubbersLost.set(t.team_b_id, (rubbersLost.get(t.team_b_id) ?? 0) + t.rubbers_won_a);
+    pointDiff.set(t.team_a_id, (pointDiff.get(t.team_a_id) ?? 0) + t.point_diff_a);
+    pointDiff.set(t.team_b_id, (pointDiff.get(t.team_b_id) ?? 0) - t.point_diff_a);
+    if (t.winner_team_id === t.team_a_id) { wins.set(t.team_a_id, (wins.get(t.team_a_id) ?? 0) + 1); losses.set(t.team_b_id, (losses.get(t.team_b_id) ?? 0) + 1); }
+    else if (t.winner_team_id === t.team_b_id) { wins.set(t.team_b_id, (wins.get(t.team_b_id) ?? 0) + 1); losses.set(t.team_a_id, (losses.get(t.team_a_id) ?? 0) + 1); }
+  }
+
+  const teamsByGroup = new Map<string, Set<string>>();
+  const tiesByGroup = new Map<string, typeof groupTies>();
+  for (const t of groupTies) {
+    const g = t.group_name as string;
+    if (!teamsByGroup.has(g)) teamsByGroup.set(g, new Set());
+    if (t.team_a_id) teamsByGroup.get(g)!.add(t.team_a_id);
+    if (t.team_b_id) teamsByGroup.get(g)!.add(t.team_b_id);
+    if (!tiesByGroup.has(g)) tiesByGroup.set(g, []);
+    tiesByGroup.get(g)!.push(t);
+  }
+
+  const rankedByGroup = new Map<string, string[]>();
+  for (const gName of groupNames) {
+    const teamIds = [...(teamsByGroup.get(gName) ?? [])];
+    const gTies = tiesByGroup.get(gName) ?? [];
+    const ranked = teamIds.sort((a, b) => {
+      if ((wins.get(b) ?? 0) !== (wins.get(a) ?? 0)) return (wins.get(b) ?? 0) - (wins.get(a) ?? 0);
+      if ((losses.get(a) ?? 0) !== (losses.get(b) ?? 0)) return (losses.get(a) ?? 0) - (losses.get(b) ?? 0);
+      if ((pointDiff.get(b) ?? 0) !== (pointDiff.get(a) ?? 0)) return (pointDiff.get(b) ?? 0) - (pointDiff.get(a) ?? 0);
+      if ((rubbersWon.get(b) ?? 0) !== (rubbersWon.get(a) ?? 0)) return (rubbersWon.get(b) ?? 0) - (rubbersWon.get(a) ?? 0);
+      if ((rubbersLost.get(a) ?? 0) !== (rubbersLost.get(b) ?? 0)) return (rubbersLost.get(a) ?? 0) - (rubbersLost.get(b) ?? 0);
+      const h2h = gTies.find((t) => (t.team_a_id === a && t.team_b_id === b) || (t.team_a_id === b && t.team_b_id === a));
+      if (h2h?.winner_team_id === b) return 1;
+      if (h2h?.winner_team_id === a) return -1;
+      return 0;
+    });
+    rankedByGroup.set(gName, ranked);
+  }
+
+  return { groupNames, rankedByGroup, allGroupTiesDone };
+}
+
+export async function promoteGroupWinnerTiesAction(categoryId: string) {
+  const user = await getCurrentUser();
+  if (!user) return { error: 'Not authenticated' };
+
+  const cat = await assertCategoryManager(categoryId, user.id);
+  if (!cat) return { error: 'Permission denied' };
+
+  if (cat.draw_format !== 'group_stage_knockout') {
+    return { error: 'This action is only for group stage + knockout categories' };
+  }
+  if (cat.knockout_seeding === 'manual') {
+    return { error: 'This category uses manual knockout seeding' };
+  }
+
+  const admin = createAdminClient();
+
+  const standings = await computeTeamGroupStandings(categoryId);
+  if ('error' in standings) return { error: standings.error };
+  const { groupNames, rankedByGroup, allGroupTiesDone } = standings;
+  if (!allGroupTiesDone) return { error: 'One or more group-stage ties still to be played' };
+
+  const { data: allTies } = await admin
+    .from('ties')
+    .select('id, round, bracket_position, group_name, team_a_id, team_b_id, round_name')
+    .eq('category_id', categoryId)
+    .order('round', { ascending: true })
+    .order('bracket_position', { ascending: true });
+  if (!allTies) return { error: 'No ties found' };
+  const knockoutTies = allTies.filter((t) => t.group_name === null);
+  if (knockoutTies.length === 0) return { error: 'No knockout bracket found' };
+
+  const totalKnockoutTeams = knockoutTies.reduce((acc, t) => {
+    if (t.team_a_id) acc.add(t.team_a_id);
+    if (t.team_b_id) acc.add(t.team_b_id);
+    return acc;
+  }, new Set<string>()).size;
+  const topPerGroup = groupNames.length > 0 ? Math.round(totalKnockoutTeams / groupNames.length) || 2 : 2;
+
+  const n = groupNames.length;
+  const ranked = groupNames.map((g) => rankedByGroup.get(g) ?? []);
+  const advancingTeams: string[] = [];
+  for (let i = 0; i + 1 < n; i += 2) {
+    const gi = ranked[i];
+    const gj = ranked[i + 1];
+    for (let r = 1; r <= Math.floor(topPerGroup / 2); r++) {
+      const rOpp = topPerGroup + 1 - r;
+      const a1 = gi?.[r - 1];
+      const b1 = gj?.[rOpp - 1];
+      if (a1 && b1) advancingTeams.push(a1, b1);
+      const b2 = gj?.[r - 1];
+      const a2 = gi?.[rOpp - 1];
+      if (b2 && a2) advancingTeams.push(b2, a2);
+    }
+    if (topPerGroup % 2 === 1) {
+      const mid = (topPerGroup + 1) / 2;
+      const a = gi?.[mid - 1];
+      const b = gj?.[mid - 1];
+      if (a && b) advancingTeams.push(a, b);
+    }
+  }
+
+  if (advancingTeams.length === 0) return { error: 'No group results to promote' };
+
+  const emptyKnockout = knockoutTies
+    .filter((t) => !t.team_a_id && !t.team_b_id)
+    .sort((a, b) => a.round - b.round || (a.bracket_position ?? 0) - (b.bracket_position ?? 0));
+
+  if (emptyKnockout.length === 0) return { error: 'Knockout slots are already filled' };
+
+  const { data: cat2 } = await admin
+    .from('tournament_categories')
+    .select('rubber_lineup, tournament_id')
+    .eq('id', categoryId)
+    .single();
+  const rubberLineup = (cat2?.rubber_lineup ?? []) as { sequence: number }[];
+
+  let idx = 0;
+  let promotedCount = 0;
+  for (const tie of emptyKnockout) {
+    const teamA = advancingTeams[idx++] ?? null;
+    const teamB = advancingTeams[idx++] ?? null;
+    if (!teamA && !teamB) continue;
+
+    await admin.from('ties').update({
+      ...(teamA ? { team_a_id: teamA } : {}),
+      ...(teamB ? { team_b_id: teamB } : {}),
+    }).eq('id', tie.id);
+    promotedCount++;
+
+    if (teamA && teamB) {
+      const rubberRows = rubberLineup.map((r) => ({
+        tournament_id: cat2!.tournament_id,
+        category_id: categoryId,
+        round: tie.round,
+        round_name: tie.round_name,
+        group_name: null,
+        status: 'scheduled' as const,
+        sets: [],
+        tie_id: tie.id,
+        rubber_sequence: r.sequence,
+      }));
+      await admin.from('matches').insert(rubberRows);
+      // Auto-fill from either advancing team's saved default lineup, same as
+      // a freshly-generated draw does.
+      await fillTeamDefaultLineupForTie(admin, tie.id);
+    } else {
+      // Bye straight into this knockout slot — resolve and advance immediately.
+      const winner = teamA ?? teamB;
+      await admin.from('ties').update({
+        status: 'completed', winner_team_id: winner, completed_at: new Date().toISOString(),
+      }).eq('id', tie.id);
+      await checkAndAdvanceTie(admin, tie.id);
+    }
+  }
+
+  const tSlug = cat.tournamentData.slug;
+  revalidatePath(`/tournaments/${tSlug}/categories/${cat.slug}`);
+  return { success: true, promoted: promotedCount };
 }
 
 // ── Reset knockout bracket (auto seeding) ──────────────────────────────────────

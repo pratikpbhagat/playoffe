@@ -9,6 +9,7 @@ import { AddCategoryInline } from '@/components/tournaments/AddCategoryInline';
 import { RegistrationQR } from '@/components/ui/RegistrationQR';
 import { CloneTournamentButton } from '@/components/tournaments/CloneTournamentButton';
 import type { TournamentStatus } from '@/lib/actions/tournaments';
+import { DRAW_FORMATS, PLAY_FORMATS } from '@pickleball/shared';
 
 export const metadata: Metadata = { title: 'Tournament' };
 
@@ -24,13 +25,9 @@ const STATUS_BADGE: Record<string, { label: string; className: string }> = {
   cancelled: { label: 'Cancelled', className: 'bg-red-900/40 text-red-400' },
 };
 
-const FORMAT_LABEL: Record<string, string> = {
-  round_robin: 'Round robin',
-  single_elimination: 'Single elimination',
-  double_elimination: 'Double elimination',
-  group_stage_knockout: 'Group stage + knockout',
-  swiss: 'Swiss',
-};
+const FORMAT_LABEL: Record<string, string> = Object.fromEntries(
+  DRAW_FORMATS.map((f) => [f.value, f.label]),
+);
 
 const CATEGORY_STATUS: Record<string, { label: string; className: string }> = {
   pending:        { label: 'Setup',         className: 'bg-slate-700/50 text-slate-400' },
@@ -40,11 +37,9 @@ const CATEGORY_STATUS: Record<string, { label: string; className: string }> = {
   completed:      { label: 'Completed',     className: 'bg-slate-700/40 text-slate-400' },
 };
 
-const PLAY_FORMAT_LABEL: Record<string, string> = {
-  singles: 'Singles',
-  doubles: 'Doubles',
-  mixed_doubles: 'Mixed doubles',
-};
+const PLAY_FORMAT_LABEL: Record<string, string> = Object.fromEntries(
+  PLAY_FORMATS.map((f) => [f.value, f.label]),
+);
 
 export default async function TournamentPage({ params }: Props) {
   const { id: slug } = await params;
@@ -100,13 +95,22 @@ export default async function TournamentPage({ params }: Props) {
   // Entry counts, pending approvals, and match stages — all independent, run in parallel.
   const [
     { data: entryCounts },
+    { data: teamCounts },
     { count: pendingCount },
     { count: pendingScoreCount },
     { data: stageMatches },
   ] = await Promise.all([
-    // Entry count per category (active only)
+    // Entry count per category (active only) — singles/doubles
     admin
       .from('tournament_entries')
+      .select('category_id')
+      .eq('tournament_id', t.id)
+      .eq('status', 'active'),
+    // Team count per category (active only) — team_event categories don't
+    // create tournament_entries rows until a rubber's lineup is submitted,
+    // so they're counted from tournament_teams instead.
+    admin
+      .from('tournament_teams')
       .select('category_id')
       .eq('tournament_id', t.id)
       .eq('status', 'active'),
@@ -134,6 +138,10 @@ export default async function TournamentPage({ params }: Props) {
   const countByCategory: Record<string, number> = {};
   for (const e of entryCounts ?? []) {
     countByCategory[e.category_id] = (countByCategory[e.category_id] ?? 0) + 1;
+  }
+  const teamCountByCategory: Record<string, number> = {};
+  for (const team of teamCounts ?? []) {
+    teamCountByCategory[team.category_id] = (teamCountByCategory[team.category_id] ?? 0) + 1;
   }
 
   const stageByCategory: Record<string, string> = {};
@@ -365,7 +373,9 @@ export default async function TournamentPage({ params }: Props) {
           ) : (
             <div className="mt-4 space-y-2">
               {categories.map((cat) => {
-                const entryCount = countByCategory[cat.id] ?? 0;
+                const entryCount = cat.play_format === 'team_event'
+                  ? (teamCountByCategory[cat.id] ?? 0)
+                  : (countByCategory[cat.id] ?? 0);
                 const catStatus = CATEGORY_STATUS[cat.status] ?? CATEGORY_STATUS.pending;
                 const stageLabel = stageByCategory[cat.id];
                 return (

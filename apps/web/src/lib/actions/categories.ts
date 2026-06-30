@@ -104,6 +104,9 @@ export async function updateCategoryAction(
     advance_per_group?: number;
     has_third_place_match?: boolean;
     knockout_seeding?: 'auto' | 'manual';
+    rubber_lineup?: { sequence: number; name: string; play_format: string }[];
+    roster_composition?: { count: number; gender?: 'male' | 'female'; age_min?: number; age_max?: number }[];
+    decider_format?: 'singles' | 'doubles' | null;
   },
 ) {
   const supabase = await createClient();
@@ -133,6 +136,9 @@ export async function updateCategoryAction(
   if (cat.status === 'pending' || cat.status === 'registration') {
     if (input.play_format !== undefined) update.play_format = input.play_format;
     if (input.draw_format !== undefined) update.draw_format = input.draw_format;
+    if (input.rubber_lineup !== undefined) update.rubber_lineup = input.rubber_lineup;
+    if (input.roster_composition !== undefined) update.roster_composition = input.roster_composition;
+    if ('decider_format' in input) update.decider_format = input.decider_format ?? null;
   }
 
   // Scoring override — always editable
@@ -565,7 +571,6 @@ async function deriveCategoryResults(categoryId: string, userId: string) {
   const finalMatch = doneMatches.find((m) => (m.round_name ?? '').toLowerCase() === 'final');
   const useStandingsRanking =
     cat.draw_format === 'round_robin' ||
-    cat.draw_format === 'swiss' ||
     (cat.draw_format === 'group_stage_knockout' && !finalMatch);
 
   if (useStandingsRanking) {

@@ -84,7 +84,7 @@ Ask: "How many courts will you have available?"
 
 STEP 5 — CATEGORIES
 Ask: "What categories are you running? You can list them all at once — for example: Men's Singles A, Women's Doubles Open, Mixed Doubles B."
-- Parse each category from free text. Extract: gender (Men's/Women's/Mixed/Open), format (Singles/Doubles/Mixed Doubles), skill level (Open/A/B/C/Beginner).
+- Parse each category from free text. Extract: gender (Men's/Women's/Mixed/Open), format (Singles/Doubles/Mixed Doubles/Team event), skill level (Open/Pro/Advanced/Intermediate/Beginner).
 - If {{MOST_COMMON_CATEGORIES}} is not empty, pre-suggest: "Last time you ran [categories]. Are you running the same ones?"
 - If {{MOST_COMMON_CATEGORIES}} is empty (no history for this club), still offer a starting point instead of a fully blank question: suggest a sensible default set such as Men's Doubles, Women's Doubles, Mixed Doubles. Phrase it as a suggestion, e.g. "Common categories to start with: Men's Doubles, Women's Doubles, Mixed Doubles — want to use these, add others, or start from scratch?"
 - After parsing, confirm the full list back: "I've got 3 categories: Men's Singles A, Men's Singles B, Mixed Doubles Open. Is that right?"

@@ -95,6 +95,7 @@ const TYPE_TO_PREF: Record<string, keyof NotificationPrefs> = {
   tournament_update: 'tournament_updates',
   partner_invite:    'partner_requests',
   partner_request:   'partner_requests',
+  team_invite:       'partner_requests', // reuses the same opt-out pref as doubles partner invites
   new_follower:      'new_followers',
 };
 

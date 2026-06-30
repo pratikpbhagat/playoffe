@@ -73,6 +73,7 @@ export default async function SchedulePage({ params }: Props) {
     .from('matches')
     .select(`
       id, status, court, scheduled_time, round, round_name, group_name, category_id, bracket_position,
+      tie_id, rubber_sequence, is_decider,
       ea:tournament_entries!entry_a_id(
         players!player_id(full_name),
         partner:players!partner_id(full_name)
@@ -81,7 +82,11 @@ export default async function SchedulePage({ params }: Props) {
         players!player_id(full_name),
         partner:players!partner_id(full_name)
       ),
-      tc:tournament_categories!category_id(name, draw_format, groups_count, advance_per_group, scoring_override, scoring_format, num_sets, schedule_day, schedule_order)
+      tc:tournament_categories!category_id(name, draw_format, groups_count, advance_per_group, scoring_override, scoring_format, num_sets, schedule_day, schedule_order, rubber_lineup),
+      tie:ties!tie_id(
+        team_a:tournament_teams!team_a_id(name),
+        team_b:tournament_teams!team_b_id(name)
+      )
     `)
     .eq('tournament_id', tData.id)
     .eq('status', 'scheduled')
@@ -99,12 +104,20 @@ export default async function SchedulePage({ params }: Props) {
     group_name: string | null;
     category_id: string;
     bracket_position: number | null;
+    tie_id: string | null;
+    rubber_sequence: number | null;
+    is_decider: boolean;
     ea: RawEntry;
     eb: RawEntry;
     tc: {
       name: string; draw_format: string | null; groups_count: number | null; advance_per_group: number | null;
       scoring_override: boolean | null; scoring_format: string | null; num_sets: number | null;
       schedule_day: string | null; schedule_order: number | null;
+      rubber_lineup: { sequence: number; name: string; play_format: string }[] | null;
+    } | null;
+    tie: {
+      team_a: { name: string } | null;
+      team_b: { name: string } | null;
     } | null;
   };
 
@@ -201,8 +214,29 @@ export default async function SchedulePage({ params }: Props) {
   function buildName(entry: RawEntry, m: RawMatch, slot: 'a' | 'b'): string {
     const main = entry?.players?.full_name;
     const partner = entry?.partner?.full_name;
-    if (!main) return placeholderLabel(m, slot);
-    return partner ? `${main} / ${partner}` : main;
+    if (main) return partner ? `${main} / ${partner}` : main;
+    // Rubber matches (team_event): the lineup for this specific rubber may
+    // not be submitted yet, but the tie's two teams are already known — show
+    // the team name instead of a generic "TBD" like singles/doubles gets.
+    if (m.tie_id) {
+      const teamName = slot === 'a' ? m.tie?.team_a?.name : m.tie?.team_b?.name;
+      if (teamName) return teamName;
+    }
+    return placeholderLabel(m, slot);
+  }
+
+  // Rubber matches need a label distinguishing them from their tie's other
+  // rubbers — singles/doubles matches are already one-per-round-slot, but a
+  // tie can have several rubber rows sharing the same round/round_name. Kept
+  // separate from round_name (which must stay the plain stage name — it's
+  // also used as the section header for the whole round/group, not just one row).
+  function buildRubberLabel(m: RawMatch): string | null {
+    if (!m.tie_id) return null;
+    if (m.is_decider) return 'Decider';
+    const rubberName = m.rubber_sequence
+      ? m.tc?.rubber_lineup?.find((r) => r.sequence === m.rubber_sequence)?.name
+      : null;
+    return rubberName ?? (m.rubber_sequence ? `Rubber ${m.rubber_sequence}` : null);
   }
 
   const matches: MatchForScheduling[] = allRaw.map((m) => ({
@@ -212,17 +246,37 @@ export default async function SchedulePage({ params }: Props) {
     scheduled_time: m.scheduled_time,
     round: m.round,
     round_name: m.round_name,
+    rubber_label: buildRubberLabel(m),
     group_name: m.group_name,
     category_id: m.category_id,
     category_name: m.tc?.name ?? 'Unknown category',
-    player_a: buildName(m.ea, m, 'a'),
-    player_b: buildName(m.eb, m, 'b'),
-    player_a_is_placeholder: !m.ea?.players?.full_name,
-    player_b_is_placeholder: !m.eb?.players?.full_name,
+    // Team-event rows show the team names in their own header row (below),
+    // so player_a/player_b here are purely the lineup — left blank (not the
+    // team-name fallback) until a lineup is actually submitted.
+    player_a: m.tie_id ? (m.ea?.players?.full_name ? buildName(m.ea, m, 'a') : '') : buildName(m.ea, m, 'a'),
+    player_b: m.tie_id ? (m.eb?.players?.full_name ? buildName(m.eb, m, 'b') : '') : buildName(m.eb, m, 'b'),
+    player_a_is_placeholder: !m.ea?.players?.full_name && !m.tie?.team_a?.name,
+    player_b_is_placeholder: !m.eb?.players?.full_name && !m.tie?.team_b?.name,
+    tie_id: m.tie_id,
+    rubber_sequence: m.rubber_sequence,
+    is_decider: m.is_decider,
+    // Always populated for team-event rows — shown as the header line above
+    // the lineup, regardless of whether the lineup has been submitted yet.
+    team_a_name: m.tie_id ? m.tie?.team_a?.name ?? null : null,
+    team_b_name: m.tie_id ? m.tie?.team_b?.name ?? null : null,
   }));
 
   const scheduledCount = matches.filter((m) => m.scheduled_time).length;
   const totalCount     = matches.filter((m) => m.status === 'scheduled').length;
+
+  // Team-event categories' rubber order (for the "reorder before scheduling"
+  // control) — every row for a category carries the same rubber_lineup, so
+  // just take it from the first tie_id row seen per category.
+  const rubberLineupByCategory: Record<string, { sequence: number; name: string; play_format: string }[]> = {};
+  for (const m of allRaw) {
+    if (!m.tie_id || rubberLineupByCategory[m.category_id]) continue;
+    rubberLineupByCategory[m.category_id] = m.tc?.rubber_lineup ?? [];
+  }
 
   // ── Tournament days (for the day/order drag-and-drop UI) ──────────────────
   // Built with pure UTC date math — parsing a "YYYY-MM-DD" string via
@@ -377,6 +431,7 @@ export default async function SchedulePage({ params }: Props) {
           matches={matches}
           aiEnabled={aiEnabled}
           aiConfigured={aiConfigured}
+          rubberLineupByCategory={rubberLineupByCategory}
         />
       </main>
     </div>

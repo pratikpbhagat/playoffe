@@ -7,6 +7,7 @@
 
 import { sendEmail } from './service';
 import { buildPartnerInviteEmail } from './templates/partner-invite';
+import { buildTeamInviteEmail } from './templates/team-invite';
 import {
   buildEntryConfirmedEmail,
   buildEntryRejectedEmail,
@@ -37,6 +38,31 @@ export async function sendPartnerInviteNotification(opts: {
     await sendEmail({ to: opts.partnerEmail, ...payload });
   } catch (err) {
     console.error('[email] sendPartnerInviteNotification failed:', err);
+  }
+}
+
+// ── Team roster invite ───────────────────────────────────────────────────────
+
+export async function sendTeamInviteNotification(opts: {
+  memberEmail: string;
+  memberName: string;
+  captainName: string;
+  teamName: string;
+  tournamentName: string;
+  categoryName: string;
+}) {
+  try {
+    const payload = buildTeamInviteEmail({
+      memberName: opts.memberName,
+      captainName: opts.captainName,
+      teamName: opts.teamName,
+      tournamentName: opts.tournamentName,
+      categoryName: opts.categoryName,
+      appUrl: APP_URL,
+    });
+    await sendEmail({ to: opts.memberEmail, ...payload });
+  } catch (err) {
+    console.error('[email] sendTeamInviteNotification failed:', err);
   }
 }
 

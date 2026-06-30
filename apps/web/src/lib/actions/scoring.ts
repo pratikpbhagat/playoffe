@@ -30,7 +30,154 @@ type MatchRow = {
   loser_to_match_id: string | null;
   winner_slot: string | null;
   loser_slot: string | null;
+  tie_id: string | null;
 };
+
+// ── Tie completion + advancement (team_event) ────────────────────────────────
+// Called after every rubber match completes. The tie_rubber_complete DB trigger
+// has already recomputed the tie's aggregates (rubbers_won_a/b, points_for_a,
+// points_against_a, point_diff_a) synchronously in the same UPDATE that marked
+// the rubber 'completed'. This function owns the business-logic decision the
+// trigger no longer makes: is the tie actually decided yet, does it need a
+// decider rubber, and — once decided — does the winning team advance.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function checkAndAdvanceTie(admin: any, tieId: string) {
+  const { data: tie } = await admin
+    .from('ties')
+    .select('id, category_id, round, group_name, bracket_position, status, winner_team_id, winner_to_tie_id, winner_slot, team_a_id, team_b_id, rubbers_won_a, rubbers_won_b, point_diff_a')
+    .eq('id', tieId)
+    .single();
+
+  if (!tie) return;
+
+  if (tie.status !== 'completed') {
+    const decided = await decideTieOutcome(admin, tie);
+    if (!decided) return; // not ready yet (rubbers still in progress, or awaiting a decider)
+  }
+
+  const { data: freshTie } = await admin
+    .from('ties')
+    .select('status, winner_team_id, winner_to_tie_id, winner_slot, bracket_position, category_id, round')
+    .eq('id', tieId)
+    .single();
+
+  if (!freshTie || freshTie.status !== 'completed' || !freshTie.winner_team_id) return;
+
+  if (freshTie.winner_to_tie_id && freshTie.winner_slot) {
+    const slot = freshTie.winner_slot === 'a' ? 'team_a_id' : 'team_b_id';
+    await admin.from('ties').update({ [slot]: freshTie.winner_team_id }).eq('id', freshTie.winner_to_tie_id);
+    return;
+  }
+
+  if (freshTie.bracket_position !== null) {
+    const nextPos = Math.floor(freshTie.bracket_position / 2);
+    const slot = freshTie.bracket_position % 2 === 0 ? 'team_a_id' : 'team_b_id';
+    const { data: nextTie } = await admin
+      .from('ties')
+      .select('id')
+      .eq('category_id', freshTie.category_id)
+      .eq('round', freshTie.round + 1)
+      .eq('bracket_position', nextPos)
+      .maybeSingle();
+    if (nextTie) {
+      await admin.from('ties').update({ [slot]: freshTie.winner_team_id }).eq('id', nextTie.id);
+    }
+  }
+}
+
+// ── Decide whether a tie is actually finished, and how ───────────────────────
+// Returns true once the tie has been marked 'completed' (winner decided, or a
+// genuine draw in group stage). Returns false if still waiting on rubbers or
+// a decider. Knockout ties tied on rubbers get a decider rubber created here
+// (if the category configured one) and flip to 'awaiting_decider'.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function decideTieOutcome(admin: any, tie: any): Promise<boolean> {
+  const { data: cat } = await admin
+    .from('tournament_categories')
+    .select('rubber_lineup, decider_format, tournament_id')
+    .eq('id', tie.category_id)
+    .single();
+
+  const totalMain = ((cat?.rubber_lineup ?? []) as unknown[]).length;
+
+  const { count: completedMain } = await admin
+    .from('matches')
+    .select('id', { count: 'exact', head: true })
+    .eq('tie_id', tie.id)
+    .eq('is_decider', false)
+    .in('status', ['completed', 'walkover']);
+
+  if ((completedMain ?? 0) < totalMain) return false;
+
+  const isKnockout = tie.group_name === null;
+
+  if (tie.rubbers_won_a !== tie.rubbers_won_b) {
+    const winner = tie.rubbers_won_a > tie.rubbers_won_b ? tie.team_a_id : tie.team_b_id;
+    await admin.from('ties').update({ status: 'completed', completed_at: new Date().toISOString(), winner_team_id: winner }).eq('id', tie.id);
+    return true;
+  }
+
+  if (!isKnockout) {
+    // Group stage: a genuine draw is allowed — no decider, standings tiebreak handles ranking.
+    await admin.from('ties').update({ status: 'completed', completed_at: new Date().toISOString(), winner_team_id: null }).eq('id', tie.id);
+    return true;
+  }
+
+  // Knockout, tied on rubbers — needs a decider.
+  const { data: existingDecider } = await admin
+    .from('matches')
+    .select('id, status, winner_entry_id')
+    .eq('tie_id', tie.id)
+    .eq('is_decider', true)
+    .maybeSingle();
+
+  if (existingDecider) {
+    if (existingDecider.status !== 'completed' && existingDecider.status !== 'walkover') return false; // still waiting
+    const { data: winnerEntry } = await admin
+      .from('tournament_entries')
+      .select('team_id')
+      .eq('id', existingDecider.winner_entry_id)
+      .maybeSingle();
+    const winner = winnerEntry?.team_id ?? (tie.point_diff_a >= 0 ? tie.team_a_id : tie.team_b_id);
+    await admin.from('ties').update({ status: 'completed', completed_at: new Date().toISOString(), winner_team_id: winner }).eq('id', tie.id);
+    return true;
+  }
+
+  if (!cat?.decider_format) {
+    // No decider configured for this category — fall back to point differential.
+    const winner = tie.point_diff_a >= 0 ? tie.team_a_id : tie.team_b_id;
+    await admin.from('ties').update({ status: 'completed', completed_at: new Date().toISOString(), winner_team_id: winner }).eq('id', tie.id);
+    return true;
+  }
+
+  await admin.from('matches').insert({
+    tournament_id: cat.tournament_id,
+    category_id: tie.category_id,
+    round: tie.round,
+    tie_id: tie.id,
+    rubber_sequence: totalMain + 1,
+    is_decider: true,
+    status: 'scheduled',
+    sets: [],
+  });
+  await admin.from('ties').update({ status: 'awaiting_decider' }).eq('id', tie.id);
+
+  const { data: teams } = await admin
+    .from('tournament_teams')
+    .select('captain_id')
+    .in('id', [tie.team_a_id, tie.team_b_id]);
+  const captainIds = (teams ?? []).map((t: { captain_id: string }) => t.captain_id);
+  if (captainIds.length > 0) {
+    await createNotificationsForPlayers(
+      captainIds,
+      'tie_decider_needed',
+      'Decider rubber needed',
+      'Your tie is tied after the scheduled rubbers — submit your player(s) for the decider.',
+    );
+  }
+
+  return false;
+}
 
 // ── Bracket advancement helper ────────────────────────────────────────────────
 // Works for both single-elimination (positional) and double-elimination (explicit links).
@@ -63,6 +210,12 @@ async function advanceMatch(admin: any, match: MatchRow, winnerEntryId: string |
     const slot = match.loser_slot === 'a' ? 'entry_a_id' : 'entry_b_id';
     await admin.from('matches').update({ [slot]: loserEntryId }).eq('id', match.loser_to_match_id);
   }
+
+  // team_event: this match is a rubber within a tie — check if the tie is now
+  // decided and advance the winning team to the next round's tie.
+  if (match.tie_id) {
+    await checkAndAdvanceTie(admin, match.tie_id);
+  }
 }
 
 // ── Auth guard ────────────────────────────────────────────────────────────────
@@ -70,7 +223,7 @@ async function assertMatchManager(matchId: string, userId: string) {
   const admin = createAdminClient();
   const { data: match } = await admin
     .from('matches')
-    .select('id, category_id, tournament_id, round, bracket_position, bracket_type, status, entry_a_id, entry_b_id, winner_entry_id, sets, scheduled_time, winner_to_match_id, loser_to_match_id, winner_slot, loser_slot')
+    .select('id, category_id, tournament_id, round, bracket_position, bracket_type, status, entry_a_id, entry_b_id, winner_entry_id, sets, scheduled_time, winner_to_match_id, loser_to_match_id, winner_slot, loser_slot, tie_id')
     .eq('id', matchId)
     .single();
   if (!match) return null;
@@ -121,6 +274,54 @@ export async function assignMatchDetailsAction(
   if (error) return { error: 'Failed to update match' };
 
   revalidatePath(`/tournaments/${ctx.tournamentSlug}/scoring`);
+  return { success: true };
+}
+
+// ── Assign court/referee to every rubber in a team-event tie at once ─────────
+// A tie's rubbers always play on the same court back-to-back, so rather than
+// assigning each one individually, the organiser can set it once for the
+// whole tie. Only rubbers still 'scheduled' are touched — any rubber that's
+// already live or completed keeps its own assignment untouched.
+export async function assignTieDetailsAction(
+  tieId: string,
+  court: number | null,
+  refereeName: string | null,
+) {
+  const user = await getCurrentUser();
+  if (!user) return { error: 'Not authenticated' };
+
+  const admin = createAdminClient();
+
+  const { data: tie } = await admin.from('ties').select('id, tournament_id').eq('id', tieId).single();
+  if (!tie) return { error: 'Tie not found' };
+
+  const { data: t } = await admin.from('tournaments').select('club_id, slug').eq('id', tie.tournament_id).single();
+  if (!t) return { error: 'Tournament not found' };
+
+  const { data: mgr } = await admin
+    .from('club_managers')
+    .select('role')
+    .eq('club_id', t.club_id)
+    .eq('player_id', user.id)
+    .maybeSingle();
+  if (!mgr) return { error: 'Permission denied' };
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const patch: Record<string, any> = {
+    paused_for_reassignment: false,
+    assigned_at: new Date().toISOString(),
+  };
+  if (court !== null) patch.court = court;
+  if (refereeName !== null) patch.assigned_referee_name = refereeName || null;
+
+  const { error } = await admin
+    .from('matches')
+    .update(patch)
+    .eq('tie_id', tieId)
+    .eq('status', 'scheduled');
+  if (error) return { error: 'Failed to update tie' };
+
+  revalidatePath(`/tournaments/${t.slug}/scoring`);
   return { success: true };
 }
 

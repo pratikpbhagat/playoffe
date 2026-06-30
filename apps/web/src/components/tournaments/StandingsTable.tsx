@@ -8,7 +8,7 @@
  */
 
 import { memo, useMemo } from 'react';
-import type { MatchWithPlayers } from '@/lib/actions/draws';
+import type { MatchWithPlayers, TieWithTeams } from '@/lib/actions/draws';
 
 interface Props {
   matches: MatchWithPlayers[];
@@ -266,6 +266,198 @@ function StandingsRows({
               <td className="px-2 py-2.5 text-center text-slate-500">{s.pointsLost}</td>
               <td className={`px-2 py-2.5 text-center font-medium ${
                 diff > 0 ? 'text-accent-400' : diff < 0 ? 'text-red-400' : 'text-slate-500'
+              }`}>
+                {diffStr}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+// ── Team standings (team_event) — ties are the unit, not individual matches ──
+
+interface TeamStanding {
+  teamId: string;
+  teamName: string;
+  played: number;
+  wins: number;
+  losses: number;
+  rubbersWon: number;
+  rubbersLost: number;
+  pointDiff: number;
+}
+
+function buildTeamStandings(ties: TieWithTeams[]): Map<string, TeamStanding> {
+  const map = new Map<string, TeamStanding>();
+
+  function getOrCreate(id: string, name: string): TeamStanding {
+    if (!map.has(id)) {
+      map.set(id, { teamId: id, teamName: name, played: 0, wins: 0, losses: 0, rubbersWon: 0, rubbersLost: 0, pointDiff: 0 });
+    }
+    return map.get(id)!;
+  }
+
+  for (const tie of ties) {
+    if (!tie.team_a || !tie.team_b) continue;
+
+    // Always list both teams (even before any ties are played) — matches the
+    // singles/doubles GroupSection behavior of showing every entrant with a
+    // 0-0 record until results come in, instead of hiding them entirely.
+    const a = getOrCreate(tie.team_a.id, tie.team_a.name);
+    const b = getOrCreate(tie.team_b.id, tie.team_b.name);
+
+    // Rubbers won/lost and point differential are live on the tie row — the
+    // DB trigger recomputes them after every individual rubber completes,
+    // independent of whether the tie itself has been decided yet. Show that
+    // progress immediately instead of waiting for the whole tie to finish.
+    a.rubbersWon += tie.rubbers_won_a;
+    a.rubbersLost += tie.rubbers_won_b;
+    b.rubbersWon += tie.rubbers_won_b;
+    b.rubbersLost += tie.rubbers_won_a;
+    a.pointDiff += tie.point_diff_a;
+    b.pointDiff -= tie.point_diff_a;
+
+    // Played/Win/Loss only make sense once the tie itself is fully decided.
+    if (tie.status !== 'completed') continue;
+
+    a.played++;
+    b.played++;
+
+    if (tie.winner_team_id === tie.team_a.id) { a.wins++; b.losses++; }
+    else if (tie.winner_team_id === tie.team_b.id) { b.wins++; a.losses++; }
+  }
+
+  return map;
+}
+
+function sortTeamStandings(standings: TeamStanding[], ties: TieWithTeams[]): TeamStanding[] {
+  return standings.sort((a, b) => {
+    if (b.wins !== a.wins) return b.wins - a.wins;
+    if (a.losses !== b.losses) return a.losses - b.losses;
+    if (b.pointDiff !== a.pointDiff) return b.pointDiff - a.pointDiff;
+    if (b.rubbersWon !== a.rubbersWon) return b.rubbersWon - a.rubbersWon;
+    if (a.rubbersLost !== b.rubbersLost) return a.rubbersLost - b.rubbersLost;
+    const h2h = ties.find((t) =>
+      (t.team_a?.id === a.teamId && t.team_b?.id === b.teamId) ||
+      (t.team_a?.id === b.teamId && t.team_b?.id === a.teamId),
+    );
+    if (h2h?.winner_team_id === b.teamId) return 1;
+    if (h2h?.winner_team_id === a.teamId) return -1;
+    return 0;
+  });
+}
+
+export const TeamStandingsTable = memo(function TeamStandingsTable({ ties, advancePerGroup }: { ties: TieWithTeams[]; advancePerGroup?: number }) {
+  const relevantTies = useMemo(() => ties.filter((t) => t.group_name !== null), [ties]);
+  const { completed, total, standingsMap } = useMemo(() => ({
+    completed: relevantTies.filter((t) => t.status === 'completed').length,
+    total: relevantTies.filter((t) => t.team_a && t.team_b).length,
+    standingsMap: buildTeamStandings(relevantTies),
+  }), [relevantTies]);
+
+  if (total === 0) return null;
+
+  const groupNames = [...new Set(relevantTies.map((t) => t.group_name).filter(Boolean))].sort();
+  const isGrouped = groupNames.length > 0;
+
+  if (isGrouped) {
+    return (
+      <section className="mt-8">
+        <div className="mb-3 flex items-center gap-2">
+          <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wide">Group Standings</h3>
+          <span className="text-xs text-slate-600">{completed}/{total} ties done</span>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          {groupNames.map((groupName) => {
+            const gTies = relevantTies.filter((t) => t.group_name === groupName);
+            const gCompleted = gTies.filter((t) => t.status === 'completed').length;
+            const gTotal = gTies.filter((t) => t.team_a && t.team_b).length;
+            const sorted = sortTeamStandings([...buildTeamStandings(gTies).values()], gTies);
+            return (
+              <div key={groupName} className="rounded-xl bg-surface-card ring-1 ring-surface-border overflow-hidden">
+                <div className="border-b border-surface-border px-4 py-2.5 flex items-center justify-between">
+                  <p className="text-xs font-bold uppercase tracking-widest text-slate-300">{groupName}</p>
+                  <span className="text-[11px] text-slate-600">{gCompleted}/{gTotal} played</span>
+                </div>
+                <TeamStandingsRows standings={sorted} advancePerGroup={advancePerGroup} allTiesDone={gTotal > 0 && gCompleted === gTotal} />
+              </div>
+            );
+          })}
+        </div>
+      </section>
+    );
+  }
+
+  const sorted = sortTeamStandings([...standingsMap.values()], relevantTies);
+
+  return (
+    <section className="mt-8">
+      <div className="mb-3 flex items-center gap-2">
+        <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wide">Standings</h3>
+        <span className="text-xs text-slate-600">{completed}/{total} ties done</span>
+      </div>
+      <div className="rounded-xl bg-surface-card ring-1 ring-surface-border overflow-hidden">
+        <TeamStandingsRows standings={sorted} />
+      </div>
+    </section>
+  );
+});
+
+function TeamStandingsRows({
+  standings,
+  advancePerGroup,
+  allTiesDone = false,
+}: {
+  standings: TeamStanding[];
+  advancePerGroup?: number;
+  /** Only highlight qualifying rows once every tie in this group has been
+   *  played — showing it before any results exist is misleading. */
+  allTiesDone?: boolean;
+}) {
+  const cutAt = (allTiesDone && advancePerGroup != null && advancePerGroup > 0) ? advancePerGroup : null;
+
+  return (
+    <table className="w-full text-xs">
+      <thead>
+        <tr className="border-b border-surface-border text-slate-500">
+          <th className="px-4 py-2 text-left font-medium w-6">#</th>
+          <th className="px-2 py-2 text-left font-medium">Team</th>
+          <th className="px-2 py-2 text-center font-medium w-10" title="Ties played">TP</th>
+          <th className="px-2 py-2 text-center font-medium w-10" title="Ties won">W</th>
+          <th className="px-2 py-2 text-center font-medium w-10" title="Ties lost">L</th>
+          <th className="px-2 py-2 text-center font-medium w-14" title="Rubbers won-lost">Rubbers</th>
+          <th className="px-2 py-2 text-center font-medium w-14" title="Point differential">PD</th>
+        </tr>
+      </thead>
+      <tbody>
+        {standings.map((s, idx) => {
+          const qualifies = cutAt !== null && idx < cutAt;
+          // Draw a dashed cut-line after the last qualifying row
+          const isCutRow = cutAt !== null && idx === cutAt - 1 && cutAt < standings.length;
+          const diffStr = s.pointDiff > 0 ? `+${s.pointDiff}` : `${s.pointDiff}`;
+          return (
+            <tr
+              key={s.teamId}
+              className={[
+                qualifies ? 'bg-accent-500/10' : '',
+                isCutRow
+                  ? 'border-b-2 border-dashed border-accent-500/40'
+                  : 'border-b border-surface-border',
+              ].join(' ')}
+            >
+              <td className={`px-4 py-2.5 font-semibold ${qualifies ? 'text-accent-400' : 'text-slate-500'}`}>
+                {idx + 1}
+              </td>
+              <td className="px-2 py-2 font-medium text-slate-200">{s.teamName}</td>
+              <td className="px-2 py-2.5 text-center text-slate-400">{s.played}</td>
+              <td className="px-2 py-2.5 text-center font-semibold text-white">{s.wins}</td>
+              <td className="px-2 py-2.5 text-center text-slate-500">{s.losses}</td>
+              <td className="px-2 py-2.5 text-center text-slate-300">{s.rubbersWon}–{s.rubbersLost}</td>
+              <td className={`px-2 py-2.5 text-center font-medium ${
+                s.pointDiff > 0 ? 'text-accent-400' : s.pointDiff < 0 ? 'text-red-400' : 'text-slate-500'
               }`}>
                 {diffStr}
               </td>

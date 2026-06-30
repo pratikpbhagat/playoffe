@@ -159,6 +159,73 @@ vercel domains add staging.playoffe.com
 terraform destroy -var-file="environments/staging.tfvars"
 ```
 
+## Email (SES) Setup
+
+PLAYOFFE sends email from **two separate paths** that are easy to confuse:
+
+| Path | Used for | Configured via |
+|---|---|---|
+| App's own `sendEmail()` ([service.ts](../apps/web/src/lib/email/service.ts)) | Custom templates — verification email, manager-invite emails, etc. | AWS SES API, IAM access key, env vars in Vercel |
+| Supabase Auth's built-in mailer | `resetPasswordForEmail()`, `signUp()` confirmation emails sent via `admin.auth.admin.generateLink` | Supabase dashboard SMTP settings (per-project), **not** related to the app's SES IAM user at all |
+
+Changing one does **not** affect the other. If "the app's emails work but password-reset emails don't" (or vice versa), you're looking at the wrong path.
+
+### 1. SES domain identity + DKIM (Terraform)
+
+The [`modules/ses`](modules/ses) module creates, per environment:
+- `aws_ses_domain_identity` + `aws_ses_domain_dkim` for `var.ses_domain` (default `playoffe.com`)
+- A scoped IAM user `${name_prefix}-ses-sender` with an inline policy allowing only `ses:SendEmail`/`ses:SendRawEmail` against that one identity ARN
+- An IAM access key for that user (outputs: `ses_access_key_id`, `ses_secret_access_key` — sensitive)
+
+After `terraform apply`, add the 3 DKIM CNAME records to DNS:
+```bash
+terraform output ses_dkim_tokens
+# Add as: <token>._domainkey.<domain> -> <token>.dkim.amazonses.com
+```
+
+SES starts in **sandbox mode** — it can only send to verified recipient addresses until AWS approves a production-access request (Console → SES → Account dashboard → "Request production access").
+
+### 2. Wiring the IAM key into the app (`sendEmail()` path)
+
+The IAM access key from step 1 is **not** an SMTP credential — `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` go straight into the app's env vars, since `service.ts` calls the SES API directly (not SMTP):
+
+```
+AWS_ACCESS_KEY_ID=<from terraform output ses_access_key_id>
+AWS_SECRET_ACCESS_KEY=<from terraform output ses_secret_access_key>
+AWS_REGION=ap-southeast-1
+SES_FROM_EMAIL=noreply@playoffe.com
+```
+
+CI handles syncing these into Vercel automatically — both `staging-deploy.yml` and `prod-deploy.yml` have a "Sync SES env vars to Vercel" step that reads `STAGING_SES_*`/`PROD_SES_*` GitHub secrets and pushes them via `vercel env add` right before each deploy. Set these secrets once per environment (same place as the other `STAGING_*`/`PROD_*` secrets above):
+
+| Secret | Value |
+|---|---|
+| `STAGING_SES_AWS_ACCESS_KEY_ID` / `PROD_SES_AWS_ACCESS_KEY_ID` | `terraform output ses_access_key_id` |
+| `STAGING_SES_AWS_SECRET_ACCESS_KEY` / `PROD_SES_AWS_SECRET_ACCESS_KEY` | `terraform output ses_secret_access_key` |
+| `STAGING_SES_FROM_EMAIL` / `PROD_SES_FROM_EMAIL` | e.g. `noreply@playoffe.com` |
+
+### 3. Wiring Supabase Auth's mailer (password reset / signup confirmation path)
+
+This is configured **per Supabase project**, in the dashboard — Terraform/CI do not touch it:
+
+1. Generate **dedicated SES SMTP credentials** (Console → SES → SMTP settings → "Create SMTP credentials"). This is a different credential type from the IAM access key above — don't reuse the API key/secret here, it will fail with `535 Authentication Credentials Invalid`.
+2. Supabase dashboard → **Project Settings → Authentication → SMTP Settings**:
+   - Host: `email-smtp.<region>.amazonaws.com`
+   - Port: `587`
+   - Username / Password: the SMTP credentials from step 1 (region must match the SES identity's region — we use `ap-southeast-1`)
+   - Sender email: must be the verified SES identity/domain
+3. Save, then test by triggering `forgotPasswordAction` from the app's `/forgot-password` page (not the dashboard's own "Send recovery email" button — see gotcha below).
+
+### 4. Gotcha: Supabase silently falls back to the bare Site URL
+
+Supabase's `redirectTo`/`emailRedirectTo` is validated against an **allow-list** (Authentication → URL Configuration → Redirect URLs). If the URL you pass doesn't match an allow-listed pattern, GoTrue does **not** error — it silently substitutes the bare **Site URL**, which sends users to the home page instead of `/reset-password` or `/login?verified=1`.
+
+We hit this twice (local `config.toml` and the hosted staging project). Make sure, per environment:
+- **Site URL** = the app's bare origin (e.g. `https://staging.playoffe.com`)
+- **Redirect URLs** allow-list includes a wildcard covering all app routes, e.g. `https://staging.playoffe.com/**`
+
+If a recovery link's `redirect_to` query param comes back as just the bare domain (no path), that's the symptom — either the allow-list is missing the wildcard, or the email was triggered via the **dashboard's own "Send recovery email" button** (which always uses the bare Site URL and ignores our app's custom `redirectTo` entirely — trigger resets through the app's own form instead).
+
 ## Day-to-Day Operations
 
 **Normal releases** — you never touch Terraform. Just:

@@ -1,4 +1,9 @@
 import { z } from 'zod';
+import { CATEGORY_TYPES, PLAY_FORMATS, DRAW_FORMATS } from '../constants/category-formats';
+
+const categoryTypeValues = CATEGORY_TYPES.map((t) => t.value) as [string, ...string[]];
+const playFormatValues = PLAY_FORMATS.map((f) => f.value) as [string, ...string[]];
+const drawFormatValues = DRAW_FORMATS.map((f) => f.value) as [string, ...string[]];
 
 export const createTournamentSchema = z.object({
   name: z.string().min(3).max(120),
@@ -20,15 +25,45 @@ export const createTournamentSchema = z.object({
   path: ['end_date'],
 });
 
+const rubberLineupItemSchema = z.object({
+  sequence: z.number().int().min(1),
+  name: z.string().min(1).max(40),
+  play_format: z.enum(['singles', 'doubles', 'mixed_doubles']),
+});
+
+const rosterCompositionRuleSchema = z.object({
+  count: z.number().int().min(1).max(50),
+  gender: z.enum(['male', 'female']).optional(),
+  age_min: z.number().int().min(0).max(120).optional(),
+  age_max: z.number().int().min(0).max(120).optional(),
+});
+
 export const createCategorySchema = z.object({
   name: z.string().min(2).max(80),
-  type: z.enum(['skill', 'age', 'gender', 'open']),
-  play_format: z.enum(['singles', 'doubles', 'mixed_doubles']),
-  draw_format: z.enum(['round_robin', 'single_elimination', 'double_elimination', 'group_stage_knockout', 'swiss']),
+  type: z.enum(categoryTypeValues),
+  play_format: z.enum(playFormatValues),
+  draw_format: z.enum(drawFormatValues),
   max_entries: z.number().int().min(2).max(256).nullable().optional(),
   min_age: z.number().int().min(5).max(100).nullable().optional(),
   max_age: z.number().int().min(5).max(100).nullable().optional(),
   skill_levels: z.array(z.string()).default([]),
+  rubber_lineup: z.array(rubberLineupItemSchema).default([]),
+  roster_composition: z.array(rosterCompositionRuleSchema).default([]),
+  decider_format: z.enum(['singles', 'doubles']).nullable().optional(),
+}).refine((data) => {
+  if (data.play_format !== 'team_event') return true;
+  if (data.rubber_lineup.length === 0) return false;
+  const sequences = data.rubber_lineup.map((r) => r.sequence);
+  return new Set(sequences).size === sequences.length;
+}, {
+  message: 'Team event categories require a non-empty rubber lineup with unique sequence numbers',
+  path: ['rubber_lineup'],
+});
+
+export const registerTeamSchema = z.object({
+  name: z.string().min(2).max(80),
+  member_usernames: z.array(z.string().min(2).max(30)).min(1).max(20),
+  owner_name: z.string().max(80).nullable().optional(),
 });
 
 export const scheduleMatchSchema = z.object({
@@ -40,3 +75,4 @@ export const scheduleMatchSchema = z.object({
 export type CreateTournamentInput = z.infer<typeof createTournamentSchema>;
 export type CreateCategoryInput = z.infer<typeof createCategorySchema>;
 export type ScheduleMatchInput = z.infer<typeof scheduleMatchSchema>;
+export type RegisterTeamInput = z.infer<typeof registerTeamSchema>;

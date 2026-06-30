@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createCategoryAction } from '@/lib/actions/categories';
 import { WinByDeuceFields } from './WinByDeuceFields';
+import { RubberLineupEditor, RosterCompositionEditor, DeciderFormatSelect } from './RubberLineupEditor';
+import { CATEGORY_TYPES, PLAY_FORMATS, DRAW_FORMATS, type RosterCompositionRule } from '@pickleball/shared';
 import {
   suggestGroupConfig,
   deriveGroupSize,
@@ -12,27 +14,6 @@ import {
   getKnockoutRoundNames,
   getSuggestedGroupOptions,
 } from '@/lib/utils/groupStageConfig';
-
-const DRAW_FORMATS = [
-  { value: 'single_elimination', label: 'Single elimination' },
-  { value: 'double_elimination', label: 'Double elimination' },
-  { value: 'round_robin', label: 'Round robin' },
-  { value: 'group_stage_knockout', label: 'Group stage + knockout' },
-  { value: 'swiss', label: 'Swiss' },
-] as const;
-
-const PLAY_FORMATS = [
-  { value: 'singles', label: 'Singles' },
-  { value: 'doubles', label: 'Doubles' },
-  { value: 'mixed_doubles', label: 'Mixed doubles' },
-] as const;
-
-const CATEGORY_TYPES = [
-  { value: 'open', label: 'Open' },
-  { value: 'skill', label: 'Skill level' },
-  { value: 'gender', label: 'Gender' },
-  { value: 'age', label: 'Age group' },
-] as const;
 
 const inputClass =
   'block w-full rounded-lg border border-slate-600 bg-surface px-3 py-1.5 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30';
@@ -64,9 +45,16 @@ export function AddCategoryInline({
 
   // ── Step 1: category basics ────────────────────────────────────────────────
   const [name, setName] = useState('');
-  const [categoryType, setCategoryType] = useState<'open' | 'skill' | 'gender' | 'age'>('open');
-  const [playFormat, setPlayFormat] = useState<'singles' | 'doubles' | 'mixed_doubles'>('singles');
-  const [drawFormat, setDrawFormat] = useState<string>('single_elimination');
+  const [categoryType, setCategoryType] = useState<(typeof CATEGORY_TYPES)[number]['value']>('open');
+  const [playFormat, setPlayFormat] = useState<(typeof PLAY_FORMATS)[number]['value']>('singles');
+  const [drawFormat, setDrawFormat] = useState<(typeof DRAW_FORMATS)[number]['value']>('single_elimination');
+  const [rubberLineup, setRubberLineup] = useState<{ sequence: number; name: string; play_format: 'singles' | 'doubles' | 'mixed_doubles' }[]>([
+    { sequence: 1, name: 'Rubber 1', play_format: 'singles' },
+    { sequence: 2, name: 'Rubber 2', play_format: 'singles' },
+    { sequence: 3, name: 'Rubber 3', play_format: 'doubles' },
+  ]);
+  const [rosterComposition, setRosterComposition] = useState<RosterCompositionRule[]>([]);
+  const [deciderFormat, setDeciderFormat] = useState<'singles' | 'doubles' | null>(null);
   const [maxEntries, setMaxEntries] = useState<string>('');
   const [minAge, setMinAge] = useState<string>('');
   const [maxAge, setMaxAge] = useState<string>('');
@@ -89,6 +77,7 @@ export function AddCategoryInline({
 
   // ── Derived group config ───────────────────────────────────────────────────
   const isGroupStage = drawFormat === 'group_stage_knockout';
+  const isTeamEvent = playFormat === 'team_event';
   const maxEntriesNum = parseInt(maxEntries, 10);
   const hasMaxEntries = !isNaN(maxEntriesNum) && maxEntriesNum >= 2;
   const effectiveAdvance = parseInt(advancePerGroup, 10) || 2;
@@ -148,6 +137,7 @@ export function AddCategoryInline({
   function canProceedStep1() {
     if (!name.trim() || name.trim().length < 2) return false;
     if (isGroupStage && !hasMaxEntries) return false;
+    if (isTeamEvent && (rubberLineup.length === 0 || rubberLineup.some((r) => !r.name.trim()))) return false;
     return true;
   }
 
@@ -159,16 +149,14 @@ export function AddCategoryInline({
       name: name.trim(),
       type: categoryType,
       play_format: playFormat,
-      draw_format: drawFormat as
-        | 'round_robin'
-        | 'single_elimination'
-        | 'double_elimination'
-        | 'group_stage_knockout'
-        | 'swiss',
+      draw_format: drawFormat,
       max_entries: maxEntries ? Number(maxEntries) : undefined,
       min_age: minAge ? Number(minAge) : undefined,
       max_age: maxAge ? Number(maxAge) : undefined,
       skill_levels: [],
+      rubber_lineup: isTeamEvent ? rubberLineup : [],
+      roster_composition: isTeamEvent ? rosterComposition : [],
+      decider_format: isTeamEvent ? deciderFormat : null,
       scoring_override: scoringOverride,
       ...(scoringOverride && {
         scoring_format: scoringFormat,
@@ -293,7 +281,7 @@ export function AddCategoryInline({
           <label className={labelClass}>Draw format</label>
           <select
             value={drawFormat}
-            onChange={(e) => setDrawFormat(e.target.value)}
+            onChange={(e) => setDrawFormat(e.target.value as typeof drawFormat)}
             className={`${inputClass} cursor-pointer`}
           >
             {DRAW_FORMATS.map((f) => (
@@ -302,6 +290,15 @@ export function AddCategoryInline({
           </select>
         </div>
       </div>
+
+      {/* Rubber lineup / roster composition / decider — team_event only */}
+      {isTeamEvent && (
+        <>
+          <RubberLineupEditor value={rubberLineup} onChange={setRubberLineup} />
+          <RosterCompositionEditor value={rosterComposition} onChange={setRosterComposition} />
+          <DeciderFormatSelect value={deciderFormat} onChange={setDeciderFormat} />
+        </>
+      )}
 
       {/* Limits */}
       <div className="grid gap-2 sm:grid-cols-3">

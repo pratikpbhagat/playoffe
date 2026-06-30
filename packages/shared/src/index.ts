@@ -6,3 +6,4 @@ export * from './types/draw';
 export * from './schemas/player';
 export * from './schemas/tournament';
 export * from './schemas/registration';
+export * from './constants/category-formats';

@@ -91,16 +91,16 @@ function MatchCard({
         <span className="flex-1 min-w-0">
           {(() => {
             const isWithdrawn = entry?.entry_status === 'withdrawn';
-            const nameClass = `block text-xs leading-tight ${
+            const nameClass = `block text-sm leading-tight ${
               isBye
-                ? 'italic text-slate-600'
+                ? 'font-medium text-slate-400'
                 : isWithdrawn
                   ? 'text-slate-500 line-through'
                   : isWinner
                     ? 'font-semibold text-white'
                     : isCompleted
                       ? 'text-slate-500'
-                      : 'text-slate-300'
+                      : 'font-medium text-slate-300'
             }`;
             return (
               <>
@@ -170,14 +170,12 @@ function MatchCard({
   );
 
   const isDoubles = !!(match.entry_a?.partner_name || match.entry_b?.partner_name);
-  const cardClass = `${isDoubles ? 'w-56' : 'w-44'} overflow-hidden rounded-lg ring-1 ${
-    isByeMatch
-      ? 'opacity-40 ring-surface-border'
-      : match.status === 'in_progress'
-        ? 'ring-accent-500/60'
-        : readOnly
-          ? 'ring-surface-border'
-          : 'ring-surface-border hover:ring-brand-500/40'
+  const cardClass = `${isDoubles ? 'w-60' : 'w-48'} overflow-hidden rounded-lg ring-1 ${
+    match.status === 'in_progress'
+      ? 'ring-accent-500/60'
+      : readOnly
+        ? 'ring-surface-border'
+        : 'ring-surface-border hover:ring-brand-500/40'
   } bg-surface-card transition-all`;
 
   if (isByeMatch || readOnly) {

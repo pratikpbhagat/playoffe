@@ -6,8 +6,10 @@ import { AppNav } from '@/components/layout/AppNav';
 import { getMyTournaments } from '@/lib/actions/tournaments';
 import { getMyClubs } from '@/lib/actions/clubs';
 import { getMyEntries, getMyPartnerInvites } from '@/lib/actions/registration';
+import { getMyTeamInvitesAction } from '@/lib/actions/teams';
 import { isUuid } from '@/lib/validate';
 import { PartnerInvitesBanner } from '@/components/events/PartnerInvitesBanner';
+import { TeamInvitesBanner } from '@/components/events/TeamInvitesBanner';
 
 const STATUS_BADGE: Record<string, { label: string; className: string }> = {
   draft:             { label: 'Draft',             className: 'bg-slate-700 text-slate-300' },
@@ -172,9 +174,10 @@ export default async function DashboardPage() {
   // ══════════════════════════════════════════════════════════════════════════
   // PLAYER MODE — stats, next match, registrations, partner invites
   // ══════════════════════════════════════════════════════════════════════════
-  const [myEntries, partnerInvites] = await Promise.all([
+  const [myEntries, partnerInvites, teamInvites] = await Promise.all([
     getMyEntries(),
     getMyPartnerInvites(),
+    getMyTeamInvitesAction(),
   ]);
 
   // ── Next match widget ────────────────────────────────────────────────────
@@ -358,6 +361,14 @@ export default async function DashboardPage() {
           <div className="mt-8">
             {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
             <PartnerInvitesBanner invites={partnerInvites as any} />
+          </div>
+        )}
+
+        {/* Team roster invites — full-width banner above the tile grid */}
+        {teamInvites.length > 0 && (
+          <div className="mt-8">
+            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+            <TeamInvitesBanner invites={teamInvites as any} />
           </div>
         )}
 

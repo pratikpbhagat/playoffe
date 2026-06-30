@@ -11,7 +11,7 @@ interface Props {
   playFormat?: 'singles' | 'doubles' | 'mixed_doubles';
 }
 
-interface PlayerResult {
+export interface PlayerResult {
   id: string;
   full_name: string;
   username: string;
@@ -20,7 +20,7 @@ interface PlayerResult {
 
 // ── Shared typeahead input ────────────────────────────────────────────────────
 
-interface SearchFieldProps {
+export interface SearchFieldProps {
   label: string;
   value: string;
   onChange: (v: string) => void;
@@ -28,7 +28,7 @@ interface SearchFieldProps {
   disabled?: boolean;
 }
 
-function SearchField({ label, value, onChange, onClear, disabled }: SearchFieldProps) {
+export function SearchField({ label, value, onChange, onClear, disabled }: SearchFieldProps) {
   const [results, setResults]     = useState<PlayerResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [showDrop, setShowDrop]   = useState(false);
